@@ -3,6 +3,7 @@
 #include "Automation/AppearanceCycle/AppearanceCycleScenario.h"
 #include "Automation/CharacterSnapshot/ServerCharacterSnapshot.h"
 #include "Automation/FixtureDocuments/Hooks/DocumentsFolderRedirectHook.h"
+#include "Automation/LocalInstance/Hooks/UnrealSingletonHook.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Diagnostics/DiagnosticLog.h"
 #include "Core/GameThread/Hooks/GameThreadIdleHook.h"
@@ -202,6 +203,8 @@ namespace
         g_appearanceCycleScenario;
     fable::automation::fixture_documents::DocumentsFolderRedirectHook
         g_documentsFolderRedirectHook;
+    fable::automation::local_instance::UnrealSingletonHook
+        g_unrealSingletonHook;
     fable::core::game_thread::GameThreadIdleHook g_gameThreadIdleHook;
     fable::game::creature::ai::AiBrainUpdateObserver g_aiBrainUpdateObserver;
     fable::game::creature::CreatureConstructorHook g_creatureConstructorHook;
@@ -2968,6 +2971,7 @@ namespace
         g_runtimeConfiguration.LoadFromEnvironment();
         g_diagnosticLog.Initialize(
             g_clientModule,
+            g_runtimeConfiguration.LogPath().c_str(),
             g_runtimeConfiguration.EventPath().c_str(),
             g_runtimeConfiguration.RunId().c_str(),
             g_runtimeConfiguration.Scenario().c_str());
@@ -3009,7 +3013,55 @@ namespace
             ScriptLog,
             ScriptEvent,
         };
-        if (!g_scriptHost.Initialize(g_clientModule, g_gameModule, scriptDiagnostics))
+        if (g_runtimeConfiguration.IsLocalInstance())
+        {
+            g_unrealSingletonHook.Report(scriptDiagnostics);
+            const std::wstring localDetail =
+                L"session=" + g_runtimeConfiguration.LocalSessionId() +
+                L";instance=" + g_runtimeConfiguration.LocalInstanceId();
+            const int required = WideCharToMultiByte(
+                CP_UTF8,
+                0,
+                localDetail.c_str(),
+                -1,
+                nullptr,
+                0,
+                nullptr,
+                nullptr);
+            std::string detail;
+            if (required > 1)
+            {
+                detail.resize(static_cast<std::size_t>(required), '\0');
+                WideCharToMultiByte(
+                    CP_UTF8,
+                    0,
+                    localDetail.c_str(),
+                    -1,
+                    detail.data(),
+                    required,
+                    nullptr,
+                    nullptr);
+                detail.pop_back();
+            }
+            LogEvent("LocalInstanceReady", detail.c_str());
+        }
+
+        if (g_runtimeConfiguration.Mode() == ClientMode::Observe &&
+            !g_documentsFolderRedirectHook.Install(
+                g_gameModule,
+                g_runtimeConfiguration.FixtureDocumentsPath().c_str(),
+                scriptDiagnostics))
+        {
+            Log("Automation disabled because the isolated fixture Documents redirect failed.");
+            LogEvent("ClientFailed", "fixture-documents-redirect-installation");
+            return 8;
+        }
+
+        if (!g_scriptHost.Initialize(
+                g_clientModule,
+                g_gameModule,
+                g_runtimeConfiguration.ScriptDataPath().c_str(),
+                scriptDiagnostics))
         {
             Log("AngelScript gameplay framework initialization failed.");
             LogEvent("ClientFailed", "script-runtime-initialization");
@@ -3065,17 +3117,6 @@ namespace
                 scriptDiagnostics);
         }
 
-        if (g_runtimeConfiguration.Mode() == ClientMode::Observe &&
-            !g_documentsFolderRedirectHook.Install(
-                g_gameModule,
-                g_runtimeConfiguration.FixtureDocumentsPath().c_str(),
-                scriptDiagnostics))
-        {
-            Log("Automation disabled because the isolated fixture Documents redirect failed.");
-            LogEvent("ClientFailed", "fixture-documents-redirect-installation");
-            return 8;
-        }
-
         const fable::ui::front_end::FrontEndLifecycleCallbacks
             frontEndLifecycleCallbacks = {
                 ObserveUiPageDoBegin,
@@ -3123,6 +3164,10 @@ namespace
         g_gameWindow = g_mainWindowHook.WaitForWindow(mainWindowDiagnostics);
         g_gameWindowThreadId = GetWindowThreadProcessId(g_gameWindow, nullptr);
         LogEvent("GameWindowReady", "selected");
+        if (g_runtimeConfiguration.IsLocalInstance())
+        {
+            g_unrealSingletonHook.Report(scriptDiagnostics);
+        }
 
         if (g_runtimeConfiguration.Mode() == ClientMode::Observe &&
             !g_gameThreadIdleHook.Install(
@@ -3196,6 +3241,55 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
         static_assert(sizeof(ScriptThing) == 12, "Unexpected Fable script handle layout.");
 
         g_clientModule = module;
+        g_gameModule = GetModuleHandleW(nullptr);
+
+        wchar_t localSession[128] = {};
+        wchar_t localInstance[32] = {};
+        const DWORD sessionLength = GetEnvironmentVariableW(
+            L"FABLETOGETHER_LOCAL_SESSION",
+            localSession,
+            static_cast<DWORD>(std::size(localSession)));
+        const DWORD instanceLength = GetEnvironmentVariableW(
+            L"FABLETOGETHER_LOCAL_INSTANCE",
+            localInstance,
+            static_cast<DWORD>(std::size(localInstance)));
+        const bool hasSession = sessionLength > 0 &&
+            sessionLength < std::size(localSession);
+        const bool hasInstance = instanceLength > 0 &&
+            instanceLength < std::size(localInstance);
+        if (hasSession != hasInstance)
+        {
+            return FALSE;
+        }
+        if (hasSession)
+        {
+            const bool knownInstance =
+                std::wcscmp(localInstance, L"host") == 0 ||
+                std::wcscmp(localInstance, L"guest") == 0;
+            if (!knownInstance || g_gameModule == nullptr ||
+                !g_unrealSingletonHook.Install(
+                    g_gameModule,
+                    localSession,
+                    localInstance))
+            {
+                return FALSE;
+            }
+
+            wchar_t isolatedDocuments[32'768] = {};
+            const DWORD documentsLength = GetEnvironmentVariableW(
+                L"FABLETOGETHER_FIXTURE_DOCUMENTS",
+                isolatedDocuments,
+                static_cast<DWORD>(std::size(isolatedDocuments)));
+            if (documentsLength == 0 ||
+                documentsLength >= std::size(isolatedDocuments) ||
+                !g_documentsFolderRedirectHook.Install(
+                    g_gameModule,
+                    isolatedDocuments,
+                    {}))
+            {
+                return FALSE;
+            }
+        }
         DisableThreadLibraryCalls(module);
         const HANDLE thread = CreateThread(nullptr, 0, BootstrapThread, nullptr, 0, nullptr);
         if (thread != nullptr)

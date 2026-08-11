@@ -8,10 +8,16 @@ namespace
     constexpr wchar_t kScenarioEnvironment[] = L"FABLETOGETHER_SCENARIO";
     constexpr wchar_t kRunIdEnvironment[] = L"FABLETOGETHER_RUN_ID";
     constexpr wchar_t kEventPathEnvironment[] = L"FABLETOGETHER_EVENT_PATH";
+    constexpr wchar_t kLogPathEnvironment[] = L"FABLETOGETHER_LOG_PATH";
     constexpr wchar_t kFixtureDocumentsEnvironment[] =
         L"FABLETOGETHER_FIXTURE_DOCUMENTS";
     constexpr wchar_t kCharacterSnapshotEnvironment[] =
         L"FABLETOGETHER_CHARACTER_SNAPSHOT";
+    constexpr wchar_t kScriptDataEnvironment[] = L"FABLETOGETHER_SCRIPT_DATA";
+    constexpr wchar_t kLocalSessionEnvironment[] =
+        L"FABLETOGETHER_LOCAL_SESSION";
+    constexpr wchar_t kLocalInstanceEnvironment[] =
+        L"FABLETOGETHER_LOCAL_INSTANCE";
     constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
 
     std::wstring ReadEnvironment(const wchar_t* name)
@@ -57,8 +63,12 @@ namespace fable::automation::runtime
         runId_ = ReadEnvironment(kRunIdEnvironment);
         scenario_ = ReadEnvironment(kScenarioEnvironment);
         eventPath_ = ReadEnvironment(kEventPathEnvironment);
+        logPath_ = ReadEnvironment(kLogPathEnvironment);
         fixtureDocumentsPath_ = ReadEnvironment(kFixtureDocumentsEnvironment);
         characterSnapshotPath_ = ReadEnvironment(kCharacterSnapshotEnvironment);
+        scriptDataPath_ = ReadEnvironment(kScriptDataEnvironment);
+        localSessionId_ = ReadEnvironment(kLocalSessionEnvironment);
+        localInstanceId_ = ReadEnvironment(kLocalInstanceEnvironment);
 
         if (shutdownEvent_ != nullptr)
         {
@@ -92,6 +102,11 @@ namespace fable::automation::runtime
         return eventPath_;
     }
 
+    const std::wstring& RuntimeConfiguration::LogPath() const noexcept
+    {
+        return logPath_;
+    }
+
     const std::wstring& RuntimeConfiguration::FixtureDocumentsPath() const noexcept
     {
         return fixtureDocumentsPath_;
@@ -102,9 +117,29 @@ namespace fable::automation::runtime
         return characterSnapshotPath_;
     }
 
+    const std::wstring& RuntimeConfiguration::ScriptDataPath() const noexcept
+    {
+        return scriptDataPath_;
+    }
+
+    const std::wstring& RuntimeConfiguration::LocalSessionId() const noexcept
+    {
+        return localSessionId_;
+    }
+
+    const std::wstring& RuntimeConfiguration::LocalInstanceId() const noexcept
+    {
+        return localInstanceId_;
+    }
+
     HANDLE RuntimeConfiguration::ShutdownEvent() const noexcept
     {
         return shutdownEvent_;
+    }
+
+    bool RuntimeConfiguration::IsLocalInstance() const noexcept
+    {
+        return !localSessionId_.empty() && !localInstanceId_.empty();
     }
 
     bool RuntimeConfiguration::ScenarioIs(const wchar_t* value) const noexcept

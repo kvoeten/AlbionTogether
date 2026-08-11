@@ -21,6 +21,9 @@ namespace fable::automation::fixture_documents
         [[nodiscard]] bool IsInstalled() const noexcept;
 
     private:
+        void ReportInstalled();
+        void ReportRedirected();
+
         static HRESULT WINAPI Redirect(
             HWND owner,
             int folder,
@@ -33,7 +36,9 @@ namespace fable::automation::fixture_documents
         core::Diagnostics diagnostics_ = {};
         native::DocumentsFolderImport::Function original_ = nullptr;
         std::wstring fixtureDocumentsPath_;
-        std::atomic_bool redirectLogged_{false};
+        std::atomic_bool redirectOccurred_{false};
+        std::atomic_bool readyReported_{false};
+        std::atomic_bool redirectReported_{false};
         bool installed_ = false;
     };
 }

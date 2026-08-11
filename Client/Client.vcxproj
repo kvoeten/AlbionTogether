@@ -47,6 +47,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.cpp" />
     <ClCompile Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.cpp" />
     <ClCompile Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.cpp" />
+    <ClCompile Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.cpp" />
+    <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp" />
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp" />
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp" />
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp" />
@@ -128,6 +130,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.h" />
     <ClInclude Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.h" />
     <ClInclude Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.h" />
+    <ClInclude Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.h" />
+    <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h" />
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h" />
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h" />
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h" />

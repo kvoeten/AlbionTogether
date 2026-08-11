@@ -7,6 +7,7 @@ namespace fable::core
 {
     void DiagnosticLog::Initialize(
         HMODULE clientModule,
+        const wchar_t* logPath,
         const wchar_t* eventPath,
         const wchar_t* runId,
         const wchar_t* scenario)
@@ -14,7 +15,12 @@ namespace fable::core
         eventPath_ = eventPath != nullptr ? eventPath : L"";
         runId_ = runId != nullptr ? runId : L"";
         scenario_ = scenario != nullptr ? scenario : L"";
-        logPath_.clear();
+        logPath_ = logPath != nullptr ? logPath : L"";
+
+        if (!logPath_.empty())
+        {
+            return;
+        }
 
         wchar_t modulePath[MAX_PATH] = {};
         const DWORD length = GetModuleFileNameW(

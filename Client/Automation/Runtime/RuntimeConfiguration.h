@@ -22,10 +22,15 @@ namespace fable::automation::runtime
         [[nodiscard]] const std::wstring& RunId() const noexcept;
         [[nodiscard]] const std::wstring& Scenario() const noexcept;
         [[nodiscard]] const std::wstring& EventPath() const noexcept;
+        [[nodiscard]] const std::wstring& LogPath() const noexcept;
         [[nodiscard]] const std::wstring& FixtureDocumentsPath() const noexcept;
         [[nodiscard]] const std::wstring& CharacterSnapshotPath() const noexcept;
+        [[nodiscard]] const std::wstring& ScriptDataPath() const noexcept;
+        [[nodiscard]] const std::wstring& LocalSessionId() const noexcept;
+        [[nodiscard]] const std::wstring& LocalInstanceId() const noexcept;
         [[nodiscard]] HANDLE ShutdownEvent() const noexcept;
 
+        [[nodiscard]] bool IsLocalInstance() const noexcept;
         [[nodiscard]] bool ScenarioIs(const wchar_t* value) const noexcept;
         [[nodiscard]] bool UsesFrontEndStartAutomation() const noexcept;
         [[nodiscard]] bool LoadsFixture() const noexcept;
@@ -35,8 +40,12 @@ namespace fable::automation::runtime
         std::wstring runId_;
         std::wstring scenario_;
         std::wstring eventPath_;
+        std::wstring logPath_;
         std::wstring fixtureDocumentsPath_;
         std::wstring characterSnapshotPath_;
+        std::wstring scriptDataPath_;
+        std::wstring localSessionId_;
+        std::wstring localInstanceId_;
         HANDLE shutdownEvent_ = nullptr;
     };
 }

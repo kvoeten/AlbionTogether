@@ -11,6 +11,7 @@ namespace fable::core
     public:
         void Initialize(
             HMODULE clientModule,
+            const wchar_t* logPath,
             const wchar_t* eventPath,
             const wchar_t* runId,
             const wchar_t* scenario);

@@ -7,6 +7,9 @@
     <Filter Include="Automation\FixtureDocuments"><UniqueIdentifier>{418EECF7-E1F0-40B4-8970-EE6C7974D427}</UniqueIdentifier></Filter>
     <Filter Include="Automation\FixtureDocuments\Hooks"><UniqueIdentifier>{479F4F46-41D7-4326-935E-D7F374978AD8}</UniqueIdentifier></Filter>
     <Filter Include="Automation\FixtureDocuments\Native"><UniqueIdentifier>{0C3C854B-D81F-47F8-BEBD-B70D88FC61E3}</UniqueIdentifier></Filter>
+    <Filter Include="Automation\LocalInstance"><UniqueIdentifier>{B8BD10DB-CF98-4C82-8335-02E4D1940E89}</UniqueIdentifier></Filter>
+    <Filter Include="Automation\LocalInstance\Hooks"><UniqueIdentifier>{63448D74-22A2-4BDB-BEB3-D286E3F9E748}</UniqueIdentifier></Filter>
+    <Filter Include="Automation\LocalInstance\Native"><UniqueIdentifier>{F3099718-7D94-4F5C-BD66-0FB9C922698E}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Runtime"><UniqueIdentifier>{9A87905D-F8F4-4D54-A3E8-534742B7D5B4}</UniqueIdentifier></Filter>
     <Filter Include="Core"><UniqueIdentifier>{1221615B-6A1D-4BEB-9E47-F97342CF645F}</UniqueIdentifier></Filter>
     <Filter Include="Core\Capabilities"><UniqueIdentifier>{D47B069E-6DF2-4F83-A162-5DD12EFFFAF6}</UniqueIdentifier></Filter>
@@ -81,6 +84,8 @@
     <ClCompile Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.cpp"><Filter>Automation\CharacterSnapshot</Filter></ClCompile>
     <ClCompile Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.cpp"><Filter>Automation\FixtureDocuments\Hooks</Filter></ClCompile>
     <ClCompile Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.cpp"><Filter>Automation\FixtureDocuments\Native</Filter></ClCompile>
+    <ClCompile Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.cpp"><Filter>Automation\LocalInstance\Hooks</Filter></ClCompile>
+    <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp"><Filter>Automation\LocalInstance\Native</Filter></ClCompile>
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp"><Filter>Core\Capabilities</Filter></ClCompile>
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp"><Filter>Core\Diagnostics</Filter></ClCompile>
@@ -162,6 +167,8 @@
     <ClInclude Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.h"><Filter>Automation\CharacterSnapshot</Filter></ClInclude>
     <ClInclude Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.h"><Filter>Automation\FixtureDocuments\Hooks</Filter></ClInclude>
     <ClInclude Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.h"><Filter>Automation\FixtureDocuments\Native</Filter></ClInclude>
+    <ClInclude Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.h"><Filter>Automation\LocalInstance\Hooks</Filter></ClInclude>
+    <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h"><Filter>Automation\LocalInstance\Native</Filter></ClInclude>
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h"><Filter>Automation\Runtime</Filter></ClInclude>
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h"><Filter>Core\Capabilities</Filter></ClInclude>
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h"><Filter>Core\Diagnostics</Filter></ClInclude>

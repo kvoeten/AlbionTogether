@@ -53,10 +53,10 @@ swap succeeds.
 5. Use `Shift+1` to restore the hero. Do not save over a valued character after
    testing a form.
 
-The launcher prints the exact `FableTogether.Client.log` path before starting
-the game and clears the prior run's file. The client writes the new log beside
-the injected DLL. Each press records the requested definition and whether the
-engine accepted it. If pressing
+The launcher prints the exact run-scoped `client.log` path before starting the
+game. The client writes it beside that run's structured event transcript below
+`bin\Release\artifacts`. Each press records the requested definition and whether
+the engine accepted it. If pressing
 `1` appears to do nothing, check for `game interface is not ready`, `hero is
 unavailable`, `engine rejected`, or `structured exception` in that file. A native
 fault now includes its exact stage, exception code, instruction address, game

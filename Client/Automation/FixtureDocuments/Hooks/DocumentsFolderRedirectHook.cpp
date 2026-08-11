@@ -54,6 +54,9 @@ namespace fable::automation::fixture_documents
     {
         if (IsInstalled())
         {
+            diagnostics_ = diagnostics;
+            ReportInstalled();
+            ReportRedirected();
             return true;
         }
         diagnostics_ = diagnostics;
@@ -105,19 +108,42 @@ namespace fable::automation::fixture_documents
         }
 
         installed_ = true;
+        ReportInstalled();
+        return true;
+    }
+
+    void DocumentsFolderRedirectHook::ReportInstalled()
+    {
+        if ((diagnostics_.log == nullptr && diagnostics_.event == nullptr) ||
+            readyReported_.exchange(true, std::memory_order_acq_rel))
+        {
+            return;
+        }
         const std::string path = WideToUtf8(fixtureDocumentsPath_.c_str());
         char message[512] = {};
         std::snprintf(
             message,
             sizeof(message),
-            "Hook: fixture Documents redirect installed; slot=%p original=%p replacement=%p root=%s.",
-            imported.slot,
+            "Hook: fixture Documents redirect installed; original=%p replacement=%p root=%s.",
             reinterpret_cast<void*>(original_),
             &DocumentsFolderRedirectHook::Redirect,
             path.c_str());
         diagnostics_.Log(message);
         diagnostics_.Event("FixtureDocumentsRedirectReady", path.c_str());
-        return true;
+    }
+
+    void DocumentsFolderRedirectHook::ReportRedirected()
+    {
+        if (!redirectOccurred_.load(std::memory_order_acquire) ||
+            (diagnostics_.log == nullptr && diagnostics_.event == nullptr) ||
+            redirectReported_.exchange(true, std::memory_order_acq_rel))
+        {
+            return;
+        }
+        const std::string detail = WideToUtf8(fixtureDocumentsPath_.c_str());
+        diagnostics_.Log(
+            "Fixture: redirected CSIDL_PERSONAL to the isolated run directory.");
+        diagnostics_.Event("FixtureDocumentsRedirected", detail.c_str());
     }
 
     bool DocumentsFolderRedirectHook::IsInstalled() const noexcept
@@ -158,16 +184,8 @@ namespace fable::automation::fixture_documents
             return E_INVALIDARG;
         }
 
-        if (!hook->redirectLogged_.exchange(true, std::memory_order_acq_rel))
-        {
-            const std::string detail = WideToUtf8(
-                hook->fixtureDocumentsPath_.c_str());
-            hook->diagnostics_.Log(
-                "Fixture: redirected CSIDL_PERSONAL to the isolated run directory.");
-            hook->diagnostics_.Event(
-                "FixtureDocumentsRedirected",
-                detail.c_str());
-        }
+        hook->redirectOccurred_.store(true, std::memory_order_release);
+        hook->ReportRedirected();
         return result;
     }
 }

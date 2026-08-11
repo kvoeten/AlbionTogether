@@ -152,6 +152,7 @@ namespace fable::scripting
     bool ScriptHost::Initialize(
         HMODULE clientModule,
         HMODULE gameModule,
+        const wchar_t* persistentStorageRoot,
         const core::Diagnostics& diagnostics)
     {
         Shutdown();
@@ -203,10 +204,14 @@ namespace fable::scripting
             return false;
         }
         events_->Initialize(*engine_, diagnostics_);
-        storage_->Initialize(
-            *engine_,
-            scriptsRoot_.parent_path() / L"script-data",
-            diagnostics_);
+        const std::filesystem::path storageRoot =
+            persistentStorageRoot != nullptr && persistentStorageRoot[0] != L'\0'
+                ? std::filesystem::path(persistentStorageRoot)
+                : scriptsRoot_.parent_path() / L"script-data";
+        storage_->Initialize(*engine_, storageRoot, diagnostics_);
+        diagnostics_.Event(
+            "ScriptStorageRootReady",
+            PathToUtf8(storageRoot).c_str());
         scheduler_->Initialize(*engine_, diagnostics_);
 
         // Expose native get_/set_ methods through idiomatic script properties.

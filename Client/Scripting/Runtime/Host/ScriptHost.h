@@ -70,6 +70,7 @@ namespace fable::scripting
         bool Initialize(
             HMODULE clientModule,
             HMODULE gameModule,
+            const wchar_t* persistentStorageRoot,
             const core::Diagnostics& diagnostics);
         void DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed);
         void DispatchWorldReady();

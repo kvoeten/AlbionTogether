@@ -1,10 +1,12 @@
 #include <Windows.h>
+#include <TlHelp32.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -16,13 +18,16 @@ namespace
 
     constexpr wchar_t kGameExecutableName[] = L"Fable Anniversary.exe";
     constexpr wchar_t kClientDllName[] = L"FableTogether.Client.dll";
-    constexpr wchar_t kClientLogName[] = L"FableTogether.Client.log";
     constexpr wchar_t kClientModeEnvironment[] = L"FABLETOGETHER_CLIENT_MODE";
     constexpr wchar_t kScenarioEnvironment[] = L"FABLETOGETHER_SCENARIO";
     constexpr wchar_t kRunIdEnvironment[] = L"FABLETOGETHER_RUN_ID";
     constexpr wchar_t kEventPathEnvironment[] = L"FABLETOGETHER_EVENT_PATH";
+    constexpr wchar_t kLogPathEnvironment[] = L"FABLETOGETHER_LOG_PATH";
     constexpr wchar_t kFixtureDocumentsEnvironment[] = L"FABLETOGETHER_FIXTURE_DOCUMENTS";
     constexpr wchar_t kCharacterSnapshotEnvironment[] = L"FABLETOGETHER_CHARACTER_SNAPSHOT";
+    constexpr wchar_t kScriptDataEnvironment[] = L"FABLETOGETHER_SCRIPT_DATA";
+    constexpr wchar_t kLocalSessionEnvironment[] = L"FABLETOGETHER_LOCAL_SESSION";
+    constexpr wchar_t kLocalInstanceEnvironment[] = L"FABLETOGETHER_LOCAL_INSTANCE";
     constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
     constexpr wchar_t kDevelopmentGameRoot[] = L"D:\\SteamLibrary\\steamapps\\common\\Fable Anniversary";
     constexpr wchar_t kFableSteamAppId[] = L"288470";
@@ -249,8 +254,12 @@ namespace
         fs::path characterSnapshot;
         std::vector<std::wstring> gameArguments;
         std::wstring automationScenario;
+        std::wstring localSession;
+        std::wstring localInstance;
         unsigned int automationTimeoutSeconds = 120;
+        unsigned int dualInstanceHoldSeconds = 10;
         bool transformationProbe = false;
+        bool dualInstanceTest = false;
         bool dryRun = false;
         bool showHelp = false;
     };
@@ -407,6 +416,11 @@ namespace
                 options.dryRun = true;
                 continue;
             }
+            if (argument == L"--dual-instance-test")
+            {
+                options.dualInstanceTest = true;
+                continue;
+            }
             if (argument == L"--transform-probe")
             {
                 if (!options.automationScenario.empty())
@@ -448,6 +462,40 @@ namespace
             else if (argument == L"--character-snapshot")
             {
                 if (!readPath(options.characterSnapshot)) return false;
+            }
+            else if (argument == L"--local-instance")
+            {
+                if (++index >= argc)
+                {
+                    error = L"Missing host or guest after --local-instance";
+                    return false;
+                }
+                options.localInstance = argv[index];
+            }
+            else if (argument == L"--local-session")
+            {
+                if (++index >= argc)
+                {
+                    error = L"Missing identifier after --local-session";
+                    return false;
+                }
+                options.localSession = argv[index];
+            }
+            else if (argument == L"--hold")
+            {
+                if (++index >= argc)
+                {
+                    error = L"Missing seconds after --hold";
+                    return false;
+                }
+                wchar_t* end = nullptr;
+                const unsigned long value = std::wcstoul(argv[index], &end, 10);
+                if (end == argv[index] || *end != L'\0' || value < 5 || value > 300)
+                {
+                    error = L"--hold must be between 5 and 300 seconds";
+                    return false;
+                }
+                options.dualInstanceHoldSeconds = static_cast<unsigned int>(value);
             }
             else if (argument == L"--automation")
             {
@@ -498,6 +546,50 @@ namespace
             options.automationScenario != L"appearance_cycle")
         {
             error = L"Unknown automation scenario: " + options.automationScenario;
+            return false;
+        }
+        if (!options.localInstance.empty() &&
+            options.localInstance != L"host" &&
+            options.localInstance != L"guest")
+        {
+            error = L"--local-instance must be host or guest";
+            return false;
+        }
+        if (!options.localSession.empty() && options.localInstance.empty())
+        {
+            error = L"--local-session requires --local-instance";
+            return false;
+        }
+        if (!options.localSession.empty())
+        {
+            const bool valid = options.localSession.size() <= 64 &&
+                std::all_of(
+                    options.localSession.begin(),
+                    options.localSession.end(),
+                    [](wchar_t character)
+                    {
+                        return std::iswalnum(character) != 0 ||
+                            character == L'-' || character == L'_' ||
+                            character == L'.';
+                    });
+            if (!valid)
+            {
+                error = L"--local-session accepts at most 64 letters, digits, dots, hyphens, or underscores";
+                return false;
+            }
+        }
+        if (options.dualInstanceTest &&
+            (!options.automationScenario.empty() ||
+                options.transformationProbe ||
+                !options.localInstance.empty()))
+        {
+            error = L"--dual-instance-test cannot be combined with automation, transform-probe, or --local-instance";
+            return false;
+        }
+        if (!options.localInstance.empty() &&
+            (!options.automationScenario.empty() || options.transformationProbe))
+        {
+            error = L"--local-instance cannot be combined with automation or transform-probe";
             return false;
         }
         const bool loadsFixture = options.automationScenario == L"load_fixture" ||
@@ -585,6 +677,10 @@ namespace
             << L"  --character-snapshot <json>  Optional server-character state to apply after fixture load\n"
             << L"  --automation <id>  Run observe_frontend, observe_save_list, bootstrap_fixture_probe, load_fixture, or appearance_cycle\n"
             << L"  --timeout <sec>     Automation timeout from 10 to 600 seconds (default: 120)\n"
+            << L"  --local-instance <host|guest>  Start one isolated 1280x720 local development instance\n"
+            << L"  --local-session <id>  Reuse a local development session identifier\n"
+            << L"  --dual-instance-test  Prove isolated host and guest title windows coexist\n"
+            << L"  --hold <sec>        Dual-instance stability interval from 5 to 300 seconds (default: 10)\n"
             << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
             << L"  --dry-run          Resolve and validate paths without launching\n"
             << L"  --help, -h         Show this help\n";
@@ -994,19 +1090,31 @@ namespace
         }
     }
 
-    int Launch(
+    struct LaunchedGame final
+    {
+        UniqueHandle process;
+        UniqueHandle shutdownEvent;
+        DWORD processId = 0;
+        HWND window = nullptr;
+    };
+
+    bool SpawnGame(
         const fs::path& executable,
         const fs::path& clientDll,
         const fs::path& clientLog,
         const fs::path& eventPath,
         const fs::path& fixtureDocuments,
         const fs::path& characterSnapshot,
+        const fs::path& scriptData,
         const std::wstring& clientMode,
         const std::wstring& scenario,
         const std::wstring& runId,
-        unsigned int automationTimeoutSeconds,
-        const std::vector<std::wstring>& arguments)
+        const std::wstring& localSession,
+        const std::wstring& localInstance,
+        const std::vector<std::wstring>& arguments,
+        LaunchedGame& launched)
     {
+        launched = {};
         std::error_code logError;
         fs::remove(clientLog, logError);
         if (logError)
@@ -1029,20 +1137,34 @@ namespace
         ScopedEnvironmentVariable scenarioEnvironment(kScenarioEnvironment, scenario.c_str());
         ScopedEnvironmentVariable runIdEnvironment(kRunIdEnvironment, runId.c_str());
         ScopedEnvironmentVariable eventPathEnvironment(kEventPathEnvironment, eventPath.c_str());
+        ScopedEnvironmentVariable logPathEnvironment(kLogPathEnvironment, clientLog.c_str());
         ScopedEnvironmentVariable fixtureDocumentsEnvironment(
             kFixtureDocumentsEnvironment,
             fixtureDocuments.c_str());
         ScopedEnvironmentVariable characterSnapshotEnvironment(
             kCharacterSnapshotEnvironment,
             characterSnapshot.c_str());
+        ScopedEnvironmentVariable scriptDataEnvironment(
+            kScriptDataEnvironment,
+            scriptData.c_str());
+        ScopedEnvironmentVariable localSessionEnvironment(
+            kLocalSessionEnvironment,
+            localSession.c_str());
+        ScopedEnvironmentVariable localInstanceEnvironment(
+            kLocalInstanceEnvironment,
+            localInstance.c_str());
         if (!steamAppId.applied() || !steamGameId.applied() ||
             !modeEnvironment.applied() || !scenarioEnvironment.applied() ||
             !runIdEnvironment.applied() || !eventPathEnvironment.applied() ||
+            !logPathEnvironment.applied() ||
             !fixtureDocumentsEnvironment.applied() ||
-            !characterSnapshotEnvironment.applied())
+            !characterSnapshotEnvironment.applied() ||
+            !scriptDataEnvironment.applied() ||
+            !localSessionEnvironment.applied() ||
+            !localInstanceEnvironment.applied())
         {
             std::wcerr << L"Could not prepare the child-process environment for Fable Anniversary.\n";
-            return 1;
+            return false;
         }
 
         UniqueHandle shutdownEvent;
@@ -1057,11 +1179,16 @@ namespace
             if (shutdownEvent.get() == nullptr)
             {
                 std::wcerr << L"Could not create the run-scoped automation shutdown event.\n";
-                return 1;
+                return false;
             }
         }
 
         std::wcout << L"Steam:  App ID " << kFableSteamAppId << L" supplied to the child process.\n";
+        if (!localInstance.empty())
+        {
+            std::wcout << L"Identity: local development peer " << localInstance
+                       << L"; Steam identity is not used for peer identity.\n";
+        }
         std::wcout << L"Launch: creating Fable Anniversary suspended; working directory "
                    << workingDirectory << L".\n";
         if (!CreateProcessW(
@@ -1078,7 +1205,7 @@ namespace
         {
             const DWORD code = GetLastError();
             std::wcerr << L"Failed to start Fable Anniversary (" << code << L"): " << FormatWindowsError(code) << L'\n';
-            return 1;
+            return false;
         }
 
         UniqueHandle process(processInfo.hProcess);
@@ -1092,7 +1219,7 @@ namespace
             TerminateProcess(process.get(), ERROR_DLL_INIT_FAILED);
             WaitForSingleObject(process.get(), 5'000);
             std::wcerr << L"Injection failed; the suspended game process was terminated: " << injectionError << L'\n';
-            return 1;
+            return false;
         }
         std::wcout << L"Inject: client DLL loaded successfully; resuming the primary thread.\n";
 
@@ -1101,20 +1228,381 @@ namespace
             const DWORD code = GetLastError();
             TerminateProcess(process.get(), code);
             std::wcerr << L"Could not resume the game (" << code << L"): " << FormatWindowsError(code) << L'\n';
-            return 1;
+            return false;
         }
 
         std::wcout << L"Fable Anniversary started with FableTogether.Client.dll (PID " << processInfo.dwProcessId << L").\n";
+        launched.process = std::move(process);
+        launched.shutdownEvent = std::move(shutdownEvent);
+        launched.processId = processInfo.dwProcessId;
+        return true;
+    }
+
+    bool PositionLocalWindow(
+        HWND window,
+        const wchar_t* instance,
+        int x,
+        int y)
+    {
+        if (window == nullptr)
+        {
+            return false;
+        }
+
+        constexpr int windowWidth = 1280;
+        constexpr int windowHeight = 720;
+        std::wstring title = L"Fable Anniversary - FableTogether local ";
+        title.append(instance != nullptr ? instance : L"instance");
+        SetWindowTextW(window, title.c_str());
+
+        return SetWindowPos(
+            window,
+            HWND_TOP,
+            x,
+            y,
+            windowWidth,
+            windowHeight,
+            SWP_SHOWWINDOW | SWP_FRAMECHANGED) != FALSE;
+    }
+
+    bool WindowIsResponsive(HWND window)
+    {
+        if (window == nullptr || !IsWindow(window) || IsHungAppWindow(window))
+        {
+            return false;
+        }
+        DWORD_PTR ignored = 0;
+        return SendMessageTimeoutW(
+            window,
+            WM_NULL,
+            0,
+            0,
+            SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            1'000,
+            &ignored) != 0;
+    }
+
+    bool WaitForLocalInstanceReady(
+        LaunchedGame& game,
+        const fs::path& eventPath,
+        const wchar_t* instance,
+        int x,
+        unsigned int timeoutSeconds)
+    {
+        const ULONGLONG deadline = GetTickCount64() +
+            static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Local instance " << instance
+                           << L" reported a client hook failure.\n";
+                return false;
+            }
+            if (EventWasReported(events, "ClientHooksReady") &&
+                EventWasReported(events, "FrontEndStartReady") &&
+                EventWasReported(events, "LocalInstanceReady") &&
+                EventWasReported(events, "UnrealSingletonNamespaced") &&
+                EventWasReported(events, "UnrealSingletonRedirected") &&
+                EventWasReported(events, "FixtureDocumentsRedirectReady") &&
+                EventWasReported(events, "ScriptStorageRootReady"))
+            {
+                game.window = FindMainWindow(game.processId);
+                if (game.window != nullptr &&
+                    PositionLocalWindow(game.window, instance, x, 0) &&
+                    WindowIsResponsive(game.window))
+                {
+                    return true;
+                }
+            }
+
+            if (WaitForSingleObject(game.process.get(), 250) == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(game.process.get(), &exitCode);
+                std::wcerr << L"Local instance " << instance
+                           << L" exited before its title window was ready; exit code "
+                           << exitCode << L".\n";
+                return false;
+            }
+            if (GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Local instance " << instance
+                           << L" timed out before its title window was ready.\n";
+                return false;
+            }
+        }
+    }
+
+    bool AnyFableProcessIsRunning()
+    {
+        UniqueHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+        if (!snapshot.valid())
+        {
+            return true;
+        }
+        PROCESSENTRY32W entry = {};
+        entry.dwSize = sizeof(entry);
+        if (!Process32FirstW(snapshot.get(), &entry))
+        {
+            return true;
+        }
+        do
+        {
+            if (_wcsicmp(entry.szExeFile, kGameExecutableName) == 0)
+            {
+                return true;
+            }
+        } while (Process32NextW(snapshot.get(), &entry));
+        return false;
+    }
+
+    std::vector<std::wstring> LocalWindowArguments(
+        const std::vector<std::wstring>& original)
+    {
+        std::vector<std::wstring> arguments = original;
+        const auto addIfMissing = [&](const wchar_t* value)
+        {
+            const bool present = std::any_of(
+                arguments.begin(),
+                arguments.end(),
+                [value](const std::wstring& argument)
+                {
+                    return _wcsicmp(argument.c_str(), value) == 0;
+                });
+            if (!present)
+            {
+                arguments.emplace_back(value);
+            }
+        };
+        addIfMissing(L"-windowed");
+        addIfMissing(L"-ResX=1280");
+        addIfMissing(L"-ResY=720");
+        addIfMissing(L"-nomoviestartup");
+        return arguments;
+    }
+
+    int RunDualInstanceTest(
+        const fs::path& executable,
+        const fs::path& clientDll,
+        const fs::path& sessionRoot,
+        const std::wstring& sessionId,
+        unsigned int timeoutSeconds,
+        unsigned int holdSeconds,
+        const std::vector<std::wstring>& originalArguments)
+    {
+        if (AnyFableProcessIsRunning())
+        {
+            std::wcerr << L"Dual-instance test refused because a pre-existing Fable Anniversary process is running.\n";
+            return 1;
+        }
+
+        const std::vector<std::wstring> arguments =
+            LocalWindowArguments(originalArguments);
+        const auto roleRoot = [&](const wchar_t* role)
+        {
+            return sessionRoot / role;
+        };
+        const auto prepareRole = [&](const wchar_t* role) -> bool
+        {
+            std::error_code error;
+            fs::create_directories(roleRoot(role) / L"Documents", error);
+            if (!error)
+            {
+                fs::create_directories(roleRoot(role) / L"script-data", error);
+            }
+            return !error;
+        };
+        if (!prepareRole(L"host") || !prepareRole(L"guest"))
+        {
+            std::wcerr << L"Could not create isolated host and guest state roots.\n";
+            return 1;
+        }
+
+        LaunchedGame host;
+        LaunchedGame guest;
+        const auto spawnRole = [&](const wchar_t* role, LaunchedGame& game) -> bool
+        {
+            const fs::path root = roleRoot(role);
+            const std::wstring runId = sessionId + L"-" + role;
+            return SpawnGame(
+                executable,
+                clientDll,
+                root / L"client.log",
+                root / L"events.jsonl",
+                root / L"Documents",
+                {},
+                root / L"script-data",
+                L"observe",
+                L"dual_title_screen",
+                runId,
+                sessionId,
+                role,
+                arguments,
+                game);
+        };
+        const auto stop = [](LaunchedGame& game)
+        {
+            if (game.process.valid())
+            {
+                CloseCreatedProcess(
+                    game.process.get(),
+                    game.processId,
+                    game.shutdownEvent.get());
+            }
+        };
+
+        std::wcout << L"Dual test: starting isolated host first.\n";
+        if (!spawnRole(L"host", host) ||
+            !WaitForLocalInstanceReady(
+                host,
+                roleRoot(L"host") / L"events.jsonl",
+                L"host",
+                0,
+                timeoutSeconds))
+        {
+            stop(host);
+            return 1;
+        }
+
+        std::wcout << L"Dual test: host is responsive; starting isolated guest.\n";
+        if (!spawnRole(L"guest", guest) ||
+            !WaitForLocalInstanceReady(
+                guest,
+                roleRoot(L"guest") / L"events.jsonl",
+                L"guest",
+                1280,
+                timeoutSeconds))
+        {
+            stop(guest);
+            stop(host);
+            return 1;
+        }
+
+        if (host.processId == guest.processId || host.window == guest.window)
+        {
+            std::wcerr << L"Dual test failed: host and guest did not receive distinct PID and HWND identities.\n";
+            stop(guest);
+            stop(host);
+            return 1;
+        }
+
+        std::wcout << L"Dual test: both 1280x720 title windows are responsive; observing "
+                   << holdSeconds << L" seconds of coexistence.\n";
+        const ULONGLONG holdDeadline = GetTickCount64() +
+            static_cast<ULONGLONG>(holdSeconds) * 1'000;
+        while (GetTickCount64() < holdDeadline)
+        {
+            const bool processesAlive =
+                WaitForSingleObject(host.process.get(), 0) == WAIT_TIMEOUT &&
+                WaitForSingleObject(guest.process.get(), 0) == WAIT_TIMEOUT;
+            const bool hooksHealthy =
+                !EventWasReported(
+                    ReadEventFile(roleRoot(L"host") / L"events.jsonl"),
+                    "ClientFailed") &&
+                !EventWasReported(
+                    ReadEventFile(roleRoot(L"guest") / L"events.jsonl"),
+                    "ClientFailed");
+            if (!processesAlive || !hooksHealthy ||
+                !WindowIsResponsive(host.window) ||
+                !WindowIsResponsive(guest.window))
+            {
+                std::wcerr << L"Dual test failed during the coexistence interval.\n";
+                stop(guest);
+                stop(host);
+                return 1;
+            }
+            Sleep(500);
+        }
+
+        const bool finalGeometry =
+            PositionLocalWindow(host.window, L"host", 0, 0) &&
+            PositionLocalWindow(guest.window, L"guest", 1280, 0);
+        const bool guestStopped = CloseCreatedProcess(
+            guest.process.get(),
+            guest.processId,
+            guest.shutdownEvent.get());
+        const bool hostStopped = CloseCreatedProcess(
+            host.process.get(),
+            host.processId,
+            host.shutdownEvent.get());
+        if (!finalGeometry || !guestStopped || !hostStopped)
+        {
+            std::wcerr << L"Dual test failed during final geometry validation or shutdown.\n";
+            return 1;
+        }
+
+        std::wcout << L"Dual-instance acceptance passed: distinct responsive host and guest PIDs/HWNDs coexisted in isolated 1280x720 windows.\n"
+                   << L"State root: " << sessionRoot.wstring() << L"\n";
+        return 0;
+    }
+
+    int Launch(
+        const fs::path& executable,
+        const fs::path& clientDll,
+        const fs::path& clientLog,
+        const fs::path& eventPath,
+        const fs::path& fixtureDocuments,
+        const fs::path& characterSnapshot,
+        const fs::path& scriptData,
+        const std::wstring& clientMode,
+        const std::wstring& scenario,
+        const std::wstring& runId,
+        const std::wstring& localSession,
+        const std::wstring& localInstance,
+        unsigned int automationTimeoutSeconds,
+        const std::vector<std::wstring>& arguments)
+    {
+        LaunchedGame launched;
+        if (!SpawnGame(
+                executable,
+                clientDll,
+                clientLog,
+                eventPath,
+                fixtureDocuments,
+                characterSnapshot,
+                scriptData,
+                clientMode,
+                scenario,
+                runId,
+                localSession,
+                localInstance,
+                arguments,
+                launched))
+        {
+            return 1;
+        }
         if (!scenario.empty())
         {
             return RunAutomation(
-                process.get(),
-                processInfo.dwProcessId,
+                launched.process.get(),
+                launched.processId,
                 eventPath,
                 scenario,
                 automationTimeoutSeconds,
-                shutdownEvent.get(),
+                launched.shutdownEvent.get(),
                 !characterSnapshot.empty());
+        }
+        if (!localInstance.empty())
+        {
+            const int x = localInstance == L"host" ? 0 : 1280;
+            if (!WaitForLocalInstanceReady(
+                    launched,
+                    eventPath,
+                    localInstance.c_str(),
+                    x,
+                    automationTimeoutSeconds))
+            {
+                CloseCreatedProcess(
+                    launched.process.get(),
+                    launched.processId,
+                    nullptr);
+                return 1;
+            }
+            std::wcout << L"Local " << localInstance
+                       << L" is ready in a 1280x720 window; launcher is leaving PID "
+                       << launched.processId << L" running.\n";
         }
         return 0;
     }
@@ -1141,10 +1629,19 @@ int wmain(int argc, wchar_t** argv)
     const fs::path clientDll = options.clientDll.empty()
         ? AbsolutePath(launcherDirectory / kClientDllName)
         : AbsolutePath(options.clientDll);
-    const fs::path clientLog = AbsolutePath(clientDll.parent_path() / kClientLogName);
     const std::wstring runId = CreateRunId();
-    const fs::path eventPath = AbsolutePath(
-        clientDll.parent_path() / L"artifacts" / runId / L"events.jsonl");
+    const bool localSingleInstance = !options.localInstance.empty();
+    const std::wstring localSession = localSingleInstance
+        ? options.localSession.empty() ? runId : options.localSession
+        : std::wstring();
+    const std::wstring artifactId = localSingleInstance ? localSession : runId;
+    const fs::path artifactRoot = AbsolutePath(
+        clientDll.parent_path() / L"artifacts" / artifactId);
+    const fs::path instanceRoot = localSingleInstance
+        ? artifactRoot / options.localInstance
+        : artifactRoot;
+    const fs::path eventPath = instanceRoot / L"events.jsonl";
+    const fs::path clientLog = instanceRoot / L"client.log";
     const fs::path characterSnapshotSource = options.characterSnapshot.empty()
         ? fs::path()
         : AbsolutePath(options.characterSnapshot);
@@ -1168,24 +1665,46 @@ int wmain(int argc, wchar_t** argv)
         : loadFixtureScenario
         ? clientDll.parent_path() / L"fixtures" / L"load" / runId / L"Documents"
         : clientDll.parent_path() / L"fixtures" / L"automation" / L"Documents";
-    const fs::path fixtureDocuments = options.automationScenario.empty()
+    const fs::path fixtureDocuments = localSingleInstance
+        ? instanceRoot / L"Documents"
+        : options.automationScenario.empty()
         ? fs::path()
         : AbsolutePath(
             options.fixtureDocuments.empty() || loadFixtureScenario
                 ? defaultFixtureDocuments
                 : options.fixtureDocuments);
+    const fs::path scriptData = localSingleInstance
+        ? instanceRoot / L"script-data"
+        : fs::path();
     const std::wstring clientMode = options.transformationProbe
         ? L"transform_probe"
+        : localSingleInstance || options.dualInstanceTest
+            ? L"observe"
         : options.automationScenario.empty()
             ? L"appearance_cycle"
             : L"observe";
 
     std::wcout << L"Game:   " << (executable.empty() ? L"<not found>" : executable.wstring()) << L'\n'
                << L"Client: " << clientDll.wstring() << L'\n'
-               << L"Log:    " << clientLog.wstring() << L'\n'
                << L"Mode:   " << clientMode << L'\n'
-               << L"Run:    " << runId << L'\n'
-               << L"Events: " << eventPath.wstring() << L'\n';
+               << L"Run:    " << runId << L'\n';
+    if (!options.dualInstanceTest)
+    {
+        std::wcout << L"Log:    " << clientLog.wstring() << L'\n'
+                   << L"Events: " << eventPath.wstring() << L'\n';
+    }
+    if (localSingleInstance)
+    {
+        std::wcout << L"Local:  session=" << localSession
+                   << L" instance=" << options.localInstance << L'\n'
+                   << L"Documents: " << fixtureDocuments.wstring() << L'\n'
+                   << L"Script data: " << scriptData.wstring() << L'\n';
+    }
+    if (options.dualInstanceTest)
+    {
+        std::wcout << L"Test:   dual_instance_title_screen\n"
+                   << L"State:  " << artifactRoot.wstring() << L'\n';
+    }
     if (!options.automationScenario.empty())
     {
         std::wcout << L"Test:   " << options.automationScenario << L'\n';
@@ -1248,6 +1767,18 @@ int wmain(int argc, wchar_t** argv)
         return 0;
     }
 
+    if (options.dualInstanceTest)
+    {
+        return RunDualInstanceTest(
+            executable,
+            clientDll,
+            artifactRoot,
+            runId,
+            options.automationTimeoutSeconds,
+            options.dualInstanceHoldSeconds,
+            options.gameArguments);
+    }
+
     std::error_code artifactError;
     fs::create_directories(eventPath.parent_path(), artifactError);
     if (artifactError)
@@ -1296,6 +1827,17 @@ int wmain(int argc, wchar_t** argv)
             }
         }
     }
+    if (!scriptData.empty())
+    {
+        std::error_code storageError;
+        fs::create_directories(scriptData, storageError);
+        if (storageError)
+        {
+            std::wcerr << L"Could not create the isolated script-data directory: "
+                       << storageError.message().c_str() << L'\n';
+            return 1;
+        }
+    }
 
     std::vector<std::wstring> gameArguments = options.gameArguments;
     if (!options.automationScenario.empty())
@@ -1312,6 +1854,10 @@ int wmain(int argc, wchar_t** argv)
             gameArguments.emplace_back(L"-nomoviestartup");
         }
     }
+    if (localSingleInstance)
+    {
+        gameArguments = LocalWindowArguments(gameArguments);
+    }
 
     return Launch(
         executable,
@@ -1320,9 +1866,12 @@ int wmain(int argc, wchar_t** argv)
         eventPath,
         fixtureDocuments,
         characterSnapshot,
+        scriptData,
         clientMode,
         options.automationScenario,
         runId,
+        localSession,
+        options.localInstance,
         options.automationTimeoutSeconds,
         gameArguments);
 }
