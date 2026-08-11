@@ -1,0 +1,46 @@
+[23:39:09.122] FableTogether transformation probe loaded.
+[23:39:09.122] Startup: build=development-current pid=20604 bootstrap_tid=24084 game_base=00AA0000 client_base=56D80000.
+[23:39:09.122] Startup: current_directory=D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32.
+[23:39:09.122] Startup: command_line="D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32\Fable Anniversary.exe".
+[23:39:09.122] Startup: SteamAppId=288470 steam_api=loaded.
+[23:39:09.122] Hook: low-address access-violation observer installed; handler=008E5F18 max_events=8.
+[23:39:09.122] Target executable and transformation signatures validated.
+[23:39:09.122] Hook: component 0x68 null guards installed; fractional=02458A90->56D81D20 discrete=024591E0->56D81C40.
+[23:39:09.122] Hook: Hero component type 0x11 guard installed; branch=0239AF3D replacement=56D81E70 resume=0239AF44 cleanup=0239B8B0.
+[23:39:17.048] Startup: selected game window hwnd=00090C10 tid=41868 class=LaunchUnrealUWindowsClient title=Fable Anniversary (32-bit, DX9) area=4096000.
+[23:39:17.052] Hook: window procedure installed; replacement=56D82D40 original=6CA6AD60.
+[23:39:17.053] Hook: hotkey timer installed; id=64177 interval_ms=16.
+[23:39:17.053] Transformation probe ready. Press 1 to cycle; press Shift+1 to restore CREATURE_HERO.
+[23:39:17.053] Hero acquisition uses direct SCRIPT_NAME_HERO lookup; no active quest-script context is required.
+[23:39:46.924] Startup: game-script interface changed to ready (interface=894A2E80).
+[23:39:56.104] Input: number-row 1 pressed via WM_KEYDOWN; shift=false.
+[23:39:56.104] Input: transformation queued for direct hero lookup on the next game-window timer dispatch.
+[23:39:56.120] Event: executing queued cycle with direct SCRIPT_NAME_HERO lookup on game-window timer thread=41868.
+[23:39:56.120] Key 1: attempting form 2/14: CREATURE_BS_GUARD
+[23:39:56.121] Native: transformation begin definition=CREATURE_BS_GUARD thread=41868 interface=894A2E80 acquisition=SCRIPT_NAME_HERO.
+[23:39:56.121] Native: direct hero lookup returned=0457E58C result=0457E58C vtable=034FCBF4 implementation=903BB450 pointer_info=70B83CA8 expected_vtable=034FCBF4.
+[23:39:56.122] Native: creature definition string constructed; storage=1C58EC60.
+[23:39:56.123] Native: TurnCreatureInto returned=0457E580 result=0457E580 vtable=034FCBF4 implementation=A0098D90 pointer_info=9A88BA30.
+[23:39:56.123] Native: retained TurnCreatureInto result handle for process lifetime; slot=1/64 ref_count=2.
+[23:39:56.123] Native: retained direct hero lookup handle for process lifetime; slot=2/64 ref_count=3.
+[23:39:56.124] Transformation to CREATURE_BS_GUARD succeeded.
+[23:39:56.135] Compatibility: component 0x68 discrete-level helper used a safe fallback because dependency +0x70 was null; event=1 thread=32560 component=9C5E6200.
+[23:39:56.136] Compatibility: component 0x68 fractional-progress helper used a safe fallback because dependency +0x70 was null; event=2 thread=32560 component=9C5E6200.
+[23:39:56.136] Compatibility: skipped a Hero-specific update because the transformed creature has no component type 0x11; event=1 thread=32560 creature=9E083980.
+[23:39:56.136] Compatibility: skipped a Hero-specific update because the transformed creature has no component type 0x11; event=2 thread=32560 creature=9E083980.
+[23:40:01.057] Event: Fable game window lost keyboard focus.
+[23:40:01.078] Event: Fable game window is being destroyed.
+[23:40:01.291] Process exception observer: event=1 thread=41868; continuing Windows exception dispatch.
+[23:40:01.291] Native fault: stage=process-wide low-address access-violation observer code=0xC0000005 instruction=02D911B1 game_rva=0x022F11B1 module=D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32\Fable Anniversary.exe.
+[23:40:01.292] Native fault: access_violation operation=read address=00000001.
+[23:40:01.292] Process exception registers: eax=00000000 ebx=9A88A2E4 ecx=89975400 edx=00300000 esi=88827000 edi=00000001 ebp=0457EC78 esp=0457EC58 eip=02D911B1.
+
+Dump analysis note: `Fable Anniversary.exe.20604.dmp` captured the originating
+render-thread execute access violation before the logged teardown fault. At
+preferred VA `0x015E21B5`, `AsyncPresentationRefs_Destroy` released its third
+captured reference from object offset `+0x34`. That member was `0x3F000000`, an
+address inside `nvd3dum.dll`, rather than a valid reference object. Its alleged
+vtable led to garbage target `0xD9005D74`, which the worker attempted to execute.
+The stack also returned through the previously observed render dispatch at
+preferred VA `0x015D271C`. `Fable Anniversary.exe(1).20604.dmp` captured the
+secondary main/window-thread read from address `0x1` during process teardown.

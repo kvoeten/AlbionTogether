@@ -1,0 +1,16 @@
+/bin/
+/build/
+/**/build/
+/.analysis/
+/.vs/
+/fixtures/candidates/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.i64
+*.id0
+*.id1
+*.id2
+*.nam
+*.til

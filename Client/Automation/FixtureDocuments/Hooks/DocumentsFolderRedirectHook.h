@@ -1,0 +1,39 @@
+#pragma once
+
+#include "Automation/FixtureDocuments/Native/DocumentsFolderImport.h"
+#include "Core/Diagnostics/Diagnostics.h"
+
+#include <Windows.h>
+
+#include <atomic>
+#include <string>
+
+namespace fable::automation::fixture_documents
+{
+    class DocumentsFolderRedirectHook final
+    {
+    public:
+        bool Install(
+            HMODULE gameModule,
+            const wchar_t* fixtureDocumentsPath,
+            const core::Diagnostics& diagnostics);
+
+        [[nodiscard]] bool IsInstalled() const noexcept;
+
+    private:
+        static HRESULT WINAPI Redirect(
+            HWND owner,
+            int folder,
+            HANDLE token,
+            DWORD flags,
+            LPWSTR path);
+
+        static DocumentsFolderRedirectHook* active_;
+
+        core::Diagnostics diagnostics_ = {};
+        native::DocumentsFolderImport::Function original_ = nullptr;
+        std::wstring fixtureDocumentsPath_;
+        std::atomic_bool redirectLogged_{false};
+        bool installed_ = false;
+    };
+}

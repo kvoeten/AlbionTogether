@@ -1,0 +1,33 @@
+[22:25:19.927] FableTogether transformation probe loaded.
+[22:25:19.927] Startup: build=development-current pid=29256 bootstrap_tid=31596 game_base=00D80000 client_base=564C0000.
+[22:25:19.927] Startup: current_directory=D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32.
+[22:25:19.927] Startup: command_line="D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32\Fable Anniversary.exe".
+[22:25:19.927] Startup: SteamAppId=288470 steam_api=loaded.
+[22:25:19.927] Hook: low-address access-violation observer installed; handler=00CC20E8 max_events=8.
+[22:25:19.927] Target executable and transformation signatures validated.
+[22:25:19.927] Startup: waiting for game window; process=0 visible=0 eligible=0 minimum=640x360.
+[22:25:24.985] Startup: waiting for game window; process=2 visible=1 eligible=0 minimum=640x360.
+[22:25:28.807] Startup: selected game window hwnd=018A0C9A tid=26528 class=LaunchUnrealUWindowsClient title=Fable Anniversary (32-bit, DX9) area=4096000.
+[22:25:28.809] Hook: window procedure installed; replacement=564C2A10 original=6CA6AD60.
+[22:25:28.810] Hook: hotkey timer installed; id=64177 interval_ms=16.
+[22:25:28.810] Transformation probe ready. Press 1 to cycle; press Shift+1 to restore CREATURE_HERO.
+[22:25:28.810] Hero acquisition uses direct SCRIPT_NAME_HERO lookup; no active quest-script context is required.
+[22:25:29.971] Event: first game-window timer tick received; polling fallback is alive.
+[22:25:31.586] Startup: steam_api changed to loaded.
+[22:25:31.586] Startup: game-script interface changed to not-ready (interface=00000000).
+[22:26:02.714] Startup: game-script interface changed to ready (interface=88B92E80).
+[22:26:15.279] Input: number-row 1 pressed via WM_KEYDOWN; shift=false.
+[22:26:15.279] Input: transformation queued for direct hero lookup on the next game-window timer dispatch.
+[22:26:15.281] Event: executing queued cycle with direct SCRIPT_NAME_HERO lookup on game-window timer thread=26528.
+[22:26:15.282] Key 1: attempting form 2/14: CREATURE_BS_GUARD
+[22:26:15.282] Native: transformation begin definition=CREATURE_BS_GUARD thread=26528 interface=88B92E80 acquisition=SCRIPT_NAME_HERO.
+[22:26:15.282] Native: direct hero lookup returned=008FEC0C result=008FEC0C vtable=037DCBF4 implementation=8AA6B450 pointer_info=896143A4 expected_vtable=037DCBF4.
+[22:26:15.283] Native: creature definition string constructed; storage=A3E4A6A0.
+[22:26:15.284] Native: TurnCreatureInto returned=008FEC00 result=008FEC00 vtable=037DCBF4 implementation=9F949380 pointer_info=9A1ADAAC.
+[22:26:15.284] Native: retained TurnCreatureInto result handle for process lifetime; slot=1/64 ref_count=2.
+[22:26:15.284] Native: retained direct hero lookup handle for process lifetime; slot=2/64 ref_count=3.
+[22:26:15.284] Transformation to CREATURE_BS_GUARD succeeded.
+[22:26:15.296] Process exception observer: event=1 thread=19136; continuing Windows exception dispatch.
+[22:26:15.297] Native fault: stage=process-wide low-address access-violation observer code=0xC0000005 instruction=027391E8 game_rva=0x019B91E8 module=D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32\Fable Anniversary.exe.
+[22:26:15.297] Native fault: access_violation operation=read address=00000078.
+[22:26:15.297] Process exception registers: eax=00000000 ebx=00000068 ecx=9BDB6500 edx=FFFFFFFF esi=1A1BE9C0 edi=9BDB6500 ebp=6DA3FA3C esp=6DA3FA24 eip=027391E8.

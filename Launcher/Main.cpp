@@ -1,0 +1,1328 @@
+#include <Windows.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <string>
+#include <vector>
+
+namespace
+{
+    namespace fs = std::filesystem;
+
+    static_assert(sizeof(void*) == 4, "The launcher must match Fable Anniversary's x86 process.");
+
+    constexpr wchar_t kGameExecutableName[] = L"Fable Anniversary.exe";
+    constexpr wchar_t kClientDllName[] = L"FableTogether.Client.dll";
+    constexpr wchar_t kClientLogName[] = L"FableTogether.Client.log";
+    constexpr wchar_t kClientModeEnvironment[] = L"FABLETOGETHER_CLIENT_MODE";
+    constexpr wchar_t kScenarioEnvironment[] = L"FABLETOGETHER_SCENARIO";
+    constexpr wchar_t kRunIdEnvironment[] = L"FABLETOGETHER_RUN_ID";
+    constexpr wchar_t kEventPathEnvironment[] = L"FABLETOGETHER_EVENT_PATH";
+    constexpr wchar_t kFixtureDocumentsEnvironment[] = L"FABLETOGETHER_FIXTURE_DOCUMENTS";
+    constexpr wchar_t kCharacterSnapshotEnvironment[] = L"FABLETOGETHER_CHARACTER_SNAPSHOT";
+    constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
+    constexpr wchar_t kDevelopmentGameRoot[] = L"D:\\SteamLibrary\\steamapps\\common\\Fable Anniversary";
+    constexpr wchar_t kFableSteamAppId[] = L"288470";
+    constexpr DWORD kInjectionTimeoutMilliseconds = 15'000;
+
+    class UniqueHandle
+    {
+    public:
+        UniqueHandle() = default;
+        explicit UniqueHandle(HANDLE handle) : handle_(handle) {}
+        ~UniqueHandle()
+        {
+            if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(handle_);
+            }
+        }
+
+        UniqueHandle(const UniqueHandle&) = delete;
+        UniqueHandle& operator=(const UniqueHandle&) = delete;
+
+        UniqueHandle(UniqueHandle&& other) noexcept : handle_(other.handle_)
+        {
+            other.handle_ = nullptr;
+        }
+
+        UniqueHandle& operator=(UniqueHandle&& other) noexcept
+        {
+            if (this != &other)
+            {
+                if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE)
+                {
+                    CloseHandle(handle_);
+                }
+                handle_ = other.handle_;
+                other.handle_ = nullptr;
+            }
+            return *this;
+        }
+
+        [[nodiscard]] HANDLE get() const { return handle_; }
+        [[nodiscard]] bool valid() const { return handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE; }
+
+    private:
+        HANDLE handle_ = nullptr;
+    };
+
+    class ScopedSyntheticKey
+    {
+    public:
+        explicit ScopedSyntheticKey(UINT virtualKey)
+            : scanCode_(static_cast<WORD>(
+                  MapVirtualKeyW(virtualKey, MAPVK_VK_TO_VSC)))
+        {
+        }
+
+        ~ScopedSyntheticKey()
+        {
+            Release();
+        }
+
+        ScopedSyntheticKey(const ScopedSyntheticKey&) = delete;
+        ScopedSyntheticKey& operator=(const ScopedSyntheticKey&) = delete;
+
+        bool Press()
+        {
+            if (down_)
+            {
+                return true;
+            }
+            INPUT input = {};
+            input.type = INPUT_KEYBOARD;
+            input.ki.wScan = scanCode_;
+            input.ki.dwFlags = KEYEVENTF_SCANCODE;
+            down_ = SendInput(1, &input, sizeof(input)) == 1;
+            return down_;
+        }
+
+        bool Release()
+        {
+            if (!down_)
+            {
+                return true;
+            }
+            INPUT input = {};
+            input.type = INPUT_KEYBOARD;
+            input.ki.wScan = scanCode_;
+            input.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+            const bool released = SendInput(1, &input, sizeof(input)) == 1;
+            if (released)
+            {
+                down_ = false;
+            }
+            return released;
+        }
+
+        [[nodiscard]] bool down() const { return down_; }
+
+    private:
+        WORD scanCode_ = 0;
+        bool down_ = false;
+    };
+
+    // Automation-only stimulus. The injected client does not inspect mouse
+    // state; this asks Fable's game-window input path to produce its mapped
+    // ATTACK event so the native combat hook can be verified end to end.
+    class ScopedSyntheticMouseButton
+    {
+    public:
+        ~ScopedSyntheticMouseButton()
+        {
+            Release();
+        }
+
+        ScopedSyntheticMouseButton(const ScopedSyntheticMouseButton&) = delete;
+        ScopedSyntheticMouseButton& operator=(const ScopedSyntheticMouseButton&) = delete;
+
+        ScopedSyntheticMouseButton() = default;
+
+        bool Press(HWND targetWindow)
+        {
+            if (down_)
+            {
+                return true;
+            }
+            if (targetWindow == nullptr)
+            {
+                return false;
+            }
+            RECT bounds = {};
+            if (!GetClientRect(targetWindow, &bounds))
+            {
+                return false;
+            }
+            const int x = (bounds.right - bounds.left) / 2;
+            const int y = (bounds.bottom - bounds.top) / 2;
+            point_ = MAKELPARAM(x, y);
+            window_ = targetWindow;
+            down_ = PostMessageW(
+                window_,
+                WM_LBUTTONDOWN,
+                MK_LBUTTON,
+                point_) != FALSE;
+            return down_;
+        }
+
+        bool Release()
+        {
+            if (!down_)
+            {
+                return true;
+            }
+            const bool released = window_ != nullptr &&
+                PostMessageW(window_, WM_LBUTTONUP, 0, point_) != FALSE;
+            if (released)
+            {
+                down_ = false;
+                window_ = nullptr;
+            }
+            return released;
+        }
+
+        [[nodiscard]] bool down() const { return down_; }
+
+    private:
+        HWND window_ = nullptr;
+        LPARAM point_ = 0;
+        bool down_ = false;
+    };
+
+    class ScopedEnvironmentVariable
+    {
+    public:
+        ScopedEnvironmentVariable(const wchar_t* name, const wchar_t* value)
+            : name_(name)
+        {
+            SetLastError(ERROR_SUCCESS);
+            const DWORD required = GetEnvironmentVariableW(name_.c_str(), nullptr, 0);
+            if (required != 0)
+            {
+                previousValue_.resize(required);
+                const DWORD length = GetEnvironmentVariableW(
+                    name_.c_str(), previousValue_.data(), required);
+                previousValue_.resize(length);
+                hadPreviousValue_ = true;
+            }
+            else if (GetLastError() != ERROR_ENVVAR_NOT_FOUND)
+            {
+                return;
+            }
+
+            applied_ = SetEnvironmentVariableW(name_.c_str(), value) != FALSE;
+        }
+
+        ~ScopedEnvironmentVariable()
+        {
+            if (!applied_)
+            {
+                return;
+            }
+            SetEnvironmentVariableW(
+                name_.c_str(),
+                hadPreviousValue_ ? previousValue_.c_str() : nullptr);
+        }
+
+        ScopedEnvironmentVariable(const ScopedEnvironmentVariable&) = delete;
+        ScopedEnvironmentVariable& operator=(const ScopedEnvironmentVariable&) = delete;
+
+        [[nodiscard]] bool applied() const { return applied_; }
+
+    private:
+        std::wstring name_;
+        std::wstring previousValue_;
+        bool hadPreviousValue_ = false;
+        bool applied_ = false;
+    };
+
+    struct Options
+    {
+        fs::path executable;
+        fs::path gameDirectory;
+        fs::path clientDll;
+        fs::path fixtureDocuments;
+        fs::path characterSnapshot;
+        std::vector<std::wstring> gameArguments;
+        std::wstring automationScenario;
+        unsigned int automationTimeoutSeconds = 120;
+        bool transformationProbe = false;
+        bool dryRun = false;
+        bool showHelp = false;
+    };
+
+    std::wstring FormatWindowsError(DWORD error)
+    {
+        wchar_t* rawMessage = nullptr;
+        const DWORD length = FormatMessageW(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr,
+            error,
+            0,
+            reinterpret_cast<wchar_t*>(&rawMessage),
+            0,
+            nullptr);
+
+        std::wstring message = length != 0 && rawMessage != nullptr
+            ? std::wstring(rawMessage, length)
+            : L"Unknown Windows error";
+        if (rawMessage != nullptr)
+        {
+            LocalFree(rawMessage);
+        }
+        while (!message.empty() && (message.back() == L'\r' || message.back() == L'\n'))
+        {
+            message.pop_back();
+        }
+        return message;
+    }
+
+    fs::path GetLauncherDirectory()
+    {
+        std::wstring buffer(32'768, L'\0');
+        const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0 || length >= buffer.size())
+        {
+            return {};
+        }
+        buffer.resize(length);
+        return fs::path(buffer).parent_path();
+    }
+
+    fs::path AbsolutePath(const fs::path& path)
+    {
+        std::error_code error;
+        fs::path absolute = fs::absolute(path, error);
+        return error ? path : absolute.lexically_normal();
+    }
+
+    bool IsFile(const fs::path& path)
+    {
+        std::error_code error;
+        return fs::is_regular_file(path, error);
+    }
+
+    bool IsDirectory(const fs::path& path)
+    {
+        std::error_code error;
+        return fs::is_directory(path, error);
+    }
+
+    bool IsSamePathOrBelow(const fs::path& candidate, const fs::path& root)
+    {
+        const fs::path normalizedCandidate = AbsolutePath(candidate);
+        const fs::path normalizedRoot = AbsolutePath(root);
+        auto candidatePart = normalizedCandidate.begin();
+        for (auto rootPart = normalizedRoot.begin();
+             rootPart != normalizedRoot.end();
+             ++rootPart, ++candidatePart)
+        {
+            if (candidatePart == normalizedCandidate.end() ||
+                _wcsicmp(
+                    candidatePart->c_str(),
+                    rootPart->c_str()) != 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fs::path GetOrdinaryDocumentsPath()
+    {
+        std::wstring userProfile(32'768, L'\0');
+        const DWORD length = GetEnvironmentVariableW(
+            L"USERPROFILE",
+            userProfile.data(),
+            static_cast<DWORD>(userProfile.size()));
+        if (length == 0 || length >= userProfile.size())
+        {
+            return {};
+        }
+        userProfile.resize(length);
+        return AbsolutePath(fs::path(userProfile) / L"Documents");
+    }
+
+    fs::path ExecutableBelow(const fs::path& directory)
+    {
+        const fs::path direct = directory / kGameExecutableName;
+        if (IsFile(direct))
+        {
+            return AbsolutePath(direct);
+        }
+
+        const fs::path conventional = directory / L"Binaries" / L"Win32" / kGameExecutableName;
+        if (IsFile(conventional))
+        {
+            return AbsolutePath(conventional);
+        }
+
+        return {};
+    }
+
+    fs::path ResolveDeploymentAsset(
+        const fs::path& launcherDirectory,
+        const fs::path& relativePath,
+        bool directory)
+    {
+        const fs::path alongside = AbsolutePath(launcherDirectory / relativePath);
+        if (directory ? IsDirectory(alongside) : IsFile(alongside))
+        {
+            return alongside;
+        }
+
+        const fs::path development = AbsolutePath(
+            launcherDirectory / L".." / L".." / relativePath);
+        if (directory ? IsDirectory(development) : IsFile(development))
+        {
+            return development;
+        }
+        return alongside;
+    }
+
+    bool ParseOptions(int argc, wchar_t** argv, Options& options, std::wstring& error)
+    {
+        for (int index = 1; index < argc; ++index)
+        {
+            const std::wstring argument = argv[index];
+            if (argument == L"--")
+            {
+                for (++index; index < argc; ++index)
+                {
+                    options.gameArguments.emplace_back(argv[index]);
+                }
+                break;
+            }
+            if (argument == L"--help" || argument == L"-h")
+            {
+                options.showHelp = true;
+                continue;
+            }
+            if (argument == L"--dry-run")
+            {
+                options.dryRun = true;
+                continue;
+            }
+            if (argument == L"--transform-probe")
+            {
+                if (!options.automationScenario.empty())
+                {
+                    error = L"--transform-probe cannot be combined with --automation";
+                    return false;
+                }
+                options.transformationProbe = true;
+                continue;
+            }
+
+            auto readPath = [&](fs::path& destination) -> bool
+            {
+                if (++index >= argc)
+                {
+                    error = L"Missing value after " + argument;
+                    return false;
+                }
+                destination = argv[index];
+                return true;
+            };
+
+            if (argument == L"--exe")
+            {
+                if (!readPath(options.executable)) return false;
+            }
+            else if (argument == L"--game-dir")
+            {
+                if (!readPath(options.gameDirectory)) return false;
+            }
+            else if (argument == L"--dll")
+            {
+                if (!readPath(options.clientDll)) return false;
+            }
+            else if (argument == L"--fixture-documents")
+            {
+                if (!readPath(options.fixtureDocuments)) return false;
+            }
+            else if (argument == L"--character-snapshot")
+            {
+                if (!readPath(options.characterSnapshot)) return false;
+            }
+            else if (argument == L"--automation")
+            {
+                if (options.transformationProbe)
+                {
+                    error = L"--automation cannot be combined with --transform-probe";
+                    return false;
+                }
+                if (++index >= argc)
+                {
+                    error = L"Missing scenario name after --automation";
+                    return false;
+                }
+                options.automationScenario = argv[index];
+                if (options.automationScenario.empty())
+                {
+                    error = L"Automation scenario cannot be empty";
+                    return false;
+                }
+            }
+            else if (argument == L"--timeout")
+            {
+                if (++index >= argc)
+                {
+                    error = L"Missing seconds after --timeout";
+                    return false;
+                }
+                wchar_t* end = nullptr;
+                const unsigned long value = std::wcstoul(argv[index], &end, 10);
+                if (end == argv[index] || *end != L'\0' || value < 10 || value > 600)
+                {
+                    error = L"--timeout must be between 10 and 600 seconds";
+                    return false;
+                }
+                options.automationTimeoutSeconds = static_cast<unsigned int>(value);
+            }
+            else
+            {
+                error = L"Unknown option: " + argument + L" (use -- before game arguments)";
+                return false;
+            }
+        }
+        if (!options.automationScenario.empty() &&
+            options.automationScenario != L"observe_frontend" &&
+            options.automationScenario != L"observe_save_list" &&
+            options.automationScenario != L"bootstrap_fixture_probe" &&
+            options.automationScenario != L"load_fixture" &&
+            options.automationScenario != L"appearance_cycle")
+        {
+            error = L"Unknown automation scenario: " + options.automationScenario;
+            return false;
+        }
+        const bool loadsFixture = options.automationScenario == L"load_fixture" ||
+            options.automationScenario == L"appearance_cycle";
+        if (!options.characterSnapshot.empty() &&
+            !loadsFixture)
+        {
+            error = L"--character-snapshot is supported only with fixture-loading automation";
+            return false;
+        }
+        return true;
+    }
+
+    fs::path ResolveExecutable(const Options& options, const fs::path& launcherDirectory)
+    {
+        if (!options.executable.empty())
+        {
+            return AbsolutePath(options.executable);
+        }
+        if (!options.gameDirectory.empty())
+        {
+            return ExecutableBelow(AbsolutePath(options.gameDirectory));
+        }
+
+        const fs::path alongside = ExecutableBelow(launcherDirectory);
+        if (!alongside.empty())
+        {
+            return alongside;
+        }
+        return ExecutableBelow(fs::path(kDevelopmentGameRoot));
+    }
+
+    std::wstring QuoteArgument(const std::wstring& argument)
+    {
+        if (argument.find_first_of(L" \t\"") == std::wstring::npos)
+        {
+            return argument;
+        }
+
+        std::wstring quoted = L"\"";
+        size_t backslashes = 0;
+        for (const wchar_t character : argument)
+        {
+            if (character == L'\\')
+            {
+                ++backslashes;
+            }
+            else if (character == L'\"')
+            {
+                quoted.append(backslashes * 2 + 1, L'\\');
+                quoted.push_back(L'\"');
+                backslashes = 0;
+            }
+            else
+            {
+                quoted.append(backslashes, L'\\');
+                backslashes = 0;
+                quoted.push_back(character);
+            }
+        }
+        quoted.append(backslashes * 2, L'\\');
+        quoted.push_back(L'\"');
+        return quoted;
+    }
+
+    std::wstring BuildCommandLine(const fs::path& executable, const std::vector<std::wstring>& arguments)
+    {
+        std::wstring commandLine = QuoteArgument(executable.wstring());
+        for (const std::wstring& argument : arguments)
+        {
+            commandLine.push_back(L' ');
+            commandLine.append(QuoteArgument(argument));
+        }
+        return commandLine;
+    }
+
+    void PrintUsage()
+    {
+        std::wcout
+            << L"FableTogether.Launcher [options] [-- game arguments]\n\n"
+            << L"  --game-dir <path>  Fable Anniversary root or Binaries\\Win32 directory\n"
+            << L"  --exe <path>       Exact game executable path\n"
+            << L"  --dll <path>       Exact client DLL path\n"
+            << L"  --fixture-documents <dir>  Override the bundled adult-town save fixture\n"
+            << L"  --character-snapshot <json>  Optional server-character state to apply after fixture load\n"
+            << L"  --automation <id>  Run observe_frontend, observe_save_list, bootstrap_fixture_probe, load_fixture, or appearance_cycle\n"
+            << L"  --timeout <sec>     Automation timeout from 10 to 600 seconds (default: 120)\n"
+            << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
+            << L"  --dry-run          Resolve and validate paths without launching\n"
+            << L"  --help, -h         Show this help\n";
+    }
+
+    std::wstring CreateRunId()
+    {
+        SYSTEMTIME time = {};
+        GetLocalTime(&time);
+        wchar_t value[64] = {};
+        swprintf_s(
+            value,
+            L"%04u%02u%02u-%02u%02u%02u-%03u-%lu",
+            static_cast<unsigned int>(time.wYear),
+            static_cast<unsigned int>(time.wMonth),
+            static_cast<unsigned int>(time.wDay),
+            static_cast<unsigned int>(time.wHour),
+            static_cast<unsigned int>(time.wMinute),
+            static_cast<unsigned int>(time.wSecond),
+            static_cast<unsigned int>(time.wMilliseconds),
+            static_cast<unsigned long>(GetCurrentProcessId()));
+        return value;
+    }
+
+    bool InjectClient(HANDLE process, const fs::path& clientDll, std::wstring& error)
+    {
+        const std::wstring dllPath = clientDll.wstring();
+        const SIZE_T bytes = (dllPath.size() + 1) * sizeof(wchar_t);
+        void* remotePath = VirtualAllocEx(process, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (remotePath == nullptr)
+        {
+            const DWORD code = GetLastError();
+            error = L"VirtualAllocEx failed (" + std::to_wstring(code) + L"): " + FormatWindowsError(code);
+            return false;
+        }
+
+        bool success = false;
+        SIZE_T bytesWritten = 0;
+        if (!WriteProcessMemory(process, remotePath, dllPath.c_str(), bytes, &bytesWritten) || bytesWritten != bytes)
+        {
+            const DWORD code = GetLastError();
+            error = L"WriteProcessMemory failed (" + std::to_wstring(code) + L"): " + FormatWindowsError(code);
+        }
+        else
+        {
+            HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+            const auto loadLibrary = kernel32 == nullptr
+                ? nullptr
+                : reinterpret_cast<LPTHREAD_START_ROUTINE>(GetProcAddress(kernel32, "LoadLibraryW"));
+            if (loadLibrary == nullptr)
+            {
+                const DWORD code = GetLastError();
+                error = L"Could not resolve LoadLibraryW (" + std::to_wstring(code) + L"): " + FormatWindowsError(code);
+            }
+            else
+            {
+                UniqueHandle remoteThread(CreateRemoteThread(process, nullptr, 0, loadLibrary, remotePath, 0, nullptr));
+                if (!remoteThread.valid())
+                {
+                    const DWORD code = GetLastError();
+                    error = L"CreateRemoteThread failed (" + std::to_wstring(code) + L"): " + FormatWindowsError(code);
+                }
+                else
+                {
+                    const DWORD waitResult = WaitForSingleObject(remoteThread.get(), kInjectionTimeoutMilliseconds);
+                    if (waitResult != WAIT_OBJECT_0)
+                    {
+                        error = waitResult == WAIT_TIMEOUT
+                            ? L"Timed out while loading the client DLL."
+                            : L"Waiting for the injection thread failed.";
+                    }
+                    else
+                    {
+                        DWORD remoteResult = 0;
+                        if (!GetExitCodeThread(remoteThread.get(), &remoteResult) || remoteResult == 0)
+                        {
+                            error = L"LoadLibraryW failed inside the game process.";
+                        }
+                        else
+                        {
+                            success = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        return success;
+    }
+
+    struct ProcessWindowSearch
+    {
+        DWORD processId = 0;
+        HWND bestWindow = nullptr;
+        unsigned long long bestArea = 0;
+    };
+
+    BOOL CALLBACK FindProcessWindow(HWND window, LPARAM parameter)
+    {
+        auto& search = *reinterpret_cast<ProcessWindowSearch*>(parameter);
+        DWORD processId = 0;
+        GetWindowThreadProcessId(window, &processId);
+        if (processId != search.processId || !IsWindowVisible(window))
+        {
+            return TRUE;
+        }
+
+        wchar_t className[64] = {};
+        GetClassNameW(window, className, static_cast<int>(std::size(className)));
+        if (std::wcscmp(className, L"#32770") == 0)
+        {
+            return TRUE;
+        }
+
+        RECT client = {};
+        if (!GetClientRect(window, &client))
+        {
+            return TRUE;
+        }
+        const LONG width = client.right - client.left;
+        const LONG height = client.bottom - client.top;
+        const auto area = width > 0 && height > 0
+            ? static_cast<unsigned long long>(width) * static_cast<unsigned long long>(height)
+            : 0;
+        if (area > search.bestArea)
+        {
+            search.bestArea = area;
+            search.bestWindow = window;
+        }
+        return TRUE;
+    }
+
+    HWND FindMainWindow(DWORD processId)
+    {
+        ProcessWindowSearch search;
+        search.processId = processId;
+        EnumWindows(FindProcessWindow, reinterpret_cast<LPARAM>(&search));
+        return search.bestWindow;
+    }
+
+    std::string ReadEventFile(const fs::path& eventPath)
+    {
+        std::ifstream stream(eventPath, std::ios::binary);
+        if (!stream)
+        {
+            return {};
+        }
+        return std::string(
+            std::istreambuf_iterator<char>(stream),
+            std::istreambuf_iterator<char>());
+    }
+
+    bool EventWasReported(const std::string& content, const char* state)
+    {
+        const std::string marker = std::string("\"state\":\"") + state + "\"";
+        return content.find(marker) != std::string::npos;
+    }
+
+    bool CloseCreatedProcess(HANDLE process, DWORD processId, HANDLE shutdownEvent)
+    {
+        if (shutdownEvent != nullptr)
+        {
+            std::wcout << L"Automation: requesting shutdown through the run-scoped client event.\n";
+            if (!SetEvent(shutdownEvent))
+            {
+                std::wcerr << L"Automation: could not signal the run-scoped shutdown event.\n";
+            }
+        }
+        else
+        {
+            HWND window = nullptr;
+            const ULONGLONG windowDeadline = GetTickCount64() + 2'000;
+            do
+            {
+                window = FindMainWindow(processId);
+                if (window != nullptr)
+                {
+                    break;
+                }
+                if (WaitForSingleObject(process, 100) == WAIT_OBJECT_0)
+                {
+                    return true;
+                }
+            } while (GetTickCount64() < windowDeadline);
+
+            if (window != nullptr)
+            {
+                std::wcout << L"Automation: requesting graceful shutdown through the game window.\n";
+                PostMessageW(window, WM_CLOSE, 0, 0);
+            }
+        }
+
+        if (WaitForSingleObject(process, 15'000) == WAIT_OBJECT_0)
+        {
+            return true;
+        }
+
+        std::wcerr << L"Automation: graceful shutdown timed out; terminating only PID "
+                   << processId << L".\n";
+        TerminateProcess(process, ERROR_TIMEOUT);
+        WaitForSingleObject(process, 5'000);
+        return false;
+    }
+
+    int RunAutomation(
+        HANDLE process,
+        DWORD processId,
+        const fs::path& eventPath,
+        const std::wstring& scenario,
+        unsigned int timeoutSeconds,
+        HANDLE shutdownEvent,
+        bool characterSnapshotExpected)
+    {
+        std::wcout << L"Automation: waiting up to " << timeoutSeconds
+                   << L" seconds for scenario " << scenario << L".\n";
+        const ULONGLONG deadline =
+            GetTickCount64() + static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        ScopedSyntheticKey movementKey('W');
+        ScopedSyntheticMouseButton attackButton;
+        bool movementInputSubmitted = false;
+        ULONGLONG movementInputPressedAt = 0;
+        unsigned int attackInputAttempts = 0;
+        ULONGLONG attackInputPressedAt = 0;
+        ULONGLONG attackInputReleasedAt = 0;
+
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (scenario == L"appearance_cycle")
+            {
+                if (!movementInputSubmitted &&
+                    EventWasReported(events, "AppearanceFormReady"))
+                {
+                    const HWND window = FindMainWindow(processId);
+                    if (window != nullptr)
+                    {
+                        SetForegroundWindow(window);
+                    }
+                    if (!movementKey.Press())
+                    {
+                        std::wcerr << L"Automation failed: could not press W for the native NPC movement probe.\n";
+                        CloseCreatedProcess(process, processId, shutdownEvent);
+                        return 1;
+                    }
+                    movementInputSubmitted = true;
+                    movementInputPressedAt = GetTickCount64();
+                    std::wcout << L"Automation: holding W briefly to test native NPC locomotion ownership.\n";
+                }
+                if (movementKey.down() &&
+                    GetTickCount64() - movementInputPressedAt >= 750)
+                {
+                    if (!movementKey.Release())
+                    {
+                        std::wcerr << L"Automation failed: could not release W after the native NPC movement probe.\n";
+                        CloseCreatedProcess(process, processId, shutdownEvent);
+                        return 1;
+                    }
+                    std::wcout << L"Automation: released W after the native NPC movement probe.\n";
+                }
+                if (movementInputSubmitted && !movementKey.down() &&
+                    !attackButton.down() &&
+                    !EventWasReported(events, "PlayerAttackAbilityIntercepted") &&
+                    attackInputAttempts < 5 &&
+                    (attackInputAttempts == 0 ||
+                        GetTickCount64() - attackInputReleasedAt >= 250) &&
+                    EventWasReported(events, "CreaturePlayerCombatRouterBound"))
+                {
+                    const HWND window = FindMainWindow(processId);
+                    if (window != nullptr)
+                    {
+                        SetForegroundWindow(window);
+                    }
+                    if (!attackButton.Press(window))
+                    {
+                        std::wcerr << L"Automation failed: could not submit the mapped ATTACK stimulus.\n";
+                        CloseCreatedProcess(process, processId, shutdownEvent);
+                        return 1;
+                    }
+                    ++attackInputAttempts;
+                    attackInputPressedAt = GetTickCount64();
+                    std::wcout << L"Automation: submitted mapped game-window ATTACK stimulus "
+                               << attackInputAttempts
+                               << L"/5 for the native combat boundary.\n";
+                }
+                if (attackButton.down() &&
+                    GetTickCount64() - attackInputPressedAt >= 100)
+                {
+                    if (!attackButton.Release())
+                    {
+                        std::wcerr << L"Automation failed: could not release the mapped ATTACK stimulus.\n";
+                        CloseCreatedProcess(process, processId, shutdownEvent);
+                        return 1;
+                    }
+                    attackInputReleasedAt = GetTickCount64();
+                }
+            }
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Automation failed: the injected client reported a hook failure.\n";
+                CloseCreatedProcess(process, processId, shutdownEvent);
+                return 1;
+            }
+
+            if (scenario == L"observe_frontend" && EventWasReported(events, "FrontendReady"))
+            {
+                std::wcout << L"Automation: Fable front-end main menu reached.\n";
+                const bool graceful = CloseCreatedProcess(process, processId, shutdownEvent);
+                const std::string finalEvents = ReadEventFile(eventPath);
+                if (!graceful || !EventWasReported(finalEvents, "ShutdownStarted"))
+                {
+                    std::wcerr << L"Automation failed: front end was reached, but shutdown was not cleanly observed.\n";
+                    return 1;
+                }
+                std::wcout << L"Automation passed: front end reached and process shut down cleanly.\n";
+                return 0;
+            }
+
+            if (scenario == L"observe_save_list" && EventWasReported(events, "SaveListReady"))
+            {
+                std::wcout << L"Automation: Fable Load Game save list reached without selecting a save.\n";
+                const bool graceful = CloseCreatedProcess(process, processId, shutdownEvent);
+                const std::string finalEvents = ReadEventFile(eventPath);
+                if (!graceful || !EventWasReported(finalEvents, "ShutdownStarted"))
+                {
+                    std::wcerr << L"Automation failed: save list was reached, but shutdown was not observed.\n";
+                    return 1;
+                }
+                std::wcout << L"Automation passed: save list observed and process shut down.\n";
+                return 0;
+            }
+
+            if (scenario == L"bootstrap_fixture_probe" &&
+                EventWasReported(events, "HeroReady"))
+            {
+                std::wcout << L"Automation: isolated New Game reached a resolvable Hero in the playable world.\n";
+                const bool graceful = CloseCreatedProcess(process, processId, shutdownEvent);
+                const std::string finalEvents = ReadEventFile(eventPath);
+                if (!graceful || !EventWasReported(finalEvents, "ShutdownStarted"))
+                {
+                    std::wcerr << L"Automation failed: Hero became ready, but shutdown was not observed.\n";
+                    return 1;
+                }
+                std::wcout << L"Automation passed: isolated New Game Hero readiness observed.\n";
+                return 0;
+            }
+
+            const bool loadFixturePassed = characterSnapshotExpected
+                ? EventWasReported(events, "CharacterSnapshotAssertionPassed")
+                : EventWasReported(events, "AssertionPassed");
+            if (scenario == L"load_fixture" && loadFixturePassed)
+            {
+                std::wcout << (characterSnapshotExpected
+                    ? L"Automation: server-character snapshot produced stable target transform and combat health.\n"
+                    : L"Automation: exact isolated AutoSave produced stable Hero transform and active-creature state.\n");
+                const bool graceful = CloseCreatedProcess(process, processId, shutdownEvent);
+                const std::string finalEvents = ReadEventFile(eventPath);
+                if (!graceful || !EventWasReported(finalEvents, "ShutdownStarted"))
+                {
+                    std::wcerr << L"Automation failed: loaded fixture assertions passed, but shutdown was not observed.\n";
+                    return 1;
+                }
+                std::wcout << (characterSnapshotExpected
+                    ? L"Automation passed: exact isolated AutoSave loaded, the server-character snapshot was applied and verified, and the process shut down.\n"
+                    : L"Automation passed: exact isolated AutoSave loaded, Hero state was verified, and the process shut down.\n");
+                return 0;
+            }
+
+            if (scenario == L"appearance_cycle" &&
+                EventWasReported(events, "AppearanceCyclePassed"))
+            {
+                std::wcout << L"Automation: AngelScript created guard, villager, and hobbe forms; verified Hero frame displacement produced native guard navigator requests, physical displacement, locomotion input, and animation-state activity while the authoritative Hero remained stable.\n";
+                const bool graceful = CloseCreatedProcess(process, processId, shutdownEvent);
+                const std::string finalEvents = ReadEventFile(eventPath);
+                if (!graceful || !EventWasReported(finalEvents, "ShutdownStarted") ||
+                    !EventWasReported(finalEvents, "PlayerAttackAbilityHookReady") ||
+                    !EventWasReported(finalEvents, "PlayerAttackAbilityIntercepted"))
+                {
+                    std::wcerr << L"Automation failed: appearance assertions passed, but deep native player ATTACK ability interception or clean shutdown was not observed.\n";
+                    return 1;
+                }
+                std::wcout << L"Automation passed: native locomotion, player-owned facing, hidden-Hero shadow follow, friendly decision ownership, native player ATTACK-to-NPC ability routing, three-form cycling, Hero restoration, and clean shutdown were all observed.\n";
+                return 0;
+            }
+
+            const DWORD processState = WaitForSingleObject(process, 250);
+            if (processState == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(process, &exitCode);
+                std::wcerr << L"Automation failed: Fable exited before the scenario completed; exit code "
+                           << exitCode << L".\n";
+                return 1;
+            }
+            if (processState == WAIT_FAILED)
+            {
+                std::wcerr << L"Automation failed while monitoring the Fable process.\n";
+                CloseCreatedProcess(process, processId, shutdownEvent);
+                return 1;
+            }
+            if (GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Automation failed: scenario timed out.\n";
+                CloseCreatedProcess(process, processId, shutdownEvent);
+                return 1;
+            }
+        }
+    }
+
+    int Launch(
+        const fs::path& executable,
+        const fs::path& clientDll,
+        const fs::path& clientLog,
+        const fs::path& eventPath,
+        const fs::path& fixtureDocuments,
+        const fs::path& characterSnapshot,
+        const std::wstring& clientMode,
+        const std::wstring& scenario,
+        const std::wstring& runId,
+        unsigned int automationTimeoutSeconds,
+        const std::vector<std::wstring>& arguments)
+    {
+        std::error_code logError;
+        fs::remove(clientLog, logError);
+        if (logError)
+        {
+            std::wcerr << L"Log:    could not clear the previous log: "
+                       << logError.message().c_str() << L'\n';
+        }
+
+        std::wstring commandLine = BuildCommandLine(executable, arguments);
+        std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+        mutableCommandLine.push_back(L'\0');
+
+        STARTUPINFOW startupInfo = {};
+        startupInfo.cb = sizeof(startupInfo);
+        PROCESS_INFORMATION processInfo = {};
+        const std::wstring workingDirectory = executable.parent_path().wstring();
+        ScopedEnvironmentVariable steamAppId(L"SteamAppId", kFableSteamAppId);
+        ScopedEnvironmentVariable steamGameId(L"SteamGameId", kFableSteamAppId);
+        ScopedEnvironmentVariable modeEnvironment(kClientModeEnvironment, clientMode.c_str());
+        ScopedEnvironmentVariable scenarioEnvironment(kScenarioEnvironment, scenario.c_str());
+        ScopedEnvironmentVariable runIdEnvironment(kRunIdEnvironment, runId.c_str());
+        ScopedEnvironmentVariable eventPathEnvironment(kEventPathEnvironment, eventPath.c_str());
+        ScopedEnvironmentVariable fixtureDocumentsEnvironment(
+            kFixtureDocumentsEnvironment,
+            fixtureDocuments.c_str());
+        ScopedEnvironmentVariable characterSnapshotEnvironment(
+            kCharacterSnapshotEnvironment,
+            characterSnapshot.c_str());
+        if (!steamAppId.applied() || !steamGameId.applied() ||
+            !modeEnvironment.applied() || !scenarioEnvironment.applied() ||
+            !runIdEnvironment.applied() || !eventPathEnvironment.applied() ||
+            !fixtureDocumentsEnvironment.applied() ||
+            !characterSnapshotEnvironment.applied())
+        {
+            std::wcerr << L"Could not prepare the child-process environment for Fable Anniversary.\n";
+            return 1;
+        }
+
+        UniqueHandle shutdownEvent;
+        if (!scenario.empty())
+        {
+            const std::wstring shutdownEventName = kShutdownEventPrefix + runId;
+            shutdownEvent = UniqueHandle(CreateEventW(
+                nullptr,
+                TRUE,
+                FALSE,
+                shutdownEventName.c_str()));
+            if (shutdownEvent.get() == nullptr)
+            {
+                std::wcerr << L"Could not create the run-scoped automation shutdown event.\n";
+                return 1;
+            }
+        }
+
+        std::wcout << L"Steam:  App ID " << kFableSteamAppId << L" supplied to the child process.\n";
+        std::wcout << L"Launch: creating Fable Anniversary suspended; working directory "
+                   << workingDirectory << L".\n";
+        if (!CreateProcessW(
+                executable.c_str(),
+                mutableCommandLine.data(),
+                nullptr,
+                nullptr,
+                FALSE,
+                CREATE_SUSPENDED,
+                nullptr,
+                workingDirectory.c_str(),
+                &startupInfo,
+                &processInfo))
+        {
+            const DWORD code = GetLastError();
+            std::wcerr << L"Failed to start Fable Anniversary (" << code << L"): " << FormatWindowsError(code) << L'\n';
+            return 1;
+        }
+
+        UniqueHandle process(processInfo.hProcess);
+        UniqueHandle primaryThread(processInfo.hThread);
+        std::wcout << L"Launch: suspended process created (PID " << processInfo.dwProcessId << L").\n";
+        std::wcout << L"Inject: loading " << clientDll.wstring() << L".\n";
+        std::wcout.flush();
+        std::wstring injectionError;
+        if (!InjectClient(process.get(), clientDll, injectionError))
+        {
+            TerminateProcess(process.get(), ERROR_DLL_INIT_FAILED);
+            WaitForSingleObject(process.get(), 5'000);
+            std::wcerr << L"Injection failed; the suspended game process was terminated: " << injectionError << L'\n';
+            return 1;
+        }
+        std::wcout << L"Inject: client DLL loaded successfully; resuming the primary thread.\n";
+
+        if (ResumeThread(primaryThread.get()) == static_cast<DWORD>(-1))
+        {
+            const DWORD code = GetLastError();
+            TerminateProcess(process.get(), code);
+            std::wcerr << L"Could not resume the game (" << code << L"): " << FormatWindowsError(code) << L'\n';
+            return 1;
+        }
+
+        std::wcout << L"Fable Anniversary started with FableTogether.Client.dll (PID " << processInfo.dwProcessId << L").\n";
+        if (!scenario.empty())
+        {
+            return RunAutomation(
+                process.get(),
+                processInfo.dwProcessId,
+                eventPath,
+                scenario,
+                automationTimeoutSeconds,
+                shutdownEvent.get(),
+                !characterSnapshot.empty());
+        }
+        return 0;
+    }
+}
+
+int wmain(int argc, wchar_t** argv)
+{
+    Options options;
+    std::wstring optionError;
+    if (!ParseOptions(argc, argv, options, optionError))
+    {
+        std::wcerr << optionError << L"\n\n";
+        PrintUsage();
+        return 2;
+    }
+    if (options.showHelp)
+    {
+        PrintUsage();
+        return 0;
+    }
+
+    const fs::path launcherDirectory = GetLauncherDirectory();
+    const fs::path executable = ResolveExecutable(options, launcherDirectory);
+    const fs::path clientDll = options.clientDll.empty()
+        ? AbsolutePath(launcherDirectory / kClientDllName)
+        : AbsolutePath(options.clientDll);
+    const fs::path clientLog = AbsolutePath(clientDll.parent_path() / kClientLogName);
+    const std::wstring runId = CreateRunId();
+    const fs::path eventPath = AbsolutePath(
+        clientDll.parent_path() / L"artifacts" / runId / L"events.jsonl");
+    const fs::path characterSnapshotSource = options.characterSnapshot.empty()
+        ? fs::path()
+        : AbsolutePath(options.characterSnapshot);
+    const fs::path characterSnapshot = characterSnapshotSource.empty()
+        ? fs::path()
+        : eventPath.parent_path() / L"character-snapshot.json";
+    const bool loadFixtureScenario =
+        options.automationScenario == L"load_fixture" ||
+        options.automationScenario == L"appearance_cycle";
+    const fs::path fixtureDocumentsSource = loadFixtureScenario
+        ? options.fixtureDocuments.empty()
+            ? ResolveDeploymentAsset(
+                launcherDirectory,
+                fs::path(L"fixtures") / L"adult-town" / L"Documents",
+                true)
+            : AbsolutePath(options.fixtureDocuments)
+        : fs::path();
+    const fs::path defaultFixtureDocuments =
+        options.automationScenario == L"bootstrap_fixture_probe"
+        ? clientDll.parent_path() / L"fixtures" / L"bootstrap" / runId / L"Documents"
+        : loadFixtureScenario
+        ? clientDll.parent_path() / L"fixtures" / L"load" / runId / L"Documents"
+        : clientDll.parent_path() / L"fixtures" / L"automation" / L"Documents";
+    const fs::path fixtureDocuments = options.automationScenario.empty()
+        ? fs::path()
+        : AbsolutePath(
+            options.fixtureDocuments.empty() || loadFixtureScenario
+                ? defaultFixtureDocuments
+                : options.fixtureDocuments);
+    const std::wstring clientMode = options.transformationProbe
+        ? L"transform_probe"
+        : options.automationScenario.empty()
+            ? L"appearance_cycle"
+            : L"observe";
+
+    std::wcout << L"Game:   " << (executable.empty() ? L"<not found>" : executable.wstring()) << L'\n'
+               << L"Client: " << clientDll.wstring() << L'\n'
+               << L"Log:    " << clientLog.wstring() << L'\n'
+               << L"Mode:   " << clientMode << L'\n'
+               << L"Run:    " << runId << L'\n'
+               << L"Events: " << eventPath.wstring() << L'\n';
+    if (!options.automationScenario.empty())
+    {
+        std::wcout << L"Test:   " << options.automationScenario << L'\n';
+        if (loadFixtureScenario)
+        {
+            std::wcout << L"Fixture Source: " << fixtureDocumentsSource.wstring() << L'\n';
+        }
+        std::wcout << L"Fixture Documents: " << fixtureDocuments.wstring() << L'\n';
+        if (!characterSnapshotSource.empty())
+        {
+            std::wcout << L"Character Snapshot Source: "
+                       << characterSnapshotSource.wstring() << L'\n';
+            std::wcout << L"Character Snapshot: "
+                       << characterSnapshot.wstring() << L'\n';
+        }
+    }
+
+    if (executable.empty() || !IsFile(executable))
+    {
+        std::wcerr << L"Fable Anniversary.exe was not found. Use --game-dir or --exe.\n";
+        return 1;
+    }
+    if (!IsFile(clientDll))
+    {
+        std::wcerr << L"FableTogether.Client.dll was not found beside the launcher. Use --dll to override.\n";
+        return 1;
+    }
+    if (!characterSnapshotSource.empty() && !IsFile(characterSnapshotSource))
+    {
+        std::wcerr << L"The character snapshot is not an existing file.\n";
+        return 1;
+    }
+    if (loadFixtureScenario)
+    {
+        const fs::path ordinaryDocuments = GetOrdinaryDocumentsPath();
+        if (!IsDirectory(fixtureDocumentsSource))
+        {
+            std::wcerr << L"The load fixture source is not an existing directory.\n";
+            return 1;
+        }
+        if (!ordinaryDocuments.empty() &&
+            IsSamePathOrBelow(fixtureDocumentsSource, ordinaryDocuments))
+        {
+            std::wcerr << L"Refusing to load a fixture from the ordinary Documents tree.\n";
+            return 1;
+        }
+
+        const fs::path saveRoot = fixtureDocumentsSource /
+            L"My Games" / L"FableHD" / L"Saves" / L"Hero1";
+        if (!IsFile(saveRoot / L"Profile.bin") ||
+            !IsFile(saveRoot / L"AutoSave"))
+        {
+            std::wcerr << L"The fixture must contain isolated Hero1 Profile.bin and AutoSave files.\n";
+            return 1;
+        }
+    }
+    if (options.dryRun)
+    {
+        std::wcout << L"Dry run succeeded; no process was started.\n";
+        return 0;
+    }
+
+    std::error_code artifactError;
+    fs::create_directories(eventPath.parent_path(), artifactError);
+    if (artifactError)
+    {
+        std::wcerr << L"Could not create the run artifact directory: "
+                   << artifactError.message().c_str() << L'\n';
+        return 1;
+    }
+    if (!characterSnapshotSource.empty())
+    {
+        fs::copy_file(
+            characterSnapshotSource,
+            characterSnapshot,
+            fs::copy_options::overwrite_existing,
+            artifactError);
+        if (artifactError)
+        {
+            std::wcerr << L"Could not copy the character snapshot into the immutable run artifacts: "
+                       << artifactError.message().c_str() << L'\n';
+            return 1;
+        }
+    }
+    if (!fixtureDocuments.empty())
+    {
+        std::error_code fixtureError;
+        fs::create_directories(fixtureDocuments, fixtureError);
+        if (fixtureError)
+        {
+            std::wcerr << L"Could not create the isolated fixture Documents directory: "
+                       << fixtureError.message().c_str() << L'\n';
+            return 1;
+        }
+        if (loadFixtureScenario)
+        {
+            fs::copy(
+                fixtureDocumentsSource,
+                fixtureDocuments,
+                fs::copy_options::recursive |
+                    fs::copy_options::overwrite_existing,
+                fixtureError);
+            if (fixtureError)
+            {
+                std::wcerr << L"Could not copy the isolated fixture into its run-specific working directory: "
+                           << fixtureError.message().c_str() << L'\n';
+                return 1;
+            }
+        }
+    }
+
+    std::vector<std::wstring> gameArguments = options.gameArguments;
+    if (!options.automationScenario.empty())
+    {
+        const bool alreadySkipsMovies = std::any_of(
+            gameArguments.begin(),
+            gameArguments.end(),
+            [](const std::wstring& argument)
+            {
+                return _wcsicmp(argument.c_str(), L"-nomoviestartup") == 0;
+            });
+        if (!alreadySkipsMovies)
+        {
+            gameArguments.emplace_back(L"-nomoviestartup");
+        }
+    }
+
+    return Launch(
+        executable,
+        clientDll,
+        clientLog,
+        eventPath,
+        fixtureDocuments,
+        characterSnapshot,
+        clientMode,
+        options.automationScenario,
+        runId,
+        options.automationTimeoutSeconds,
+        gameArguments);
+}

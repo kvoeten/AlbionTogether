@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "server_character_id": "dev.bowerstone.001",
+  "display_name": "FableTogether Bowerstone Test Hero",
+  "bootstrap_save": "AutoSave",
+  "region_index": 32,
+  "spawn": {
+    "x": 3260.375488,
+    "y": 4281.842285,
+    "z": 20.5,
+    "facing": 0.496185
+  },
+  "combat_health": 130.0
+}

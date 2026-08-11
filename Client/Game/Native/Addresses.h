@@ -1,0 +1,142 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace fable::game::native
+{
+    // Fable Anniversary Win32 executable:
+    // SHA-256 2a95eea3c2cce9b47ca0f454a605b6952216f5d25158efd12ba48b70130989f2
+    namespace rva
+    {
+        inline constexpr std::uintptr_t GameScriptInterfaceSlot = 0x031BBC34;
+        inline constexpr std::uintptr_t GameScriptInterfaceVtable = 0x02AE35C4;
+        inline constexpr std::uintptr_t CharStringConstructor = 0x012B7800;
+        inline constexpr std::uintptr_t CharStringDestructor = 0x012B75D0;
+        inline constexpr std::uintptr_t GetHero = 0x01889940;
+        inline constexpr std::uintptr_t GetThingWithScriptName = 0x0189DF10;
+        inline constexpr std::uintptr_t CreateCreature = 0x018AF800;
+        inline constexpr std::uintptr_t StartScriptingEntity = 0x0189EC00;
+        inline constexpr std::uintptr_t ScriptedControlImplementationVtable = 0x02AE9F4C;
+        inline constexpr std::uintptr_t ScriptedControlDeleteFunction = 0x01B0B0F8;
+        inline constexpr std::uintptr_t GameHeapFree = 0x00001060;
+        inline constexpr std::uintptr_t TurnCreatureInto = 0x01898200;
+        inline constexpr std::uintptr_t TeleportThing = 0x0189EE20;
+        inline constexpr std::uintptr_t SetAttackImmediately = 0x018AF5F0;
+        inline constexpr std::uintptr_t AddScreenMessage = 0x018916A0;
+        inline constexpr std::uintptr_t IsQuestActive = 0x01891E50;
+        inline constexpr std::uintptr_t IsQuestRegistered = 0x01891E60;
+        inline constexpr std::uintptr_t IsQuestCompleted = 0x01891E70;
+        inline constexpr std::uintptr_t IsQuestFailed = 0x01891E80;
+        inline constexpr std::uintptr_t ScriptThingVtable = 0x02A5CBF4;
+        inline constexpr std::uintptr_t ScriptThingDestructor = 0x0135C7A7;
+        inline constexpr std::uintptr_t ScriptThingGetName = 0x0135B8C4;
+        inline constexpr std::uintptr_t ScriptThingGetDefinitionName = 0x0135B8D6;
+        inline constexpr std::uintptr_t ScriptThingGetDataString = 0x0135B903;
+        inline constexpr std::uintptr_t ScriptThingSetDataString = 0x0135B930;
+        inline constexpr std::uintptr_t ScriptThingGetPosition = 0x0135B93F;
+        inline constexpr std::uintptr_t ScriptThingGetFacing = 0x0135B994;
+        inline constexpr std::uintptr_t ScriptThingGetCurrentMapName = 0x0135C30F;
+        inline constexpr std::uintptr_t ScriptThingGetHomeMapName = 0x0135C33C;
+        inline constexpr std::uintptr_t ScriptThingIsNull = 0x0135B9E0;
+        inline constexpr std::uintptr_t ScriptThingIsSneaking = 0x0135C398;
+        inline constexpr std::uintptr_t ScriptThingIsAwareOfHero = 0x0135C3A7;
+        inline constexpr std::uintptr_t ScriptThingIsUnconscious = 0x0135C669;
+        inline constexpr std::uintptr_t ScriptThingIsUsable = 0x0135C67B;
+        inline constexpr std::uintptr_t ScriptThingIsOpenDoor = 0x0135C6A1;
+        inline constexpr std::uintptr_t ScriptThingIsSummonedCreature = 0x0135C6B3;
+        inline constexpr std::uintptr_t ScriptThingSetAsUsable = 0x0135C6C5;
+        inline constexpr std::uintptr_t ScriptThingSetFriendsWithEverything = 0x0135C6D7;
+        inline constexpr std::uintptr_t ScriptThingGetActivationTriggerStatus = 0x0135C6E9;
+        inline constexpr std::uintptr_t ScriptThingSetActivationTriggerStatus = 0x0135C6FB;
+        inline constexpr std::uintptr_t ScriptThingSetToKillOnLevelUnload = 0x0135C70D;
+        inline constexpr std::uintptr_t ScriptThingUpdateAttachment = 0x0135C71F;
+        inline constexpr std::uintptr_t ScriptThingIncrementScriptCounter = 0x0135C72F;
+        inline constexpr std::uintptr_t ScriptThingDecrementScriptCounter = 0x0135C73F;
+        inline constexpr std::uintptr_t ScriptThingGetScriptCounter = 0x0135C74F;
+        inline constexpr std::uintptr_t ThingCreatureVtable = 0x02B1AFE4;
+        inline constexpr std::uintptr_t ThingPlayerCreatureVtable = 0x02B1DBB4;
+    }
+
+    namespace game_interface_slot
+    {
+        inline constexpr std::size_t StartScriptingEntity = 12;
+        inline constexpr std::size_t GetHero = 70;
+        inline constexpr std::size_t GetThingWithScriptName = 78;
+        inline constexpr std::size_t CreateCreature = 97;
+        inline constexpr std::size_t TurnCreatureInto = 100;
+        inline constexpr std::size_t SetAttackable = 0x774 / sizeof(void*);
+        inline constexpr std::size_t SetBound = 0x804 / sizeof(void*);
+        inline constexpr std::size_t SetFree = 0x808 / sizeof(void*);
+        inline constexpr std::size_t SetDrawable = 0x848 / sizeof(void*);
+        inline constexpr std::size_t SetDamageable = 0x85C / sizeof(void*);
+        inline constexpr std::size_t SetCollidable = 0x898 / sizeof(void*);
+        inline constexpr std::size_t TeleportThing = 0x7B0 / sizeof(void*);
+        inline constexpr std::size_t SetAttackImmediately = 479;
+        inline constexpr std::size_t AddScreenMessage = 118;
+        inline constexpr std::size_t IsQuestActive = 299;
+        inline constexpr std::size_t IsQuestRegistered = 300;
+        inline constexpr std::size_t IsQuestCompleted = 301;
+        inline constexpr std::size_t IsQuestFailed = 302;
+    }
+
+    namespace script_thing_slot
+    {
+        inline constexpr std::size_t Destructor = 0;
+        inline constexpr std::size_t GetName = 1;
+        inline constexpr std::size_t GetDefinitionName = 2;
+        inline constexpr std::size_t GetDataString = 3;
+        inline constexpr std::size_t SetDataString = 4;
+        inline constexpr std::size_t GetPosition = 6;
+        inline constexpr std::size_t GetCurrentMapName = 8;
+        inline constexpr std::size_t GetHomeMapName = 9;
+        inline constexpr std::size_t GetFacing = 10;
+        inline constexpr std::size_t ResolveNative = 11;
+        inline constexpr std::size_t IsSneaking = 15;
+        inline constexpr std::size_t IsAwareOfHero = 16;
+        inline constexpr std::size_t IsUnconscious = 61;
+        inline constexpr std::size_t IsUsable = 62;
+        inline constexpr std::size_t IsOpenDoor = 64;
+        inline constexpr std::size_t IsSummonedCreature = 65;
+        inline constexpr std::size_t SetAsUsable = 66;
+        inline constexpr std::size_t SetFriendsWithEverything = 67;
+        inline constexpr std::size_t GetActivationTriggerStatus = 68;
+        inline constexpr std::size_t SetActivationTriggerStatus = 69;
+        inline constexpr std::size_t SetToKillOnLevelUnload = 70;
+        inline constexpr std::size_t UpdateAttachment = 71;
+        inline constexpr std::size_t IncrementScriptCounter = 72;
+        inline constexpr std::size_t DecrementScriptCounter = 73;
+        inline constexpr std::size_t GetScriptCounter = 74;
+        inline constexpr std::size_t IsAlive = 75;
+        inline constexpr std::size_t IsDead = 76;
+        inline constexpr std::size_t IsNull = 77;
+    }
+
+    namespace thing_creature_slot
+    {
+        inline constexpr std::size_t ModifyCombatHealth = 0x100 / sizeof(void*);
+    }
+
+    namespace scripted_control_slot
+    {
+        inline constexpr std::size_t FireProjectileAt = 3;
+        inline constexpr std::size_t MoveToPosition = 4;
+        inline constexpr std::size_t MoveToEntity = 5;
+        inline constexpr std::size_t FollowRoute = 6;
+        inline constexpr std::size_t FollowEntity = 7;
+        inline constexpr std::size_t StopFollowing = 8;
+        inline constexpr std::size_t IsFollowActionRunning = 9;
+        inline constexpr std::size_t ClearCommands = 10;
+        inline constexpr std::size_t PerformExpression = 17;
+        inline constexpr std::size_t PlayAnimation = 18;
+        inline constexpr std::size_t PlayCombatAnimation = 19;
+        inline constexpr std::size_t PlayLoopingAnimation = 20;
+        inline constexpr std::size_t ClearAllActions = 21;
+        inline constexpr std::size_t ClearAllActionsIncludingLoops = 22;
+        inline constexpr std::size_t UnsheatheWeapons = 25;
+        inline constexpr std::size_t IsPerformingScriptTask = 26;
+        inline constexpr std::size_t IsFollowingEntity = 27;
+        inline constexpr std::size_t Wait = 29;
+        inline constexpr std::size_t IsNull = 30;
+    }
+}

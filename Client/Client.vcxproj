@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectGuid>{EF7DF930-D6E3-47AA-9475-76128B7DBF88}</ProjectGuid>
+    <RootNamespace>FableTogetherClient</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>FableTogether.Client</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup><OutDir>$(SolutionDir)bin\Release\</OutDir><IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir><TargetName>FableTogether.Client</TargetName></PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>Disabled</Optimization><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)ThirdParty\AngelScript\include;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptstdstring;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptarray;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>MaxSpeed</Optimization><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)ThirdParty\AngelScript\include;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptstdstring;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptarray;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <Link><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>if not exist "$(OutDir)scripts\debug" mkdir "$(OutDir)scripts\debug"
+copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\appearance_cycle.as"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Automation\AppearanceCycle\AppearanceCycleScenario.cpp" />
+    <ClCompile Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.cpp" />
+    <ClCompile Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.cpp" />
+    <ClCompile Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.cpp" />
+    <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp" />
+    <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp" />
+    <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp" />
+    <ClCompile Include="Core\GameThread\Hooks\GameThreadIdleHook.cpp" />
+    <ClCompile Include="Core\GameThread\Native\PeekMessageImport.cpp" />
+    <ClCompile Include="Game\Creature\CreatureService.cpp" />
+    <ClCompile Include="Game\Creature\AI\Hooks\AiBrainUpdateObserver.cpp" />
+    <ClCompile Include="Game\Creature\AI\Native\AiBrainFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Combat\Bindings\CreatureCombatBindings.cpp" />
+    <ClCompile Include="Game\Creature\Combat\CreatureCombatService.cpp" />
+    <ClCompile Include="Game\Creature\Combat\Hooks\PlayerAttackAbilityHook.cpp" />
+    <ClCompile Include="Game\Creature\Combat\Native\CreatureCombatFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Combat\Native\CreatureAbilitySubmissionFunction.cpp" />
+    <ClCompile Include="Game\Creature\Combat\Native\HeroTargetingComponent.cpp" />
+    <ClCompile Include="Game\Creature\Control\ScriptControl.cpp" />
+    <ClCompile Include="Game\Creature\Hooks\CreatureConstructorHook.cpp" />
+    <ClCompile Include="Game\Creature\Look\Bindings\CreatureLookBindings.cpp" />
+    <ClCompile Include="Game\Creature\Look\CreatureLookService.cpp" />
+    <ClCompile Include="Game\Creature\Look\Hooks\CreatureFacingInputRouterHook.cpp" />
+    <ClCompile Include="Game\Creature\Look\Native\CreatureLookFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Bindings\CreatureLocomotionBindings.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\CreatureLocomotionService.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\CreatureLocomotionState.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Hooks\CreatureModeManagerObserver.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Hooks\CreatureFrameInputRouterHook.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Hooks\FollowCreatureActionHook.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Hooks\PhysicsMovementInputHook.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Hooks\PhysicsNavigatorObserver.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Native\CreatureModeManagerFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Native\FollowCreatureActionFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Native\LocomotionComponents.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Native\PhysicsMovementFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Locomotion\Native\PhysicsNavigatorFunctions.cpp" />
+    <ClCompile Include="Game\Creature\Native\CreatureConstructorFunction.cpp" />
+    <ClCompile Include="Game\Creature\Native\CreatureFrameFunctions.cpp" />
+    <ClCompile Include="Game\Entity\Entity.cpp" />
+    <ClCompile Include="Game\Entity\EntityService.cpp" />
+    <ClCompile Include="Game\Entity\Native\ThingComponentAccess.cpp" />
+    <ClCompile Include="Game\HeroPawn\HeroPawnService.cpp" />
+    <ClCompile Include="Game\HeroPawn\TransformProbe\Hooks\HeroTransformCompatibilityHooks.cpp" />
+    <ClCompile Include="Game\HeroPawn\TransformProbe\Native\HeroTransformCompatibilityFunctions.cpp" />
+    <ClCompile Include="Game\Native\GameInterface.cpp" />
+    <ClCompile Include="Game\NPC\NpcService.cpp" />
+    <ClCompile Include="Game\Player\PlayerService.cpp" />
+    <ClCompile Include="Game\Player\Input\PlayerInputService.cpp" />
+    <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp" />
+    <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp" />
+    <ClCompile Include="Game\Quest\QuestService.cpp" />
+    <ClCompile Include="Game\World\WorldService.cpp" />
+    <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Game\Creature\Bindings\CreatureBindings.cpp" />
+    <ClCompile Include="Game\Creature\Bindings\CreatureServiceBindings.cpp" />
+    <ClCompile Include="Game\Entity\Bindings\EntityBindings.cpp" />
+    <ClCompile Include="Scripting\Bindings\Registry\GameBindings.cpp" />
+    <ClCompile Include="Game\HeroPawn\Bindings\HeroPawnBindings.cpp" />
+    <ClCompile Include="Game\Math\Bindings\MathBindings.cpp" />
+    <ClCompile Include="Game\NPC\Bindings\NpcBindings.cpp" />
+    <ClCompile Include="Game\Player\Bindings\PlayerBindings.cpp" />
+    <ClCompile Include="Game\Quest\Bindings\QuestBindings.cpp" />
+    <ClCompile Include="Game\World\Bindings\WorldBindings.cpp" />
+    <ClCompile Include="Scripting\Runtime\Capabilities\ApiCoverage.cpp" />
+    <ClCompile Include="Scripting\Runtime\Events\EventBindings.cpp" />
+    <ClCompile Include="Scripting\Runtime\Events\EventBus.cpp" />
+    <ClCompile Include="Scripting\Runtime\Host\ScriptHost.cpp" />
+    <ClCompile Include="Scripting\Runtime\Scheduling\Scheduler.cpp" />
+    <ClCompile Include="Scripting\Runtime\Scheduling\SchedulerBindings.cpp" />
+    <ClCompile Include="Scripting\Runtime\Storage\PersistentStore.cpp" />
+    <ClCompile Include="Scripting\Runtime\Storage\StorageBindings.cpp" />
+    <ClCompile Include="UI\Hud\HudService.cpp" />
+    <ClCompile Include="UI\Hud\Bindings\UiBindings.cpp" />
+    <ClCompile Include="UI\FrontEnd\Hooks\FrontEndStartInitializerHook.cpp" />
+    <ClCompile Include="UI\FrontEnd\Hooks\FrontEndLifecycleHooks.cpp" />
+    <ClCompile Include="UI\FrontEnd\Native\FrontEndStartInitializer.cpp" />
+    <ClCompile Include="UI\FrontEnd\Native\FrontEndLifecycleFunctions.cpp" />
+    <ClCompile Include="UI\MainWindow\MainWindowHook.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Automation\AppearanceCycle\AppearanceCycleScenario.h" />
+    <ClInclude Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.h" />
+    <ClInclude Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.h" />
+    <ClInclude Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.h" />
+    <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h" />
+    <ClInclude Include="Core\Capabilities\CapabilityRegistry.h" />
+    <ClInclude Include="Core\Diagnostics\DiagnosticLog.h" />
+    <ClInclude Include="Core\Diagnostics\Diagnostics.h" />
+    <ClInclude Include="Core\GameThread\Hooks\GameThreadIdleHook.h" />
+    <ClInclude Include="Core\GameThread\Native\PeekMessageImport.h" />
+    <ClInclude Include="Game\Creature\CreatureService.h" />
+    <ClInclude Include="Game\Creature\AI\Hooks\AiBrainUpdateObserver.h" />
+    <ClInclude Include="Game\Creature\AI\Native\AiBrainFunctions.h" />
+    <ClInclude Include="Game\Creature\Combat\Bindings\CreatureCombatBindings.h" />
+    <ClInclude Include="Game\Creature\Combat\CreatureCombatService.h" />
+    <ClInclude Include="Game\Creature\Combat\Hooks\PlayerAttackAbilityHook.h" />
+    <ClInclude Include="Game\Creature\Combat\Native\CreatureCombatFunctions.h" />
+    <ClInclude Include="Game\Creature\Combat\Native\CreatureAbilitySubmissionFunction.h" />
+    <ClInclude Include="Game\Creature\Combat\Native\HeroTargetingComponent.h" />
+    <ClInclude Include="Game\Creature\Control\ScriptControl.h" />
+    <ClInclude Include="Game\Creature\Hooks\CreatureConstructorHook.h" />
+    <ClInclude Include="Game\Creature\Look\Bindings\CreatureLookBindings.h" />
+    <ClInclude Include="Game\Creature\Look\CreatureLookService.h" />
+    <ClInclude Include="Game\Creature\Look\Hooks\CreatureFacingInputRouterHook.h" />
+    <ClInclude Include="Game\Creature\Look\Native\CreatureLookFunctions.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Bindings\CreatureLocomotionBindings.h" />
+    <ClInclude Include="Game\Creature\Locomotion\CreatureLocomotionService.h" />
+    <ClInclude Include="Game\Creature\Locomotion\CreatureLocomotionState.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Hooks\CreatureModeManagerObserver.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Hooks\CreatureFrameInputRouterHook.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Hooks\FollowCreatureActionHook.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Hooks\PhysicsMovementInputHook.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Hooks\PhysicsNavigatorObserver.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Native\CreatureModeManagerFunctions.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Native\FollowCreatureActionFunctions.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Native\LocomotionComponents.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Native\PhysicsMovementFunctions.h" />
+    <ClInclude Include="Game\Creature\Locomotion\Native\PhysicsNavigatorFunctions.h" />
+    <ClInclude Include="Game\Creature\Native\CreatureConstructorFunction.h" />
+    <ClInclude Include="Game\Creature\Native\CreatureFrameFunctions.h" />
+    <ClInclude Include="Game\Entity\Entity.h" />
+    <ClInclude Include="Game\Entity\EntityService.h" />
+    <ClInclude Include="Game\Entity\Native\ThingComponentAccess.h" />
+    <ClInclude Include="Game\HeroPawn\HeroPawnService.h" />
+    <ClInclude Include="Game\HeroPawn\TransformProbe\Hooks\HeroTransformCompatibilityHooks.h" />
+    <ClInclude Include="Game\HeroPawn\TransformProbe\Native\HeroTransformCompatibilityFunctions.h" />
+    <ClInclude Include="Game\Math\Vector3.h" />
+    <ClInclude Include="Game\Native\Addresses.h" />
+    <ClInclude Include="Game\Native\GameInterface.h" />
+    <ClInclude Include="Game\Native\ScriptTypes.h" />
+    <ClInclude Include="Game\NPC\NpcService.h" />
+    <ClInclude Include="Game\Player\PlayerService.h" />
+    <ClInclude Include="Game\Player\Input\PlayerInputService.h" />
+    <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h" />
+    <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h" />
+    <ClInclude Include="Game\Quest\QuestService.h" />
+    <ClInclude Include="Game\World\WorldService.h" />
+    <ClInclude Include="Game\Creature\Bindings\CreatureBindings.h" />
+    <ClInclude Include="Game\Creature\Bindings\CreatureServiceBindings.h" />
+    <ClInclude Include="Game\Entity\Bindings\EntityBindings.h" />
+    <ClInclude Include="Scripting\Bindings\Registry\GameBindings.h" />
+    <ClInclude Include="Game\HeroPawn\Bindings\HeroPawnBindings.h" />
+    <ClInclude Include="Game\Math\Bindings\MathBindings.h" />
+    <ClInclude Include="Game\NPC\Bindings\NpcBindings.h" />
+    <ClInclude Include="Game\Player\Bindings\PlayerBindings.h" />
+    <ClInclude Include="Game\Quest\Bindings\QuestBindings.h" />
+    <ClInclude Include="Game\World\Bindings\WorldBindings.h" />
+    <ClInclude Include="Scripting\Runtime\Capabilities\ApiCoverage.h" />
+    <ClInclude Include="Scripting\Runtime\Events\EventBindings.h" />
+    <ClInclude Include="Scripting\Runtime\Events\EventBus.h" />
+    <ClInclude Include="Scripting\Runtime\Host\ScriptHost.h" />
+    <ClInclude Include="Scripting\Runtime\Scheduling\Scheduler.h" />
+    <ClInclude Include="Scripting\Runtime\Scheduling\SchedulerBindings.h" />
+    <ClInclude Include="Scripting\Runtime\Storage\PersistentStore.h" />
+    <ClInclude Include="Scripting\Runtime\Storage\StorageBindings.h" />
+    <ClInclude Include="UI\Hud\HudService.h" />
+    <ClInclude Include="UI\Hud\Bindings\UiBindings.h" />
+    <ClInclude Include="UI\FrontEnd\Hooks\FrontEndStartInitializerHook.h" />
+    <ClInclude Include="UI\FrontEnd\Hooks\FrontEndLifecycleHooks.h" />
+    <ClInclude Include="UI\FrontEnd\Native\FrontEndStartInitializer.h" />
+    <ClInclude Include="UI\FrontEnd\Native\FrontEndLifecycleFunctions.h" />
+    <ClInclude Include="UI\MainWindow\MainWindowHook.h" />
+    <None Include="Scripts\Debug\AppearanceCycle.as" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ThirdParty\AngelScript\AngelScript.vcxproj">
+      <Project>{A9354F5D-A550-4D94-A86A-40C843E28EAD}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

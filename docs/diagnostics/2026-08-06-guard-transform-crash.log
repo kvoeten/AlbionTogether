@@ -1,0 +1,26 @@
+[22:08:15.253] FableTogether transformation probe loaded.
+[22:08:15.253] Startup: version=0.2.4-direct-hero-lookup pid=35992 bootstrap_tid=14892 game_base=00B20000 client_base=71DB0000.
+[22:08:15.257] Startup: current_directory=D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32.
+[22:08:15.258] Startup: command_line="D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32\Fable Anniversary.exe".
+[22:08:15.258] Startup: SteamAppId=288470 steam_api=loaded.
+[22:08:15.258] Target executable and transformation signatures validated.
+[22:08:15.259] Startup: waiting for game window; process=0 visible=0 eligible=0 minimum=640x360.
+[22:08:20.300] Startup: waiting for game window; process=2 visible=1 eligible=0 minimum=640x360.
+[22:08:21.267] Startup: selected game window hwnd=00460C68 tid=37628 class=LaunchUnrealUWindowsClient title=Fable Anniversary (32-bit, DX9) area=4096000.
+[22:08:21.267] Hook: window procedure installed; replacement=71DB2A60 original=6CA6AD60.
+[22:08:21.271] Hook: hotkey timer installed; id=64177 interval_ms=16.
+[22:08:21.271] Transformation probe ready. Press 1 to cycle; press Shift+1 to restore CREATURE_HERO.
+[22:08:21.271] Hero acquisition uses direct SCRIPT_NAME_HERO lookup; no active quest-script context is required.
+[22:08:22.350] Event: first game-window timer tick received; polling fallback is alive.
+[22:08:23.870] Startup: steam_api changed to loaded.
+[22:08:23.870] Startup: game-script interface changed to not-ready (interface=00000000).
+[22:09:48.662] Startup: game-script interface changed to ready (interface=88E043E0).
+[22:09:56.444] Input: number-row 1 pressed via WM_KEYDOWN; shift=false.
+[22:09:56.445] Input: transformation queued for direct hero lookup on the next game-window timer dispatch.
+[22:09:56.445] Event: executing queued cycle with direct SCRIPT_NAME_HERO lookup on game-window timer thread=37628.
+[22:09:56.446] Key 1: attempting form 2/14: CREATURE_BS_GUARD
+[22:09:56.446] Native: transformation begin definition=CREATURE_BS_GUARD thread=37628 interface=88E043E0 acquisition=SCRIPT_NAME_HERO.
+[22:09:56.446] Native: direct hero lookup returned=045FEC44 result=045FEC44 vtable=0357CBF4 implementation=87EFBE50 pointer_info=87F45C7C expected_vtable=0357CBF4.
+[22:09:56.446] Native: creature definition string constructed; storage=9FE2B740.
+[22:09:56.447] Native: TurnCreatureInto returned=045FEC38 result=045FEC38 vtable=0357CBF4 implementation=9DCA85C0 pointer_info=7FE97218.
+[22:09:56.448] Transformation to CREATURE_BS_GUARD succeeded.

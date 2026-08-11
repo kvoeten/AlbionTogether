@@ -1,0 +1,41 @@
+[23:27:13.655] FableTogether transformation probe loaded.
+[23:27:13.655] Startup: build=development-current pid=30936 bootstrap_tid=9712 game_base=00D30000 client_base=71DB0000.
+[23:27:13.655] Startup: current_directory=D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32.
+[23:27:13.655] Startup: command_line="D:\SteamLibrary\steamapps\common\Fable Anniversary\Binaries\Win32\Fable Anniversary.exe".
+[23:27:13.655] Startup: SteamAppId=288470 steam_api=loaded.
+[23:27:13.655] Hook: low-address access-violation observer installed; handler=049C3800 max_events=8.
+[23:27:13.655] Target executable and transformation signatures validated.
+[23:27:13.655] Hook: component 0x68 null guards installed; fractional=026E8A90->71DB1D20 discrete=026E91E0->71DB1C40.
+[23:27:19.977] Startup: selected game window hwnd=00250CB0 tid=21528 class=LaunchUnrealUWindowsClient title=Fable Anniversary (32-bit, DX9) area=4096000.
+[23:27:19.981] Hook: window procedure installed; replacement=71DB2CA0 original=6CA6AD60.
+[23:27:19.982] Hook: hotkey timer installed; id=64177 interval_ms=16.
+[23:27:19.982] Transformation probe ready. Press 1 to cycle; press Shift+1 to restore CREATURE_HERO.
+[23:27:19.982] Hero acquisition uses direct SCRIPT_NAME_HERO lookup; no active quest-script context is required.
+[23:27:22.801] Startup: game-script interface changed to not-ready (interface=00000000).
+[23:27:48.044] Startup: game-script interface changed to ready (interface=88F12E80).
+[23:27:57.689] Input: number-row 1 pressed via WM_KEYDOWN; shift=false.
+[23:27:57.689] Input: transformation queued for direct hero lookup on the next game-window timer dispatch.
+[23:27:57.706] Event: executing queued cycle with direct SCRIPT_NAME_HERO lookup on game-window timer thread=21528.
+[23:27:57.707] Key 1: attempting form 2/14: CREATURE_BS_GUARD
+[23:27:57.707] Native: transformation begin definition=CREATURE_BS_GUARD thread=21528 interface=88F12E80 acquisition=SCRIPT_NAME_HERO.
+[23:27:57.707] Native: direct hero lookup returned=00AFE71C result=00AFE71C vtable=0378CBF4 implementation=8ABBB450 pointer_info=6DCC3CA8 expected_vtable=0378CBF4.
+[23:27:57.707] Native: creature definition string constructed; storage=9DB1D000.
+[23:27:57.708] Native: TurnCreatureInto returned=00AFE710 result=00AFE710 vtable=0378CBF4 implementation=9DB485C0 pointer_info=9A37C750.
+[23:27:57.709] Native: retained TurnCreatureInto result handle for process lifetime; slot=1/64 ref_count=2.
+[23:27:57.709] Native: retained direct hero lookup handle for process lifetime; slot=2/64 ref_count=3.
+[23:27:57.709] Transformation to CREATURE_BS_GUARD succeeded.
+[23:27:57.722] Compatibility: component 0x68 discrete-level helper used a safe fallback because dependency +0x70 was null; event=1 thread=10148 component=9C046200.
+[23:27:57.723] Compatibility: component 0x68 fractional-progress helper used a safe fallback because dependency +0x70 was null; event=2 thread=10148 component=9C046200.
+[23:28:02.772] Process exception observer: event=1 thread=5276; continuing Windows exception dispatch.
+[23:28:02.772] Native fault: stage=process-wide low-address access-violation observer code=0xC0000005 instruction=772FA996 game_rva=<outside-game> module=C:\WINDOWS\SYSTEM32\ntdll.dll.
+[23:28:02.772] Native fault: access_violation operation=write address=00000014.
+[23:28:02.773] Process exception registers: eax=00000000 ebx=FFFFFFFA ecx=FFFFFFFF edx=FFFFFFFA esi=03F633A0 edi=03F63390 ebp=2635FD54 esp=2635FCC8 eip=772FA996.
+
+Dump analysis note: the first PID 30936 dump captured the originating game
+failure on thread 10148 at runtime address 0x0270950D (preferred VA
+0x01DD950D), writing to 0x58D91451. The caller at preferred VA 0x01CFAF3D
+tested for component type 0x11. When the transformed guard did not provide it,
+retail code continued with uninitialized stack local [ebp-0x44]. Its stale value
+was the return address 0x025B5AC6 (preferred VA 0x01C85AC6), which the timer
+updater then treated as an object pointer. The later ntdll write to 0x14 was a
+secondary worker-termination failure.
