@@ -145,6 +145,7 @@ namespace fable::ui
         UINT_PTR timerId,
         UINT timerIntervalMilliseconds,
         bool captureNumberRowOne,
+        bool preserveBackgroundRendering,
         const MainWindowCallbacks& callbacks,
         const core::Diagnostics& diagnostics)
     {
@@ -156,6 +157,7 @@ namespace fable::ui
         threadId_ = GetWindowThreadProcessId(window_, nullptr);
         timerId_ = timerId;
         captureNumberRowOne_ = captureNumberRowOne;
+        preserveBackgroundRendering_ = preserveBackgroundRendering;
         callbacks_ = callbacks;
         diagnostics_ = diagnostics;
         active_ = this;
@@ -237,6 +239,20 @@ namespace fable::ui
         }
         else if (message == WM_CLOSE && callbacks_.onCloseRequested != nullptr &&
             callbacks_.onCloseRequested())
+        {
+            return 0;
+        }
+
+        // UE3's standalone window treats deactivation as permission to stop
+        // presenting. For the launcher's same-machine multiplayer harness,
+        // keep the engine's activation state intact while Windows moves real
+        // keyboard focus to the peer window. This affects only local test
+        // instances; normal single-process and real network launches retain
+        // the retail focus behavior.
+        if (preserveBackgroundRendering_ &&
+            (message == WM_KILLFOCUS ||
+                (message == WM_ACTIVATEAPP && wParam == FALSE) ||
+                (message == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE)))
         {
             return 0;
         }

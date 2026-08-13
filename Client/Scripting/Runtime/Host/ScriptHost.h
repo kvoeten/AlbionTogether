@@ -22,6 +22,16 @@ namespace fable::game
     class WorldService;
 }
 
+namespace fable::automation::runtime
+{
+    class RuntimeConfiguration;
+}
+
+namespace fable::multiplayer
+{
+    class MultiplayerSession;
+}
+
 namespace fable::game::creature::locomotion
 {
     class CreatureLocomotionService;
@@ -71,9 +81,11 @@ namespace fable::scripting
             HMODULE clientModule,
             HMODULE gameModule,
             const wchar_t* persistentStorageRoot,
+            const automation::runtime::RuntimeConfiguration& runtimeConfiguration,
             const core::Diagnostics& diagnostics);
         void DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed);
         void DispatchWorldReady();
+        bool ProcessMultiplayerPresentation();
         void Tick(float deltaSeconds);
         bool Reload();
         void Shutdown();
@@ -113,6 +125,7 @@ namespace fable::scripting
         std::unique_ptr<EventBus> events_;
         std::unique_ptr<PersistentStore> storage_;
         std::unique_ptr<Scheduler> scheduler_;
+        std::unique_ptr<multiplayer::MultiplayerSession> multiplayerSession_;
         std::filesystem::path scriptsRoot_;
         core::Diagnostics diagnostics_ = {};
         bool loaded_ = false;

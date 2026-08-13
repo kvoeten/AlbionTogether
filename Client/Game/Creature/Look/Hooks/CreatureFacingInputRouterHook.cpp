@@ -1,7 +1,10 @@
 #include "CreatureFacingInputRouterHook.h"
 
+#include "Game/Creature/Locomotion/Native/PhysicsMovementFunctions.h"
+#include "Game/Creature/Locomotion/Native/PhysicsNavigatorFunctions.h"
 #include "Game/Creature/Look/Native/CreatureLookFunctions.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -97,7 +100,9 @@ namespace fable::game::creature::look
 
     bool CreatureFacingInputRouterHook::Bind(
         void* targetCreature,
-        void* targetPhysicsNavigator)
+        void* targetPhysicsNavigator,
+        ReplicatedMovementProvider provider,
+        void* providerContext)
     {
         if (!IsInstalled() ||
             !::fable::game::creature::native::CreatureFrameFunctions::ValidateCreature(
@@ -111,18 +116,40 @@ namespace fable::game::creature::look
         }
 
         AcquireSRWLockExclusive(&bindingLock_);
-        targetCreature_ = targetCreature;
-        targetNavigator_ = targetPhysicsNavigator;
-        routedFacingCount_.store(0, std::memory_order_release);
+        Binding* available = nullptr;
+        for (Binding& binding : bindings_)
+        {
+            if (binding.creature == targetCreature)
+            {
+                available = &binding;
+                break;
+            }
+            if (available == nullptr && binding.creature == nullptr)
+            {
+                available = &binding;
+            }
+        }
+        if (available == nullptr)
+        {
+            ReleaseSRWLockExclusive(&bindingLock_);
+            diagnostics_.Log("Hook: movement-facing router binding capacity exhausted.");
+            return false;
+        }
+        available->creature = targetCreature;
+        available->navigator = targetPhysicsNavigator;
+        available->provider = provider;
+        available->providerContext = providerContext;
+        available->lastFrameAt = 0;
         ReleaseSRWLockExclusive(&bindingLock_);
 
         char detail[192] = {};
         std::snprintf(
             detail,
             std::size(detail),
-            "target_creature=%p target_navigator=%p",
+            "target_creature=%p target_navigator=%p replicated_movement=%s",
             targetCreature,
-            targetPhysicsNavigator);
+            targetPhysicsNavigator,
+            provider != nullptr ? "true" : "false");
         diagnostics_.Event("CreatureFacingInputRouterBound", detail);
         return true;
     }
@@ -130,8 +157,28 @@ namespace fable::game::creature::look
     void CreatureFacingInputRouterHook::Clear() noexcept
     {
         AcquireSRWLockExclusive(&bindingLock_);
-        targetCreature_ = nullptr;
-        targetNavigator_ = nullptr;
+        for (Binding& binding : bindings_)
+        {
+            binding = {};
+        }
+        ReleaseSRWLockExclusive(&bindingLock_);
+    }
+
+    void CreatureFacingInputRouterHook::Unbind(void* targetCreature) noexcept
+    {
+        if (targetCreature == nullptr)
+        {
+            return;
+        }
+        AcquireSRWLockExclusive(&bindingLock_);
+        for (Binding& binding : bindings_)
+        {
+            if (binding.creature == targetCreature)
+            {
+                binding = {};
+                break;
+            }
+        }
         ReleaseSRWLockExclusive(&bindingLock_);
     }
 
@@ -143,7 +190,13 @@ namespace fable::game::creature::look
     bool CreatureFacingInputRouterHook::IsBound() const noexcept
     {
         AcquireSRWLockShared(&bindingLock_);
-        const bool bound = targetCreature_ != nullptr && targetNavigator_ != nullptr;
+        const bool bound = std::any_of(
+            bindings_.begin(),
+            bindings_.end(),
+            [](const Binding& binding)
+            {
+                return binding.creature != nullptr && binding.navigator != nullptr;
+            });
         ReleaseSRWLockShared(&bindingLock_);
         return bound;
     }
@@ -163,11 +216,173 @@ namespace fable::game::creature::look
             return false;
         }
 
-        const bool result = router->original_(creature);
-        AcquireSRWLockShared(&router->bindingLock_);
-        if (creature != router->targetCreature_ || router->targetNavigator_ == nullptr)
+        Binding activeBinding;
+        const ULONGLONG now = GetTickCount64();
+        AcquireSRWLockExclusive(&router->bindingLock_);
+        for (Binding& binding : router->bindings_)
         {
-            ReleaseSRWLockShared(&router->bindingLock_);
+            if (binding.creature == creature)
+            {
+                activeBinding = binding;
+                binding.lastFrameAt = now;
+                break;
+            }
+        }
+        ReleaseSRWLockExclusive(&router->bindingLock_);
+
+        ReplicatedMovementInput replicatedInput;
+        bool hasReplicatedInput = activeBinding.provider != nullptr &&
+            activeBinding.provider(
+                activeBinding.providerContext,
+                creature,
+                replicatedInput);
+        bool routedReplicatedMovement = false;
+        const bool controlledPhysics = activeBinding.navigator != nullptr &&
+            ::fable::game::creature::locomotion::native::
+                PhysicsWorldPositionFunctions::ValidateControlledComponent(
+                    router->gameModule_,
+                    activeBinding.navigator);
+        Vector3 appliedFrameMotion = {};
+        if (hasReplicatedInput && activeBinding.navigator != nullptr &&
+            std::isfinite(replicatedInput.position.x) &&
+            std::isfinite(replicatedInput.position.y) &&
+            std::isfinite(replicatedInput.position.z) &&
+            std::isfinite(replicatedInput.velocity.x) &&
+            std::isfinite(replicatedInput.velocity.y) &&
+            std::isfinite(replicatedInput.velocity.z))
+        {
+            Vector3 currentPosition = {};
+            bool readable = false;
+            __try
+            {
+                std::memcpy(
+                    &currentPosition,
+                    static_cast<const std::uint8_t*>(activeBinding.navigator) +
+                        ::fable::game::creature::locomotion::native::PhysicsNavigatorFunctions::WorldPositionOffset,
+                    sizeof(currentPosition));
+                readable = std::isfinite(currentPosition.x) &&
+                    std::isfinite(currentPosition.y) &&
+                    std::isfinite(currentPosition.z);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                readable = false;
+            }
+
+            if (readable)
+            {
+                const float predictionSeconds = std::clamp(
+                    replicatedInput.sampleAgeSeconds,
+                    0.0f,
+                    0.15f);
+                const Vector3 target = {
+                    replicatedInput.position.x +
+                        replicatedInput.velocity.x * predictionSeconds,
+                    replicatedInput.position.y +
+                        replicatedInput.velocity.y * predictionSeconds,
+                    replicatedInput.position.z +
+                        replicatedInput.velocity.z * predictionSeconds,
+                };
+                const float deltaX = target.x - currentPosition.x;
+                const float deltaY = target.y - currentPosition.y;
+                const float deltaZ = target.z - currentPosition.z;
+                const float distance = std::sqrt(
+                    deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+
+                if (distance >= 8.0f)
+                {
+                    routedReplicatedMovement = controlledPhysics
+                        ? ::fable::game::creature::locomotion::native::
+                            PhysicsWorldPositionFunctions::SetControlledWorldPosition(
+                                router->gameModule_,
+                                activeBinding.navigator,
+                                target)
+                        : ::fable::game::creature::locomotion::native::
+                            PhysicsWorldPositionFunctions::SetNavigatorWorldPosition(
+                                router->gameModule_,
+                                activeBinding.navigator,
+                                target);
+                    if (routedReplicatedMovement)
+                    {
+                        appliedFrameMotion = {
+                            target.x - currentPosition.x,
+                            target.y - currentPosition.y,
+                            target.z - currentPosition.z,
+                        };
+                    }
+                }
+                else if (distance >= 0.005f)
+                {
+                    const float frameSeconds = activeBinding.lastFrameAt == 0
+                        ? 1.0f / 60.0f
+                        : std::clamp(
+                            static_cast<float>(now - activeBinding.lastFrameAt) /
+                                1000.0f,
+                            1.0f / 240.0f,
+                            1.0f / 15.0f);
+                    const float speed = std::sqrt(
+                        replicatedInput.velocity.x * replicatedInput.velocity.x +
+                        replicatedInput.velocity.y * replicatedInput.velocity.y +
+                        replicatedInput.velocity.z * replicatedInput.velocity.z);
+                    const float maximumStep = std::clamp(
+                        speed * frameSeconds * 1.25f +
+                            (replicatedInput.moving ? 0.01f : 0.025f),
+                        0.015f,
+                        0.35f);
+                    const float step = (std::min)(distance, maximumStep);
+                    const float scale = step / distance;
+                    const Vector3 desiredPosition = {
+                        currentPosition.x + deltaX * scale,
+                        currentPosition.y + deltaY * scale,
+                        currentPosition.z + deltaZ * scale,
+                    };
+                    routedReplicatedMovement = controlledPhysics
+                        ? ::fable::game::creature::locomotion::native::
+                            PhysicsWorldPositionFunctions::SetControlledWorldPosition(
+                                router->gameModule_,
+                                activeBinding.navigator,
+                                desiredPosition)
+                        : ::fable::game::creature::locomotion::native::
+                            PhysicsNavigatorFunctions::RequestNextPosition(
+                                router->gameModule_,
+                                activeBinding.navigator,
+                                desiredPosition);
+                    if (routedReplicatedMovement)
+                    {
+                        appliedFrameMotion = {
+                            desiredPosition.x - currentPosition.x,
+                            desiredPosition.y - currentPosition.y,
+                            desiredPosition.z - currentPosition.z,
+                        };
+                    }
+                }
+            }
+        }
+
+        if (controlledPhysics && hasReplicatedInput)
+        {
+            __try
+            {
+                auto* const creatureBytes = static_cast<std::uint8_t*>(creature);
+                *reinterpret_cast<float*>(
+                    creatureBytes +
+                    ::fable::game::creature::native::CreatureFrameFunctions::
+                        MotionXOffset) = appliedFrameMotion.x;
+                *reinterpret_cast<float*>(
+                    creatureBytes +
+                    ::fable::game::creature::native::CreatureFrameFunctions::
+                        MotionYOffset) = appliedFrameMotion.y;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                routedReplicatedMovement = false;
+            }
+        }
+
+        const bool result = router->original_(creature);
+        void* const navigator = activeBinding.navigator;
+        if (navigator == nullptr)
+        {
             return result;
         }
 
@@ -192,29 +407,31 @@ namespace fable::game::creature::look
             readable = false;
         }
 
-        const float planarSquared = motionX * motionX + motionY * motionY;
-        if (!readable || planarSquared <= 0.00000001f)
+        float facing = replicatedInput.facing;
+        if (!hasReplicatedInput)
         {
-            ReleaseSRWLockShared(&router->bindingLock_);
+            const float planarSquared = motionX * motionX + motionY * motionY;
+            if (!readable || planarSquared <= 0.00000001f)
+            {
+                return result;
+            }
+            constexpr float inverseTau = 0.15915494309189533577f;
+            facing = std::atan2(motionX, motionY) * inverseTau;
+        }
+        if (!std::isfinite(facing))
+        {
             return result;
         }
-
-        constexpr float inverseTau = 0.15915494309189533577f;
-        float facing = std::atan2(motionX, motionY) * inverseTau;
+        facing -= std::floor(facing);
         if (facing < 0.0f)
         {
             facing += 1.0f;
         }
-        else if (facing >= 1.0f)
-        {
-            facing -= std::floor(facing);
-        }
 
         const bool applied = native::CreatureLookFunctions::SetNavigatorFacing(
             router->gameModule_,
-            router->targetNavigator_,
+            navigator,
             facing);
-        ReleaseSRWLockShared(&router->bindingLock_);
         if (!applied)
         {
             return result;
@@ -229,12 +446,15 @@ namespace fable::game::creature::look
             std::snprintf(
                 detail,
                 std::size(detail),
-                "ordinal=%u target_creature=%p motion=(%.6f,%.6f) normalized_facing=%.6f thread=%lu",
+                "ordinal=%u target_creature=%p motion=(%.6f,%.6f) normalized_facing=%.6f replicated_movement=%s requested=%s physics=%s thread=%lu",
                 ordinal,
                 creature,
                 motionX,
                 motionY,
                 facing,
+                hasReplicatedInput ? "true" : "false",
+                routedReplicatedMovement ? "true" : "false",
+                controlledPhysics ? "controlled" : "navigator",
                 static_cast<unsigned long>(GetCurrentThreadId()));
             router->diagnostics_.Event("CreatureMovementFacingRouted", detail);
         }

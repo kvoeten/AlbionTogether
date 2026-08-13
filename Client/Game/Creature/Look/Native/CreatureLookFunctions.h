@@ -24,6 +24,7 @@ namespace fable::game::creature::look::native
         static constexpr std::uintptr_t ForceLookAtNothingRva = 0x018A1780;
         static constexpr std::uintptr_t ResetForceLookAtRva = 0x018A17F0;
         static constexpr std::uintptr_t PhysicsNavigatorVtableRva = 0x02B079AC;
+        static constexpr std::uintptr_t PhysicsControlledVtableRva = 0x02B0764C;
         static constexpr std::size_t SetNavigatorFacingSlot = 68;
         static constexpr std::uintptr_t SetNavigatorFacingRva = 0x01A79880;
 

@@ -132,6 +132,20 @@ namespace fable::game::creature::locomotion
         source_.store(nullptr, std::memory_order_release);
     }
 
+    void CreatureFrameInputRouterHook::SetFrameObserver(
+        FrameObserver observer,
+        void* context) noexcept
+    {
+        if (observer == nullptr)
+        {
+            frameObserver_.store(nullptr, std::memory_order_release);
+            frameObserverContext_.store(nullptr, std::memory_order_release);
+            return;
+        }
+        frameObserverContext_.store(context, std::memory_order_release);
+        frameObserver_.store(observer, std::memory_order_release);
+    }
+
     bool CreatureFrameInputRouterHook::IsInstalled() const noexcept
     {
         return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
@@ -159,6 +173,14 @@ namespace fable::game::creature::locomotion
         }
 
         const bool result = router->original_(playerCreature);
+        const FrameObserver observer = router->frameObserver_.load(
+            std::memory_order_acquire);
+        if (observer != nullptr)
+        {
+            observer(
+                router->frameObserverContext_.load(std::memory_order_acquire),
+                playerCreature);
+        }
         if (playerCreature != router->source_.load(std::memory_order_acquire))
         {
             return result;

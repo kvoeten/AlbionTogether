@@ -24,6 +24,7 @@ namespace fable::ui
             UINT_PTR timerId,
             UINT timerIntervalMilliseconds,
             bool captureNumberRowOne,
+            bool preserveBackgroundRendering,
             const MainWindowCallbacks& callbacks,
             const core::Diagnostics& diagnostics);
 
@@ -48,6 +49,7 @@ namespace fable::ui
         WNDPROC originalProcedure_ = nullptr;
         UINT_PTR timerId_ = 0;
         bool captureNumberRowOne_ = false;
+        bool preserveBackgroundRendering_ = false;
         MainWindowCallbacks callbacks_ = {};
         core::Diagnostics diagnostics_ = {};
     };

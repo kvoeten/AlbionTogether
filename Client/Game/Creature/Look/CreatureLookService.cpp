@@ -6,6 +6,8 @@
 #include "Game/Entity/EntityService.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
+#include <algorithm>
+
 namespace fable::game::creature::look
 {
     CreatureLookService::~CreatureLookService()
@@ -26,6 +28,22 @@ namespace fable::game::creature::look
 
     bool CreatureLookService::RouteMovementFacing(Entity* target)
     {
+        return Route(target, nullptr, nullptr);
+    }
+
+    bool CreatureLookService::RouteReplicatedMovement(
+        Entity* target,
+        ReplicatedMovementProvider provider,
+        void* context)
+    {
+        return provider != nullptr && Route(target, provider, context);
+    }
+
+    bool CreatureLookService::Route(
+        Entity* target,
+        ReplicatedMovementProvider provider,
+        void* context)
+    {
         if (entities_ == nullptr || target == nullptr || !target->IsValid())
         {
             return false;
@@ -43,44 +61,101 @@ namespace fable::game::creature::look
             return false;
         }
 
-        ClearMovementFacing();
-        if (!native::CreatureLookFunctions::ForceLookAtNothing(
-                entities_->Interface(),
-                target->NativeHandle()))
+        const auto existing = std::find_if(
+            retainedTargets_.begin(),
+            retainedTargets_.end(),
+            [target](const RoutedTarget& retained)
+            {
+                return retained.entity == target;
+            });
+        if (existing != retainedTargets_.end())
         {
-            return false;
+            return facingRouterHook_.Bind(
+                targetThing,
+                targetNavigator,
+                provider,
+                context);
         }
-        if (!facingRouterHook_.Bind(targetThing, targetNavigator))
-        {
-            native::CreatureLookFunctions::ResetForceLookAt(
+        const bool autonomousLookSuppressed =
+            native::CreatureLookFunctions::ForceLookAtNothing(
                 entities_->Interface(),
                 target->NativeHandle());
+        if (!facingRouterHook_.Bind(
+            targetThing,
+            targetNavigator,
+            provider,
+            context))
+        {
+            if (autonomousLookSuppressed)
+            {
+                native::CreatureLookFunctions::ResetForceLookAt(
+                    entities_->Interface(),
+                    target->NativeHandle());
+            }
             return false;
         }
 
         target->AddRef();
-        retainedTarget_ = target;
+        retainedTargets_.push_back({target, targetThing});
         diagnostics_.Event(
-            "CreatureAutonomousLookSuppressed",
-            "component 0x08 forced to look at nothing while movement-facing routing is active");
+            autonomousLookSuppressed
+                ? "CreatureAutonomousLookSuppressed"
+                : "CreatureAutonomousLookNotApplicable",
+            autonomousLookSuppressed
+                ? "component 0x08 forced to look at nothing while movement-facing routing is active"
+                : "native movement-facing routing is active without an autonomous look target to suppress");
         return true;
     }
 
     void CreatureLookService::ClearMovementFacing() noexcept
     {
         facingRouterHook_.Clear();
-        if (retainedTarget_ == nullptr)
+        for (const RoutedTarget& retained : retainedTargets_)
+        {
+            Entity* const target = retained.entity;
+            if (target == nullptr)
+            {
+                continue;
+            }
+            if (entities_ != nullptr && target->IsValid())
+            {
+                native::CreatureLookFunctions::ResetForceLookAt(
+                    entities_->Interface(),
+                    target->NativeHandle());
+            }
+            target->Release();
+        }
+        retainedTargets_.clear();
+    }
+
+    void CreatureLookService::StopRouting(
+        Entity* target,
+        bool restoreAutonomousLook) noexcept
+    {
+        const auto existing = std::find_if(
+            retainedTargets_.begin(),
+            retainedTargets_.end(),
+            [target](const RoutedTarget& retained)
+            {
+                return retained.entity == target;
+            });
+        if (existing == retainedTargets_.end())
         {
             return;
         }
-        if (entities_ != nullptr && retainedTarget_->IsValid())
+        facingRouterHook_.Unbind(existing->nativeThing);
+        if (restoreAutonomousLook && entities_ != nullptr && target != nullptr &&
+            target->IsValid())
         {
             native::CreatureLookFunctions::ResetForceLookAt(
                 entities_->Interface(),
-                retainedTarget_->NativeHandle());
+                target->NativeHandle());
         }
-        retainedTarget_->Release();
-        retainedTarget_ = nullptr;
+        if (target != nullptr)
+        {
+            target->Release();
+        }
+        retainedTargets_.erase(existing);
     }
 
     unsigned int CreatureLookService::RoutedMovementFacingCount() const noexcept

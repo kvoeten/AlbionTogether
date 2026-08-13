@@ -141,6 +141,13 @@ namespace fable::game::creature::locomotion
         frameInputRouterHook_.Clear();
     }
 
+    void CreatureLocomotionService::SetPlayerFrameObserver(
+        PlayerFrameObserver observer,
+        void* context) noexcept
+    {
+        frameInputRouterHook_.SetFrameObserver(observer, context);
+    }
+
     bool CreatureLocomotionService::RouteHeroShadow(
         Entity* sourcePuppet,
         Entity* targetHero)

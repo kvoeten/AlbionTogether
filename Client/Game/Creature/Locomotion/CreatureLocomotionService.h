@@ -20,6 +20,8 @@ namespace fable::game::creature::locomotion
     class CreatureLocomotionService final
     {
     public:
+        using PlayerFrameObserver = CreatureFrameInputRouterHook::FrameObserver;
+
         ~CreatureLocomotionService();
 
         bool Initialize(
@@ -33,6 +35,9 @@ namespace fable::game::creature::locomotion
         void ClearAnimationMotionMirror() noexcept;
         bool RoutePlayerFrameInput(Entity* source, Entity* target);
         void ClearPlayerFrameInputRouter() noexcept;
+        void SetPlayerFrameObserver(
+            PlayerFrameObserver observer,
+            void* context) noexcept;
         bool RouteHeroShadow(Entity* sourcePuppet, Entity* targetHero);
         void ClearHeroShadow() noexcept;
         void TickHeroShadow();

@@ -64,8 +64,11 @@ namespace fable::game::creature::look::native
         bool valid = false;
         __try
         {
-            valid = *static_cast<void**>(physicsNavigator) ==
-                reinterpret_cast<void*>(base + PhysicsNavigatorVtableRva);
+            const void* const vtable = *static_cast<void**>(physicsNavigator);
+            valid = vtable == reinterpret_cast<void*>(
+                    base + PhysicsNavigatorVtableRva) ||
+                vtable == reinterpret_cast<void*>(
+                    base + PhysicsControlledVtableRva);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {

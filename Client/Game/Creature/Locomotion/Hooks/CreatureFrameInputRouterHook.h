@@ -12,9 +12,12 @@ namespace fable::game::creature::locomotion
     class CreatureFrameInputRouterHook final
     {
     public:
+        using FrameObserver = void(*)(void* context, void* playerCreature);
+
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
         bool Bind(void* sourcePlayerCreature, void* targetPhysicsNavigator);
         void Clear() noexcept;
+        void SetFrameObserver(FrameObserver observer, void* context) noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] bool IsBound() const noexcept;
@@ -34,6 +37,8 @@ namespace fable::game::creature::locomotion
         void** vtableSlot_ = nullptr;
         std::atomic<void*> source_{nullptr};
         std::atomic<void*> targetNavigator_{nullptr};
+        std::atomic<FrameObserver> frameObserver_{nullptr};
+        std::atomic<void*> frameObserverContext_{nullptr};
         std::atomic_uint routedFrameCount_{0};
     };
 }

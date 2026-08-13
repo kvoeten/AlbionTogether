@@ -8,13 +8,20 @@ namespace fable::game::entity::native
     enum class ThingComponentType : std::int32_t
     {
         PhysicsNavigator = 0x02,
+        HeroMorph = 0x03,
         CreatureNavigation = 0x07,
         Targeting = 0x08,
+        InventoryClothing = 0x12,
         ScriptedControl = 0x1F,
         CreatureModeManager = 0x31,
         Look = 0x43,
         AnimationComplex = 0x5A,
+        HeroAttachableAppearanceModifiers = 0x5E,
         ActivationTrigger = 0x66,
+        // CTCHeroMorph resolves component 0x78 and uses its CSkeletalMorphDef
+        // store to replace HERO-tagged definition/weight entries before
+        // submitting the compiled skeletal resource to the actor graphic.
+        SkeletalMorphDefinition = 0x78,
     };
 
     struct ThingComponentEntry final
