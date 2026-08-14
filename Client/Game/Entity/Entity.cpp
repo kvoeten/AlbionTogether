@@ -114,6 +114,7 @@ namespace fable::game
     bool Entity::SetFriendsWithEverything(bool enabled) { return service_ != nullptr && service_->SetFriendsWithEverything(handle_, enabled); }
     bool Entity::SetActivationTriggerStatus(bool enabled) { return service_ != nullptr && service_->SetActivationTriggerStatus(handle_, enabled); }
     bool Entity::SetKillOnLevelUnload(bool enabled) { return service_ != nullptr && service_->SetKillOnLevelUnload(handle_, enabled); }
+    bool Entity::RequestDestroy(bool immediate) { return service_ != nullptr && service_->RequestDestroy(handle_, immediate); }
     bool Entity::UpdateAttachment() { return service_ != nullptr && service_->UpdateAttachment(handle_); }
     bool Entity::IncrementScriptCounter() { return service_ != nullptr && service_->IncrementScriptCounter(handle_); }
     bool Entity::DecrementScriptCounter() { return service_ != nullptr && service_->DecrementScriptCounter(handle_); }

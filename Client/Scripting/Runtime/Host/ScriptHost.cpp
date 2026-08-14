@@ -1,5 +1,6 @@
 #include "ScriptHost.h"
 
+#include "Automation/LocalInstance/MapTransitionAcceptanceDriver.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Capabilities/CapabilityRegistry.h"
 #include "Game/Creature/CreatureService.h"
@@ -143,6 +144,8 @@ namespace fable::scripting
           events_(std::make_unique<EventBus>()),
           storage_(std::make_unique<PersistentStore>()),
           scheduler_(std::make_unique<Scheduler>()),
+          transitionAcceptanceDriver_(std::make_unique<
+              automation::local_instance::MapTransitionAcceptanceDriver>()),
           multiplayerSession_(std::make_unique<multiplayer::MultiplayerSession>())
     {
     }
@@ -202,6 +205,13 @@ namespace fable::scripting
             diagnostics_.Log("Multiplayer: session initialization failed.");
             return false;
         }
+        transitionAcceptanceDriver_->Initialize(
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition") ||
+                runtimeConfiguration.ScenarioIs(
+                    L"multiplayer_guest_transition"),
+            *entityService_,
+            *creatureLocomotionService_,
+            diagnostics_);
         RegisterApiCoverage(*capabilities_);
 
         std::filesystem::path scriptsRoot;
@@ -533,6 +543,9 @@ namespace fable::scripting
 
         scheduler_->Tick(deltaSeconds);
         creatureLocomotionService_->TickHeroShadow();
+        transitionAcceptanceDriver_->Tick(
+            deltaSeconds,
+            multiplayerSession_->HasActiveRemotePresentation());
 
         for (const auto& module : modules_)
         {
@@ -573,6 +586,14 @@ namespace fable::scripting
         // transport worker and movement is still consumed by creature hooks;
         // this drains only the single bounded lifecycle delta.
         return multiplayerSession_->ProcessPresentationLifecycle();
+    }
+
+    void ScriptHost::DriveReplicatedMovement()
+    {
+        if (loaded_)
+        {
+            multiplayerSession_->DriveReplicatedMovement();
+        }
     }
 
     bool ScriptHost::Reload()
@@ -647,6 +668,7 @@ namespace fable::scripting
 
     void ScriptHost::Shutdown()
     {
+        transitionAcceptanceDriver_->Shutdown();
         multiplayerSession_->Shutdown();
         creatureCombatService_->ClearPlayerCombat();
         creatureLocomotionService_->ClearHeroShadow();

@@ -158,6 +158,19 @@ namespace fable::game::creature::look
         retainedTargets_.erase(existing);
     }
 
+    bool CreatureLookService::DriveReplicatedMovement(Entity* target)
+    {
+        const auto existing = std::find_if(
+            retainedTargets_.begin(),
+            retainedTargets_.end(),
+            [target](const RoutedTarget& retained)
+            {
+                return retained.entity == target;
+            });
+        return existing != retainedTargets_.end() &&
+            facingRouterHook_.Drive(existing->nativeThing);
+    }
+
     unsigned int CreatureLookService::RoutedMovementFacingCount() const noexcept
     {
         return facingRouterHook_.RoutedFacingCount();

@@ -1,6 +1,7 @@
 #include "CreatureModeManagerObserver.h"
 
 #include <array>
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdint>
@@ -419,6 +420,110 @@ namespace fable::game::creature::locomotion
         observer->animationMotionSource_.store(nullptr, std::memory_order_release);
     }
 
+    bool CreatureModeManagerObserver::SetReplicatedAnimationMotion(
+        void* targetCreature,
+        const Vector3& linearVelocity,
+        float angularVelocity) noexcept
+    {
+        CreatureModeManagerObserver* const observer = active_;
+        if (observer == nullptr || !observer->IsInstalled() ||
+            targetCreature == nullptr || !std::isfinite(linearVelocity.x) ||
+            !std::isfinite(linearVelocity.y) ||
+            !std::isfinite(linearVelocity.z) ||
+            !std::isfinite(angularVelocity))
+        {
+            return false;
+        }
+        const std::uint64_t now = GetTickCount64();
+        AcquireSRWLockExclusive(&observer->replicatedAnimationMotionLock_);
+        auto existing = std::find_if(
+            observer->replicatedAnimationMotions_.begin(),
+            observer->replicatedAnimationMotions_.end(),
+            [targetCreature](const ReplicatedAnimationMotion& motion)
+            {
+                return motion.owner == targetCreature;
+            });
+        if (existing == observer->replicatedAnimationMotions_.end())
+        {
+            observer->replicatedAnimationMotions_.push_back(
+                {targetCreature, linearVelocity, angularVelocity, now, 0});
+        }
+        else
+        {
+            existing->linearVelocity = linearVelocity;
+            existing->angularVelocity = angularVelocity;
+            existing->updatedAt = now;
+        }
+        ReleaseSRWLockExclusive(&observer->replicatedAnimationMotionLock_);
+        return WatchOwner(targetCreature);
+    }
+
+    void CreatureModeManagerObserver::ClearReplicatedAnimationMotion(
+        void* targetCreature) noexcept
+    {
+        CreatureModeManagerObserver* const observer = active_;
+        if (observer == nullptr || targetCreature == nullptr)
+        {
+            return;
+        }
+        AcquireSRWLockExclusive(&observer->replicatedAnimationMotionLock_);
+        observer->replicatedAnimationMotions_.erase(
+            std::remove_if(
+                observer->replicatedAnimationMotions_.begin(),
+                observer->replicatedAnimationMotions_.end(),
+                [targetCreature](const ReplicatedAnimationMotion& motion)
+                {
+                    return motion.owner == targetCreature;
+                }),
+            observer->replicatedAnimationMotions_.end());
+        ReleaseSRWLockExclusive(&observer->replicatedAnimationMotionLock_);
+
+        void* expectedTarget = targetCreature;
+        if (observer->animationMotionTarget_.compare_exchange_strong(
+                expectedTarget,
+                nullptr,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire))
+        {
+            observer->animationMotionSource_.store(
+                nullptr,
+                std::memory_order_release);
+        }
+        for (std::size_t index = 0;
+             index < observer->watchedOwners_.size();
+             ++index)
+        {
+            void* expectedOwner = targetCreature;
+            if (observer->watchedOwners_[index].compare_exchange_strong(
+                    expectedOwner,
+                    nullptr,
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
+            {
+                observer->locomotionEvaluationCounts_[index].store(
+                    0,
+                    std::memory_order_release);
+                observer->lastMoving_[index].store(
+                    false,
+                    std::memory_order_release);
+                break;
+            }
+        }
+    }
+
+    void CreatureModeManagerObserver::ClearReplicatedAnimationMotions()
+        noexcept
+    {
+        CreatureModeManagerObserver* const observer = active_;
+        if (observer == nullptr)
+        {
+            return;
+        }
+        AcquireSRWLockExclusive(&observer->replicatedAnimationMotionLock_);
+        observer->replicatedAnimationMotions_.clear();
+        ReleaseSRWLockExclusive(&observer->replicatedAnimationMotionLock_);
+    }
+
     unsigned int CreatureModeManagerObserver::MirroredAnimationMotionCount() noexcept
     {
         CreatureModeManagerObserver* const observer = active_;
@@ -544,9 +649,11 @@ namespace fable::game::creature::locomotion
     void CreatureModeManagerObserver::ReportLocomotionEvaluation(
         void* mode,
         void* owner,
-        float deltaSeconds,
+        void* evaluationContext,
         float motionX,
         float motionY,
+        float angularVelocity,
+        float evaluationSeconds,
         unsigned int ordinal) const
     {
         void* vtable = nullptr;
@@ -589,14 +696,16 @@ namespace fable::game::creature::locomotion
         std::snprintf(
             detail,
             std::size(detail),
-            "mode=%p owner=%p ordinal=%u delta_seconds=%.6f owner_motion_134_138=(%.6f,%.6f) planar_speed=%.6f mode_vtable=%p mode_vtable_rva=0x%08X idle_frames=%u motion_hold_frames=%u animations={idle:%p,slow_walk:%p,walk:%p,jog:%p,run:%p,sprint:%p} readable=%s thread=%lu",
+            "mode=%p owner=%p ordinal=%u evaluation_context=%p owner_motion_134_138=(%.6f,%.6f) planar_speed=%.6f angular_velocity=%.6f evaluation_seconds=%.4f mode_vtable=%p mode_vtable_rva=0x%08X idle_frames=%u motion_hold_frames=%u animations={idle:%p,slow_walk:%p,walk:%p,jog:%p,run:%p,sprint:%p} readable=%s thread=%lu",
             mode,
             owner,
             ordinal,
-            deltaSeconds,
+            evaluationContext,
             motionX,
             motionY,
             planarSpeed,
+            angularVelocity,
+            evaluationSeconds,
             vtable,
             static_cast<unsigned int>(vtableRva),
             idleFrames,
@@ -676,7 +785,7 @@ namespace fable::game::creature::locomotion
     void __fastcall CreatureModeManagerObserver::ObserveLocomotionEvaluation(
         void* mode,
         void*,
-        float deltaSeconds)
+        void* evaluationContext)
     {
         CreatureModeManagerObserver* const observer = active_;
         if (observer == nullptr ||
@@ -688,8 +797,12 @@ namespace fable::game::creature::locomotion
         void* owner = nullptr;
         float motionX = 0.0f;
         float motionY = 0.0f;
+        float angularVelocity = 0.0f;
+        float evaluationSeconds = 0.0f;
         bool readable = false;
         bool motionMirrored = false;
+        bool replicatedMotionApplied = false;
+        const std::uint64_t now = GetTickCount64();
         __try
         {
             const auto* const modeBytes = static_cast<const std::uint8_t*>(mode);
@@ -701,7 +814,65 @@ namespace fable::game::creature::locomotion
                 motionY = *reinterpret_cast<const float*>(ownerBytes + 0x138);
                 readable = std::isfinite(motionX) && std::isfinite(motionY);
 
-                if (owner == observer->animationMotionTarget_.load(
+                ReplicatedAnimationMotion replicatedMotion;
+                bool hasReplicatedMotion = false;
+                AcquireSRWLockExclusive(
+                    &observer->replicatedAnimationMotionLock_);
+                auto replicated = std::find_if(
+                    observer->replicatedAnimationMotions_.begin(),
+                    observer->replicatedAnimationMotions_.end(),
+                    [owner](const ReplicatedAnimationMotion& motion)
+                    {
+                        return motion.owner == owner;
+                    });
+                if (replicated !=
+                    observer->replicatedAnimationMotions_.end())
+                {
+                    replicatedMotion = *replicated;
+                    constexpr std::uint64_t kMaximumMotionAgeMilliseconds = 250;
+                    hasReplicatedMotion = replicatedMotion.updatedAt != 0 &&
+                        now >= replicatedMotion.updatedAt &&
+                        now - replicatedMotion.updatedAt <=
+                            kMaximumMotionAgeMilliseconds;
+                    if (hasReplicatedMotion)
+                    {
+                        constexpr float kDefaultEvaluationSeconds =
+                            1.0f / 60.0f;
+                        evaluationSeconds = replicatedMotion.evaluatedAt == 0 ||
+                                now <= replicatedMotion.evaluatedAt
+                            ? kDefaultEvaluationSeconds
+                            : std::clamp(
+                                static_cast<float>(
+                                    now - replicatedMotion.evaluatedAt) /
+                                    1000.0f,
+                                1.0f / 240.0f,
+                                0.1f);
+                        replicated->evaluatedAt = now;
+                    }
+                }
+                ReleaseSRWLockExclusive(
+                    &observer->replicatedAnimationMotionLock_);
+                if (hasReplicatedMotion)
+                {
+                    motionX = replicatedMotion.linearVelocity.x *
+                        evaluationSeconds;
+                    motionY = replicatedMotion.linearVelocity.y *
+                        evaluationSeconds;
+                    angularVelocity = replicatedMotion.angularVelocity;
+                    *reinterpret_cast<float*>(
+                        ownerBytes +
+                        ::fable::game::creature::native::
+                            CreatureFrameFunctions::MotionXOffset) = motionX;
+                    *reinterpret_cast<float*>(
+                        ownerBytes +
+                        ::fable::game::creature::native::
+                            CreatureFrameFunctions::MotionYOffset) = motionY;
+                    readable = true;
+                    replicatedMotionApplied = true;
+                }
+
+                if (!replicatedMotionApplied &&
+                    owner == observer->animationMotionTarget_.load(
                         std::memory_order_acquire))
                 {
                     const auto* const sourceBytes = static_cast<const std::uint8_t*>(
@@ -754,7 +925,7 @@ namespace fable::game::creature::locomotion
                 1,
                 std::memory_order_acq_rel) + 1;
         }
-        observer->originalEvaluateLocomotion_(mode, deltaSeconds);
+        observer->originalEvaluateLocomotion_(mode, evaluationContext);
         if (mirroredOrdinal == 1 || mirroredOrdinal == 2 ||
             mirroredOrdinal == 10 || mirroredOrdinal == 60)
         {
@@ -793,9 +964,11 @@ namespace fable::game::creature::locomotion
             observer->ReportLocomotionEvaluation(
                 mode,
                 owner,
-                deltaSeconds,
+                evaluationContext,
                 motionX,
                 motionY,
+                angularVelocity,
+                evaluationSeconds,
                 ordinal);
         }
     }

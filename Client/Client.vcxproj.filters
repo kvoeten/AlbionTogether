@@ -67,6 +67,9 @@
     <Filter Include="Game\World"><UniqueIdentifier>{BAD7D7A1-3C6B-4406-A2E8-262A7A2F9201}</UniqueIdentifier></Filter>
     <Filter Include="Game\World\Bindings"><UniqueIdentifier>{A5F01939-1564-4D0A-B4E3-970822F0CC3F}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer"><UniqueIdentifier>{387C1A15-DBB8-4074-B1F3-B3DFF7DE1262}</UniqueIdentifier></Filter>
+    <Filter Include="Multiplayer\Authority"><UniqueIdentifier>{7806B9BA-3831-4556-9DBB-E92B7341E1AA}</UniqueIdentifier></Filter>
+    <Filter Include="Multiplayer\Movement"><UniqueIdentifier>{09A1289E-74E5-4FB8-A076-D5657389E438}</UniqueIdentifier></Filter>
+    <Filter Include="Multiplayer\Presentation"><UniqueIdentifier>{826A40EE-E258-439F-9847-77DB0551066F}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Protocol"><UniqueIdentifier>{EE1B9D31-9A79-411D-98AC-7C5D87C94485}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Replication"><UniqueIdentifier>{52C445E8-5ED2-4E91-9176-82738B548E0B}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Runtime"><UniqueIdentifier>{8E904CD9-3BA9-4F66-B6C0-C4EA937ED75C}</UniqueIdentifier></Filter>
@@ -91,11 +94,15 @@
     <Filter Include="UI\MainWindow"><UniqueIdentifier>{5B994E2F-6F57-4798-9BF3-64431D499A3E}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Multiplayer\Authority\MapAuthorityCoordinator.cpp"><Filter>Multiplayer\Authority</Filter></ClCompile>
     <ClCompile Include="Automation\AppearanceCycle\AppearanceCycleScenario.cpp"><Filter>Automation\AppearanceCycle</Filter></ClCompile>
     <ClCompile Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.cpp"><Filter>Automation\CharacterSnapshot</Filter></ClCompile>
     <ClCompile Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.cpp"><Filter>Automation\FixtureDocuments\Hooks</Filter></ClCompile>
     <ClCompile Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.cpp"><Filter>Automation\FixtureDocuments\Native</Filter></ClCompile>
+    <ClCompile Include="Automation\LocalInstance\Hooks\ForegroundWindowHook.cpp"><Filter>Automation\LocalInstance\Hooks</Filter></ClCompile>
+    <ClCompile Include="Automation\LocalInstance\MapTransitionAcceptanceDriver.cpp"><Filter>Automation\LocalInstance</Filter></ClCompile>
     <ClCompile Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.cpp"><Filter>Automation\LocalInstance\Hooks</Filter></ClCompile>
+    <ClCompile Include="Automation\LocalInstance\Native\ForegroundWindowImport.cpp"><Filter>Automation\LocalInstance\Native</Filter></ClCompile>
     <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp"><Filter>Automation\LocalInstance\Native</Filter></ClCompile>
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp"><Filter>Core\Capabilities</Filter></ClCompile>
@@ -160,8 +167,14 @@
     <ClCompile Include="Game\Quest\QuestService.cpp"><Filter>Game\Quest</Filter></ClCompile>
     <ClCompile Include="Game\Quest\Bindings\QuestBindings.cpp"><Filter>Game\Quest\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\World\WorldService.cpp"><Filter>Game\World</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Movement\ReplicatedActorMovement.cpp"><Filter>Multiplayer\Movement</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Presentation\HeroPresentationDiagnostics.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerPresentation.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\LocalPlayerChannel.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\RemotePlayerChannels.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Runtime\MultiplayerSession.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
-    <ClCompile Include="Multiplayer\Replication\PlayerActorChannel.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\UdpPeer.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Game\World\Bindings\WorldBindings.cpp"><Filter>Game\World\Bindings</Filter></ClCompile>
     <ClCompile Include="Scripting\Bindings\Registry\GameBindings.cpp"><Filter>Scripting\Bindings\Registry</Filter></ClCompile>
@@ -183,11 +196,15 @@
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Multiplayer\Authority\MapAuthorityCoordinator.h"><Filter>Multiplayer\Authority</Filter></ClInclude>
     <ClInclude Include="Automation\AppearanceCycle\AppearanceCycleScenario.h"><Filter>Automation\AppearanceCycle</Filter></ClInclude>
     <ClInclude Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.h"><Filter>Automation\CharacterSnapshot</Filter></ClInclude>
     <ClInclude Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.h"><Filter>Automation\FixtureDocuments\Hooks</Filter></ClInclude>
     <ClInclude Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.h"><Filter>Automation\FixtureDocuments\Native</Filter></ClInclude>
+    <ClInclude Include="Automation\LocalInstance\Hooks\ForegroundWindowHook.h"><Filter>Automation\LocalInstance\Hooks</Filter></ClInclude>
+    <ClInclude Include="Automation\LocalInstance\MapTransitionAcceptanceDriver.h"><Filter>Automation\LocalInstance</Filter></ClInclude>
     <ClInclude Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.h"><Filter>Automation\LocalInstance\Hooks</Filter></ClInclude>
+    <ClInclude Include="Automation\LocalInstance\Native\ForegroundWindowImport.h"><Filter>Automation\LocalInstance\Native</Filter></ClInclude>
     <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h"><Filter>Automation\LocalInstance\Native</Filter></ClInclude>
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h"><Filter>Automation\Runtime</Filter></ClInclude>
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h"><Filter>Core\Capabilities</Filter></ClInclude>
@@ -259,8 +276,15 @@
     <ClInclude Include="Game\Quest\QuestService.h"><Filter>Game\Quest</Filter></ClInclude>
     <ClInclude Include="Game\Quest\Bindings\QuestBindings.h"><Filter>Game\Quest\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\World\WorldService.h"><Filter>Game\World</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Movement\ReplicatedActorMovement.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Presentation\HeroPresentationDiagnostics.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerPresentation.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PlayerState.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
-    <ClInclude Include="Multiplayer\Replication\PlayerActorChannel.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\LocalPlayerChannel.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\RemotePlayerChannels.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Runtime\MultiplayerSession.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\UdpPeer.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Game\World\Bindings\WorldBindings.h"><Filter>Game\World\Bindings</Filter></ClInclude>

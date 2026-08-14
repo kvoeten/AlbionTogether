@@ -17,11 +17,14 @@ namespace fable::game::hero_pawn::appearance::hooks
             HMODULE gameModule,
             const core::Diagnostics& diagnostics) noexcept;
 
-        void Arm(const game::Vector3& expectedPosition) noexcept;
-        void TargetGraphic(void* graphic) noexcept;
-        void Cancel() noexcept;
+        using ArmToken = std::uint64_t;
+
+        ArmToken Arm(const game::Vector3& expectedPosition) noexcept;
+        void TargetGraphic(ArmToken token, void* graphic) noexcept;
+        void Cancel(ArmToken token = 0) noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
+        [[nodiscard]] bool IsArmed() const noexcept;
 
     private:
         using FactoryFunction = void(__cdecl*)(
@@ -43,6 +46,7 @@ namespace fable::game::hero_pawn::appearance::hooks
         std::atomic_uintptr_t expectedGraphic_{0};
         std::atomic_uint32_t observations_{0};
         std::atomic_uint64_t expiresAt_{0};
+        std::atomic_uint64_t armToken_{0};
         std::atomic_bool armed_{false};
         bool installed_ = false;
     };

@@ -101,6 +101,7 @@ namespace fable::scripting::bindings
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool SetFriendsWithEverything(bool)", asMETHOD(game::Entity, SetFriendsWithEverything), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool SetActivationTriggerStatus(bool)", asMETHOD(game::Entity, SetActivationTriggerStatus), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool SetKillOnLevelUnload(bool)", asMETHOD(game::Entity, SetKillOnLevelUnload), asCALL_THISCALL) : result;
+        result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool RequestDestroy(bool immediate = false)", asMETHOD(game::Entity, RequestDestroy), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool UpdateAttachment()", asMETHOD(game::Entity, UpdateAttachment), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool IncrementScriptCounter()", asMETHOD(game::Entity, IncrementScriptCounter), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool DecrementScriptCounter()", asMETHOD(game::Entity, DecrementScriptCounter), asCALL_THISCALL) : result;

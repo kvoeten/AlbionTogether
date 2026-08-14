@@ -32,6 +32,7 @@ namespace fable::game::creature::look
         void StopRouting(
             Entity* target,
             bool restoreAutonomousLook = true) noexcept;
+        bool DriveReplicatedMovement(Entity* target);
         void ClearMovementFacing() noexcept;
 
         [[nodiscard]] unsigned int RoutedMovementFacingCount() const noexcept;

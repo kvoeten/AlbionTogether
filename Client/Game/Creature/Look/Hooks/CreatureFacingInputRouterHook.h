@@ -6,8 +6,8 @@
 
 #include <Windows.h>
 
-#include <array>
 #include <atomic>
+#include <vector>
 
 namespace fable::game::creature::look
 {
@@ -16,9 +16,11 @@ namespace fable::game::creature::look
     public:
         struct ReplicatedMovementInput final
         {
+            std::uint64_t actorId = 0;
             Vector3 position = {};
             Vector3 velocity = {};
             float facing = 0.0f;
+            float angularVelocity = 0.0f;
             float sampleAgeSeconds = 0.0f;
             bool moving = false;
         };
@@ -35,6 +37,7 @@ namespace fable::game::creature::look
             ReplicatedMovementProvider provider = nullptr,
             void* providerContext = nullptr);
         void Unbind(void* targetCreature) noexcept;
+        bool Drive(void* targetCreature);
         void Clear() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
@@ -49,9 +52,11 @@ namespace fable::game::creature::look
             ReplicatedMovementProvider provider = nullptr;
             void* providerContext = nullptr;
             ULONGLONG lastFrameAt = 0;
+            ULONGLONG lastNativeMovementReportAt = 0;
+            ULONGLONG lastBackgroundMovementReportAt = 0;
+            bool nativeMoving = false;
+            bool backgroundMoving = false;
         };
-
-        static constexpr std::size_t MaximumBindings = 8;
 
         static bool __fastcall ObserveCreatureUpdate(
             void* creature,
@@ -65,7 +70,8 @@ namespace fable::game::creature::look
             original_ = nullptr;
         void** vtableSlot_ = nullptr;
         mutable SRWLOCK bindingLock_ = SRWLOCK_INIT;
-        std::array<Binding, MaximumBindings> bindings_ = {};
+        std::vector<Binding> bindings_;
         std::atomic_uint routedFacingCount_{0};
+        std::atomic_uint backgroundMovementCount_{0};
     };
 }

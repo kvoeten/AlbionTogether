@@ -19,6 +19,7 @@ namespace fable::game::native
         inline constexpr std::uintptr_t StartScriptingEntity = 0x0189EC00;
         inline constexpr std::uintptr_t ScriptedControlImplementationVtable = 0x02AE9F4C;
         inline constexpr std::uintptr_t ScriptedControlDeleteFunction = 0x01B0B0F8;
+        inline constexpr std::uintptr_t ThingRequestDestroy = 0x01B2E530;
         inline constexpr std::uintptr_t GameHeapFree = 0x00001060;
         inline constexpr std::uintptr_t TurnCreatureInto = 0x01898200;
         inline constexpr std::uintptr_t TeleportThing = 0x0189EE20;

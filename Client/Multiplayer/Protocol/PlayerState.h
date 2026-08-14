@@ -22,8 +22,9 @@ namespace fable::multiplayer
         inline constexpr std::uint32_t Map = 1u << 1;
         inline constexpr std::uint32_t Appearance = 1u << 2;
         inline constexpr std::uint32_t Movement = 1u << 3;
+        inline constexpr std::uint32_t Retired = 1u << 4;
         inline constexpr std::uint32_t All =
-            Identity | Map | Appearance | Movement;
+            Identity | Map | Appearance | Movement | Retired;
     }
 
     struct PlayerState final
@@ -37,6 +38,10 @@ namespace fable::multiplayer
         game::Vector3 position = {};
         game::Vector3 velocity = {};
         float facing = 0.0f;
+        // Horizontal angular velocity in normalized turns per second. Keeping
+        // this beside linear velocity lets the receiver extrapolate the
+        // complete planar transform and derive animation state from motion.
+        float angularVelocity = 0.0f;
         std::string playerId;
         std::string mapName;
         std::string appearanceDefinition;

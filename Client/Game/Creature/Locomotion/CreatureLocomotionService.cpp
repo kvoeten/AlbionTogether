@@ -218,6 +218,42 @@ namespace fable::game::creature::locomotion
         heroShadowUpdateCount_ = 0;
     }
 
+    bool CreatureLocomotionService::RequestPosition(
+        Entity* entity,
+        const Vector3& desiredPosition) const
+    {
+        if (entities_ == nullptr || gameModule_ == nullptr ||
+            entity == nullptr || !entity->IsValid())
+        {
+            return false;
+        }
+        void* const nativeThing = entities_->ResolveNative(
+            entity->NativeHandle());
+        void* const navigator = entity::native::ThingComponentAccess::Find(
+            nativeThing,
+            entity::native::ThingComponentType::PhysicsNavigator);
+        if (native::PhysicsNavigatorFunctions::RequestNextPosition(
+                gameModule_,
+                navigator,
+                desiredPosition))
+        {
+            return true;
+        }
+        // The local Hero owns CTCPhysicsControlled rather than the AI-only
+        // CTCPhysicsNavigator. Its normal input stack ultimately writes this
+        // same physics component, so acceptance can advance it without
+        // borrowing global keyboard focus.
+        return native::PhysicsWorldPositionFunctions::
+                SetControlledWorldPosition(
+                    gameModule_,
+                    navigator,
+                    desiredPosition) ||
+            native::PhysicsWorldPositionFunctions::SetNavigatorWorldPosition(
+                gameModule_,
+                navigator,
+                desiredPosition);
+    }
+
     void CreatureLocomotionService::TickHeroShadow()
     {
         if (shadowSourceNavigator_ == nullptr || shadowTargetControlled_ == nullptr ||

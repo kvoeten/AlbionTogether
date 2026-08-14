@@ -3,6 +3,7 @@
 #include "Automation/AppearanceCycle/AppearanceCycleScenario.h"
 #include "Automation/CharacterSnapshot/ServerCharacterSnapshot.h"
 #include "Automation/FixtureDocuments/Hooks/DocumentsFolderRedirectHook.h"
+#include "Automation/LocalInstance/Hooks/ForegroundWindowHook.h"
 #include "Automation/LocalInstance/Hooks/UnrealSingletonHook.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Diagnostics/DiagnosticLog.h"
@@ -206,6 +207,8 @@ namespace
         g_documentsFolderRedirectHook;
     fable::automation::local_instance::UnrealSingletonHook
         g_unrealSingletonHook;
+    fable::automation::local_instance::ForegroundWindowHook
+        g_foregroundWindowHook;
     fable::core::game_thread::GameThreadIdleHook g_gameThreadIdleHook;
     fable::game::creature::ai::AiBrainUpdateObserver g_aiBrainUpdateObserver;
     fable::game::creature::CreatureConstructorHook g_creatureConstructorHook;
@@ -2934,6 +2937,15 @@ namespace
         {
             g_scriptHost.Tick(
                 static_cast<float>(kHotkeyPollIntervalMilliseconds) / 1000.0f);
+            // The window timer keeps firing for local multiplayer instances
+            // even when UE3 throttles an unfocused creature update. Drive all
+            // replicated actors through their physics components here as a
+            // background-safe fallback; focused creature frames still own
+            // their normal animation update path.
+            if (GetForegroundWindow() != g_gameWindow)
+            {
+                g_scriptHost.DriveReplicatedMovement();
+            }
         }
 
         if (g_runtimeConfiguration.Mode() != ClientMode::TransformProbe &&
@@ -3147,7 +3159,8 @@ namespace
             return 14;
         }
 
-        if (appearanceScriptEnabled &&
+        if ((appearanceScriptEnabled ||
+                g_runtimeConfiguration.MultiplayerEnabled()) &&
             !g_creatureModeManagerObserver.Install(
                 g_gameModule,
                 scriptDiagnostics))
@@ -3241,6 +3254,18 @@ namespace
         const bool preserveBackgroundRendering =
             g_runtimeConfiguration.MultiplayerEnabled() &&
             g_runtimeConfiguration.IsLocalInstance();
+        if (preserveBackgroundRendering &&
+            !g_foregroundWindowHook.Install(
+                g_gameModule,
+                g_gameWindow,
+                mainWindowDiagnostics))
+        {
+            Log("Hook: local multiplayer background simulation installation failed.");
+            LogEvent(
+                "ClientFailed",
+                "local-instance-background-simulation-hook-installation");
+            return 8;
+        }
         if (!g_mainWindowHook.Install(
             g_gameWindow,
             kHotkeyTimerId,
@@ -3257,7 +3282,7 @@ namespace
         {
             LogEvent(
                 "MultiplayerBackgroundRenderingEnabled",
-                "local peer ignores UE3 window deactivation while retaining normal Windows keyboard focus");
+                "local peer keeps retail actor and animation simulation active while retaining normal Windows and DirectInput focus");
         }
 
         if (g_runtimeConfiguration.Mode() == ClientMode::TransformProbe)
@@ -3320,10 +3345,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
         }
         if (hasSession)
         {
-            const bool knownInstance =
-                std::wcscmp(localInstance, L"host") == 0 ||
-                std::wcscmp(localInstance, L"guest") == 0;
-            if (!knownInstance || g_gameModule == nullptr ||
+            if (g_gameModule == nullptr ||
                 !g_unrealSingletonHook.Install(
                     g_gameModule,
                     localSession,

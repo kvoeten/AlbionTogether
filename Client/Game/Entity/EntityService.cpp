@@ -35,6 +35,7 @@ namespace
     using GetPosition = const Vector3* (__thiscall*)(const ScriptThing*);
     using GetFacing = float(__thiscall*)(const ScriptThing*);
     using ResolveNativeThing = void* (__thiscall*)(const ScriptThing*);
+    using RequestDestroyFunction = void(__thiscall*)(void*, bool);
     using SetFlagFunction = void(__thiscall*)(GameScriptInterface*, const ScriptThing*, bool);
     using TeleportFunction = void(__thiscall*)(
         GameScriptInterface*, const ScriptThing*, const Vector3*, float, bool, int);
@@ -94,6 +95,7 @@ namespace fable::game
         staticApiValidated_ = false;
         metadataApiValidated_ = false;
         interactionApiValidated_ = false;
+        lifecycleApiValidated_ = false;
         if (gameModule_ == nullptr)
         {
             diagnostics_.Log("Entity API: game module is unavailable.");
@@ -142,12 +144,21 @@ namespace fable::game
                 expectedScriptThingVtable[native::script_thing_slot::IncrementScriptCounter] == reinterpret_cast<void*>(base + native::rva::ScriptThingIncrementScriptCounter) &&
                 expectedScriptThingVtable[native::script_thing_slot::DecrementScriptCounter] == reinterpret_cast<void*>(base + native::rva::ScriptThingDecrementScriptCounter) &&
                 expectedScriptThingVtable[native::script_thing_slot::GetScriptCounter] == reinterpret_cast<void*>(base + native::rva::ScriptThingGetScriptCounter);
+            constexpr unsigned char expectedRequestDestroy[] = {
+                0x56, 0x8B, 0xF1, 0x8A, 0x86, 0x9D, 0x00, 0x00, 0x00};
+            lifecycleApiValidated_ = staticApiValidated_ &&
+                std::memcmp(
+                    reinterpret_cast<const void*>(
+                        base + native::rva::ThingRequestDestroy),
+                    expectedRequestDestroy,
+                    sizeof(expectedRequestDestroy)) == 0;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             staticApiValidated_ = false;
             metadataApiValidated_ = false;
             interactionApiValidated_ = false;
+            lifecycleApiValidated_ = false;
         }
 
         diagnostics_.Log(staticApiValidated_
@@ -159,6 +170,9 @@ namespace fable::game
         diagnostics_.Log(metadataApiValidated_
             ? "Entity API: CScriptThing metadata ABI validated."
             : "Entity API: CScriptThing metadata ABI unavailable.");
+        diagnostics_.Log(lifecycleApiValidated_
+            ? "Entity API: native CThing lifecycle ABI validated."
+            : "Entity API: native CThing lifecycle ABI unavailable.");
         return staticApiValidated_;
     }
 
@@ -619,6 +633,36 @@ namespace fable::game
         return CallScriptThingSetter(handle, native::script_thing_slot::SetToKillOnLevelUnload, enabled);
     }
 
+    bool EntityService::RequestDestroy(
+        const native::ScriptThing& handle,
+        bool immediate)
+    {
+        if (!lifecycleApiValidated_)
+        {
+            return false;
+        }
+        void* const nativeThing = ResolveNative(handle);
+        if (nativeThing == nullptr)
+        {
+            return false;
+        }
+        bool requested = false;
+        __try
+        {
+            const auto base = reinterpret_cast<std::uintptr_t>(gameModule_);
+            reinterpret_cast<RequestDestroyFunction>(
+                base + native::rva::ThingRequestDestroy)(
+                    nativeThing,
+                    immediate);
+            requested = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            requested = false;
+        }
+        return requested;
+    }
+
     bool EntityService::UpdateAttachment(const native::ScriptThing& handle)
     {
         return CallScriptThingVoid(handle, native::script_thing_slot::UpdateAttachment);
@@ -1027,6 +1071,7 @@ namespace fable::game
             name == "Entity.State" ||
             name == "Entity.Teleport" ||
             name == "Entity.Flags" ||
+            name == "Entity.Lifecycle" ||
             name == "Entity.Metadata.Read" ||
             name == "Entity.Metadata.Write" ||
             name == "Entity.Attack" ||

@@ -44,11 +44,15 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Multiplayer\Authority\MapAuthorityCoordinator.cpp" />
     <ClCompile Include="Automation\AppearanceCycle\AppearanceCycleScenario.cpp" />
     <ClCompile Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.cpp" />
     <ClCompile Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.cpp" />
     <ClCompile Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.cpp" />
+    <ClCompile Include="Automation\LocalInstance\Hooks\ForegroundWindowHook.cpp" />
+    <ClCompile Include="Automation\LocalInstance\MapTransitionAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.cpp" />
+    <ClCompile Include="Automation\LocalInstance\Native\ForegroundWindowImport.cpp" />
     <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp" />
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp" />
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp" />
@@ -105,8 +109,14 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp" />
     <ClCompile Include="Game\Quest\QuestService.cpp" />
     <ClCompile Include="Game\World\WorldService.cpp" />
+    <ClCompile Include="Multiplayer\Movement\ReplicatedActorMovement.cpp" />
+    <ClCompile Include="Multiplayer\Presentation\HeroPresentationDiagnostics.cpp" />
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerPresentation.cpp" />
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp" />
+    <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp" />
+    <ClCompile Include="Multiplayer\Replication\LocalPlayerChannel.cpp" />
+    <ClCompile Include="Multiplayer\Replication\RemotePlayerChannels.cpp" />
     <ClCompile Include="Multiplayer\Runtime\MultiplayerSession.cpp" />
-    <ClCompile Include="Multiplayer\Replication\PlayerActorChannel.cpp" />
     <ClCompile Include="Multiplayer\Transport\UdpPeer.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="Game\Creature\Bindings\CreatureBindings.cpp" />
@@ -136,11 +146,15 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="UI\MainWindow\MainWindowHook.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Multiplayer\Authority\MapAuthorityCoordinator.h" />
     <ClInclude Include="Automation\AppearanceCycle\AppearanceCycleScenario.h" />
     <ClInclude Include="Automation\CharacterSnapshot\ServerCharacterSnapshot.h" />
     <ClInclude Include="Automation\FixtureDocuments\Hooks\DocumentsFolderRedirectHook.h" />
     <ClInclude Include="Automation\FixtureDocuments\Native\DocumentsFolderImport.h" />
+    <ClInclude Include="Automation\LocalInstance\Hooks\ForegroundWindowHook.h" />
+    <ClInclude Include="Automation\LocalInstance\MapTransitionAcceptanceDriver.h" />
     <ClInclude Include="Automation\LocalInstance\Hooks\UnrealSingletonHook.h" />
+    <ClInclude Include="Automation\LocalInstance\Native\ForegroundWindowImport.h" />
     <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h" />
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h" />
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h" />
@@ -204,8 +218,15 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h" />
     <ClInclude Include="Game\Quest\QuestService.h" />
     <ClInclude Include="Game\World\WorldService.h" />
+    <ClInclude Include="Multiplayer\Movement\ReplicatedActorMovement.h" />
+    <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h" />
+    <ClInclude Include="Multiplayer\Presentation\HeroPresentationDiagnostics.h" />
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerPresentation.h" />
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h" />
     <ClInclude Include="Multiplayer\Protocol\PlayerState.h" />
-    <ClInclude Include="Multiplayer\Replication\PlayerActorChannel.h" />
+    <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h" />
+    <ClInclude Include="Multiplayer\Replication\LocalPlayerChannel.h" />
+    <ClInclude Include="Multiplayer\Replication\RemotePlayerChannels.h" />
     <ClInclude Include="Multiplayer\Runtime\MultiplayerSession.h" />
     <ClInclude Include="Multiplayer\Transport\UdpPeer.h" />
     <ClInclude Include="Game\Creature\Bindings\CreatureBindings.h" />

@@ -14,7 +14,7 @@ namespace fable::game::creature::locomotion::native
         using RemoveSourcePointer = void(__thiscall*)(void* manager, int source);
         using EvaluateLocomotionPointer = void(__thiscall*)(
             void* mode,
-            float deltaSeconds);
+            void* evaluationContext);
 
         static constexpr std::uintptr_t AddSourceRva = 0x01974A50;
         static constexpr std::uintptr_t RemoveSourceRva = 0x01973A10;

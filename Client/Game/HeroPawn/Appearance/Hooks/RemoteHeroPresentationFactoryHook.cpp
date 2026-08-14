@@ -160,9 +160,12 @@ namespace fable::game::hero_pawn::appearance::hooks
         return true;
     }
 
-    void RemoteHeroPresentationFactoryHook::Arm(
+    RemoteHeroPresentationFactoryHook::ArmToken
+        RemoteHeroPresentationFactoryHook::Arm(
         const game::Vector3& expectedPosition) noexcept
     {
+        const ArmToken token = armToken_.fetch_add(
+            1, std::memory_order_acq_rel) + 1;
         expectedX_.store(FloatBits(expectedPosition.x), std::memory_order_relaxed);
         expectedY_.store(FloatBits(expectedPosition.y), std::memory_order_relaxed);
         expectedZ_.store(FloatBits(expectedPosition.z), std::memory_order_relaxed);
@@ -185,10 +188,18 @@ namespace fable::game::hero_pawn::appearance::hooks
         diagnostics_.Event(
             "MultiplayerRemoteHeroPresentationArmed",
             detail);
+        return token;
     }
 
-    void RemoteHeroPresentationFactoryHook::TargetGraphic(void* graphic) noexcept
+    void RemoteHeroPresentationFactoryHook::TargetGraphic(
+        ArmToken token,
+        void* graphic) noexcept
     {
+        if (token == 0 ||
+            token != armToken_.load(std::memory_order_acquire))
+        {
+            return;
+        }
         expectedGraphic_.store(
             reinterpret_cast<std::uintptr_t>(graphic),
             std::memory_order_release);
@@ -199,8 +210,13 @@ namespace fable::game::hero_pawn::appearance::hooks
             detail);
     }
 
-    void RemoteHeroPresentationFactoryHook::Cancel() noexcept
+    void RemoteHeroPresentationFactoryHook::Cancel(ArmToken token) noexcept
     {
+        if (token != 0 &&
+            token != armToken_.load(std::memory_order_acquire))
+        {
+            return;
+        }
         armed_.store(false, std::memory_order_release);
         expectedGraphic_.store(0, std::memory_order_relaxed);
         expiresAt_.store(0, std::memory_order_relaxed);
@@ -209,6 +225,11 @@ namespace fable::game::hero_pawn::appearance::hooks
     bool RemoteHeroPresentationFactoryHook::IsInstalled() const noexcept
     {
         return installed_ && active_ == this && original_ != nullptr;
+    }
+
+    bool RemoteHeroPresentationFactoryHook::IsArmed() const noexcept
+    {
+        return armed_.load(std::memory_order_acquire);
     }
 
     void __cdecl RemoteHeroPresentationFactoryHook::CreatePresentation(

@@ -228,7 +228,9 @@ namespace fable::automation::runtime
             ScenarioIs(L"load_fixture") ||
             ScenarioIs(L"appearance_cycle") ||
             ScenarioIs(L"multiplayer_host") ||
-            ScenarioIs(L"multiplayer_guest");
+            ScenarioIs(L"multiplayer_host_transition") ||
+            ScenarioIs(L"multiplayer_guest") ||
+            ScenarioIs(L"multiplayer_guest_transition");
     }
 
     bool RuntimeConfiguration::LoadsFixture() const noexcept
@@ -236,6 +238,8 @@ namespace fable::automation::runtime
         return ScenarioIs(L"load_fixture") ||
             ScenarioIs(L"appearance_cycle") ||
             ScenarioIs(L"multiplayer_host") ||
-            ScenarioIs(L"multiplayer_guest");
+            ScenarioIs(L"multiplayer_host_transition") ||
+            ScenarioIs(L"multiplayer_guest") ||
+            ScenarioIs(L"multiplayer_guest_transition");
     }
 }

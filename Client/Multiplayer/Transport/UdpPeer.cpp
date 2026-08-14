@@ -12,17 +12,22 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <iterator>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace
 {
     constexpr std::uint32_t kProtocolMagic = 0x504D5446;
-    constexpr std::uint16_t kProtocolVersion = 9;
+    constexpr std::uint16_t kProtocolVersion = 10;
     constexpr float kBoneScaleQuantization = 4'095.0f;
     constexpr ULONGLONG kMinimumSendIntervalMilliseconds = 50;
     constexpr ULONGLONG kKeepAliveIntervalMilliseconds = 1'000;
+    constexpr ULONGLONG kPeerLeaseMilliseconds = 10'000;
+    constexpr ULONGLONG kRetiredActorRetentionMilliseconds = 2'000;
 
 #pragma pack(push, 1)
     struct WireHeroBoneScale final
@@ -49,6 +54,7 @@ namespace
         float position[3] = {};
         float velocity[3] = {};
         float facing = 0.0f;
+        float angularVelocity = 0.0f;
         char playerId[48] = {};
         char mapName[96] = {};
         char appearanceDefinition[96] = {};
@@ -104,7 +110,8 @@ namespace
             std::isfinite(state.velocity[0]) &&
             std::isfinite(state.velocity[1]) &&
             std::isfinite(state.velocity[2]) &&
-            std::isfinite(state.facing);
+            std::isfinite(state.facing) &&
+            std::isfinite(state.angularVelocity);
     }
 
     bool IsSaneAppearance(const WirePlayerState& state)
@@ -227,6 +234,7 @@ namespace
         packet.velocity[1] = state.velocity.y;
         packet.velocity[2] = state.velocity.z;
         packet.facing = state.facing;
+        packet.angularVelocity = state.angularVelocity;
         CopyText(packet.playerId, state.playerId);
         CopyText(packet.mapName, state.mapName);
         CopyText(packet.appearanceDefinition, state.appearanceDefinition);
@@ -293,6 +301,7 @@ namespace
         state.velocity = {
             packet.velocity[0], packet.velocity[1], packet.velocity[2]};
         state.facing = packet.facing;
+        state.angularVelocity = packet.angularVelocity;
         state.playerId = packet.playerId;
         state.mapName = packet.mapName;
         state.appearanceDefinition = packet.appearanceDefinition;
@@ -345,6 +354,42 @@ namespace fable::multiplayer
 {
     struct UdpPeer::Implementation final
     {
+        struct EndpointKey final
+        {
+            std::uint32_t address = 0;
+            std::uint16_t port = 0;
+
+            bool operator==(const EndpointKey& other) const noexcept
+            {
+                return address == other.address && port == other.port;
+            }
+        };
+
+        struct EndpointHash final
+        {
+            std::size_t operator()(const EndpointKey& endpoint) const noexcept
+            {
+                return static_cast<std::size_t>(endpoint.address) ^
+                    (static_cast<std::size_t>(endpoint.port) << 1);
+            }
+        };
+
+        struct Peer final
+        {
+            sockaddr_in endpoint = {};
+            std::uint64_t actorId = 0;
+            ULONGLONG lastReceivedAt = 0;
+            std::unordered_map<std::uint64_t, std::uint32_t> lastSentSequence;
+            std::unordered_map<std::uint64_t, ULONGLONG> lastSentAt;
+        };
+
+        struct ActorRecord final
+        {
+            PlayerState state;
+            bool retired = false;
+            ULONGLONG retiredAt = 0;
+        };
+
         SOCKET socket = INVALID_SOCKET;
         sockaddr_in peer = {};
         core::Diagnostics diagnostics = {};
@@ -353,9 +398,10 @@ namespace fable::multiplayer
         std::mutex stateMutex;
         std::condition_variable wake;
         PlayerState outbound = {};
-        PlayerState inboundCurrent = {};
-        std::uint32_t inboundPendingProperties = 0;
-        std::uint32_t lastRemoteSequence = 0;
+        std::deque<PlayerState> inbound;
+        std::unordered_map<std::uint64_t, std::uint32_t> lastRemoteSequence;
+        std::unordered_map<EndpointKey, Peer, EndpointHash> peers;
+        std::unordered_map<std::uint64_t, ActorRecord> actors;
         ULONGLONG lastSentAt = 0;
         std::atomic_bool started{false};
         std::atomic_bool stopping{false};
@@ -376,47 +422,51 @@ namespace fable::multiplayer
             }
         }
 
-        void MergeInbound(const PlayerState& update)
+        static EndpointKey Key(const sockaddr_in& endpoint) noexcept
         {
-            std::lock_guard<std::mutex> lock(stateMutex);
-            const bool newActor = inboundCurrent.actorId != update.actorId ||
-                inboundCurrent.authorityEpoch != update.authorityEpoch;
-            if (newActor)
+            return {endpoint.sin_addr.s_addr, endpoint.sin_port};
+        }
+
+        static void MergeActor(ActorRecord& record, const PlayerState& update)
+        {
+            PlayerState& current = record.state;
+            if (current.actorId != update.actorId ||
+                current.authorityEpoch != update.authorityEpoch)
             {
-                inboundCurrent = {};
-                inboundPendingProperties = 0;
+                current = {};
             }
             if ((update.changedProperties & player_property::Identity) != 0)
             {
-                inboundCurrent.actorId = update.actorId;
-                inboundCurrent.authorityEpoch = update.authorityEpoch;
-                inboundCurrent.role = update.role;
-                inboundCurrent.playerId = update.playerId;
-                inboundCurrent.appearanceDefinition =
-                    update.appearanceDefinition;
+                current.actorId = update.actorId;
+                current.authorityEpoch = update.authorityEpoch;
+                current.role = update.role;
+                current.playerId = update.playerId;
+                current.appearanceDefinition = update.appearanceDefinition;
             }
             if ((update.changedProperties & player_property::Map) != 0)
             {
-                inboundCurrent.mapName = update.mapName;
+                current.mapName = update.mapName;
             }
             if ((update.changedProperties & player_property::Appearance) != 0)
             {
-                inboundCurrent.heroMorph = update.heroMorph;
-                inboundCurrent.heroClothing = update.heroClothing;
-                inboundCurrent.heroBoneScales = update.heroBoneScales;
-                inboundCurrent.heroAppearanceModifiers =
+                current.heroMorph = update.heroMorph;
+                current.heroClothing = update.heroClothing;
+                current.heroBoneScales = update.heroBoneScales;
+                current.heroAppearanceModifiers =
                     update.heroAppearanceModifiers;
             }
             if ((update.changedProperties & player_property::Movement) != 0)
             {
-                inboundCurrent.position = update.position;
-                inboundCurrent.velocity = update.velocity;
-                inboundCurrent.facing = update.facing;
-                inboundCurrent.moving = update.moving;
+                current.position = update.position;
+                current.velocity = update.velocity;
+                current.facing = update.facing;
+                current.angularVelocity = update.angularVelocity;
+                current.moving = update.moving;
             }
-            inboundCurrent.sequence = update.sequence;
-            inboundPendingProperties |= update.changedProperties;
-            inboundCurrent.changedProperties = inboundPendingProperties;
+            current.sequence = update.sequence;
+            current.changedProperties = update.changedProperties;
+            record.retired =
+                (update.changedProperties & player_property::Retired) != 0;
         }
 
         bool ReceiveAll()
@@ -469,8 +519,7 @@ namespace fable::multiplayer
                 }
 
                 const PeerRole senderRole = static_cast<PeerRole>(packet.role);
-                if ((role == PeerRole::Host && senderRole != PeerRole::Guest) ||
-                    (role == PeerRole::Guest && senderRole != PeerRole::Host))
+                if (role == PeerRole::Host && senderRole != PeerRole::Guest)
                 {
                     continue;
                 }
@@ -482,19 +531,13 @@ namespace fable::multiplayer
                 }
                 if (role == PeerRole::Host)
                 {
-                    peer = sender;
-                    peerKnown.store(true, std::memory_order_release);
-                }
-
-                {
+                    const EndpointKey endpoint = Key(sender);
                     std::lock_guard<std::mutex> lock(stateMutex);
-                    if (hasOutbound && packet.acknowledgedSequence != 0 &&
-                        !IsNewerSequence(
-                            outbound.sequence,
-                            packet.acknowledgedSequence))
-                    {
-                        outbound.changedProperties = 0;
-                    }
+                    Peer& connected = peers[endpoint];
+                    connected.endpoint = sender;
+                    connected.actorId = packet.actorId;
+                    connected.lastReceivedAt = GetTickCount64();
+                    peerKnown.store(!peers.empty(), std::memory_order_release);
                 }
 
                 if (!receiveEventReported)
@@ -506,15 +549,28 @@ namespace fable::multiplayer
                             ? "first valid guest actor-channel datagram"
                             : "first valid host actor-channel datagram");
                 }
-                if (packet.changedProperties == 0 ||
-                    !IsNewerSequence(packet.sequence, lastRemoteSequence))
+                if (packet.changedProperties == 0)
                 {
                     continue;
                 }
-
-                lastRemoteSequence = packet.sequence;
                 const PlayerState update = Deserialize(packet);
-                MergeInbound(update);
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    std::uint32_t& previous = lastRemoteSequence[update.actorId];
+                    if (!IsNewerSequence(update.sequence, previous))
+                    {
+                        continue;
+                    }
+                    previous = update.sequence;
+                    ActorRecord& actor = actors[update.actorId];
+                    MergeActor(actor, update);
+                    actor.retiredAt = 0;
+                    if (role == PeerRole::Host ||
+                        update.actorId != outbound.actorId)
+                    {
+                        inbound.push_back(update);
+                    }
+                }
                 if (!peerEventReported)
                 {
                     peerEventReported = true;
@@ -532,6 +588,10 @@ namespace fable::multiplayer
                 return true;
             }
             const ULONGLONG now = GetTickCount64();
+            if (role == PeerRole::Host)
+            {
+                return SendHostRoster(now);
+            }
             PlayerState state;
             bool shouldSend = false;
             {
@@ -556,8 +616,17 @@ namespace fable::multiplayer
             }
 
             WirePlayerState packet = {};
+            const auto acknowledged = [&]
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                const auto iterator = lastRemoteSequence.find(
+                    outbound.actorId);
+                return iterator == lastRemoteSequence.end()
+                    ? 0u
+                    : iterator->second;
+            }();
             const std::size_t packetSize = Serialize(
-                state, lastRemoteSequence, packet);
+                state, acknowledged, packet);
             const int sent = sendto(
                 socket,
                 reinterpret_cast<const char*>(&packet),
@@ -589,6 +658,146 @@ namespace fable::multiplayer
                     role == PeerRole::Host
                         ? "first host actor-channel datagram"
                         : "first guest actor-channel datagram");
+            }
+            return true;
+        }
+
+        bool SendPacket(
+            const PlayerState& state,
+            const sockaddr_in& endpoint)
+        {
+            WirePlayerState packet = {};
+            const std::size_t packetSize = Serialize(state, 0, packet);
+            const int sent = sendto(
+                socket,
+                reinterpret_cast<const char*>(&packet),
+                static_cast<int>(packetSize),
+                0,
+                reinterpret_cast<const sockaddr*>(&endpoint),
+                sizeof(endpoint));
+            if (sent == SOCKET_ERROR)
+            {
+                const int error = WSAGetLastError();
+                if (error == WSAEWOULDBLOCK)
+                {
+                    return true;
+                }
+                Fail("Multiplayer: UDP host relay failed in the network worker.");
+                return false;
+            }
+            return sent == static_cast<int>(packetSize);
+        }
+
+        bool SendHostRoster(ULONGLONG now)
+        {
+            struct Datagram final
+            {
+                PlayerState state;
+                sockaddr_in endpoint = {};
+            };
+            std::vector<Datagram> datagrams;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                if (hasOutbound)
+                {
+                    ActorRecord& local = actors[outbound.actorId];
+                    MergeActor(local, outbound);
+                }
+                for (auto peerIterator = peers.begin();
+                     peerIterator != peers.end();)
+                {
+                    if (now - peerIterator->second.lastReceivedAt >
+                        kPeerLeaseMilliseconds)
+                    {
+                        const std::uint64_t retiredActorId =
+                            peerIterator->second.actorId;
+                        auto actor = actors.find(retiredActorId);
+                        if (actor != actors.end() && !actor->second.retired)
+                        {
+                            actor->second.retired = true;
+                            actor->second.retiredAt = now;
+                            ++actor->second.state.sequence;
+                            actor->second.state.changedProperties =
+                                player_property::Retired;
+                            inbound.push_back(actor->second.state);
+                        }
+                        peerIterator = peers.erase(peerIterator);
+                        continue;
+                    }
+                    ++peerIterator;
+                }
+                peerKnown.store(!peers.empty(), std::memory_order_release);
+                for (auto& [endpointKey, connected] : peers)
+                {
+                    (void)endpointKey;
+                    for (const auto& [actorId, actor] : actors)
+                    {
+                        if (actorId == connected.actorId)
+                        {
+                            continue;
+                        }
+                        const auto sentSequence =
+                            connected.lastSentSequence.find(actorId);
+                        const auto sentAt = connected.lastSentAt.find(actorId);
+                        const bool changed = sentSequence ==
+                                connected.lastSentSequence.end() ||
+                            sentSequence->second != actor.state.sequence;
+                        const bool keepAlive = sentAt == connected.lastSentAt.end() ||
+                            now - sentAt->second >=
+                                kKeepAliveIntervalMilliseconds;
+                        if (!changed && !keepAlive)
+                        {
+                            continue;
+                        }
+                        PlayerState relay = actor.state;
+                        relay.changedProperties = actor.retired
+                            ? player_property::Retired
+                            : player_property::Identity |
+                                player_property::Map |
+                                player_property::Movement |
+                                (relay.heroMorph.IsSane() &&
+                                        relay.heroClothing.IsSane() &&
+                                        relay.heroBoneScales.IsSane() &&
+                                        relay.heroAppearanceModifiers.IsSane()
+                                    ? player_property::Appearance
+                                    : 0u);
+                        datagrams.push_back({relay, connected.endpoint});
+                        connected.lastSentSequence[actorId] =
+                            actor.state.sequence;
+                        connected.lastSentAt[actorId] = now;
+                    }
+                }
+                for (auto actor = actors.begin(); actor != actors.end();)
+                {
+                    if (actor->second.retired &&
+                        now - actor->second.retiredAt >
+                            kRetiredActorRetentionMilliseconds)
+                    {
+                        actor = actors.erase(actor);
+                    }
+                    else
+                    {
+                        ++actor;
+                    }
+                }
+                if (hasOutbound)
+                {
+                    outbound.changedProperties = 0;
+                }
+            }
+            for (const Datagram& datagram : datagrams)
+            {
+                if (!SendPacket(datagram.state, datagram.endpoint))
+                {
+                    return false;
+                }
+            }
+            if (!datagrams.empty() && !sendEventReported)
+            {
+                sendEventReported = true;
+                diagnostics.Event(
+                    "MultiplayerPacketSent",
+                    "first host-routed actor-channel datagram");
             }
             return true;
         }
@@ -797,14 +1006,12 @@ namespace fable::multiplayer
             return false;
         }
         std::lock_guard<std::mutex> lock(implementation_->stateMutex);
-        if (implementation_->inboundPendingProperties == 0)
+        if (implementation_->inbound.empty())
         {
             return false;
         }
-        remoteUpdate = implementation_->inboundCurrent;
-        remoteUpdate.changedProperties = implementation_->inboundPendingProperties;
-        implementation_->inboundPendingProperties = 0;
-        implementation_->inboundCurrent.changedProperties = 0;
+        remoteUpdate = std::move(implementation_->inbound.front());
+        implementation_->inbound.pop_front();
         return true;
     }
 
@@ -851,5 +1058,19 @@ namespace fable::multiplayer
     {
         return implementation_ != nullptr &&
             implementation_->failed.load(std::memory_order_acquire);
+    }
+
+    std::size_t UdpPeer::ConnectedPeerCount() const noexcept
+    {
+        if (implementation_ == nullptr)
+        {
+            return 0;
+        }
+        std::lock_guard<std::mutex> lock(implementation_->stateMutex);
+        return implementation_->role == PeerRole::Host
+            ? implementation_->peers.size()
+            : (implementation_->peerKnown.load(std::memory_order_acquire)
+                ? 1u
+                : 0u);
     }
 }

@@ -4,6 +4,7 @@
 #include "Multiplayer/Protocol/PlayerState.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -32,6 +33,7 @@ namespace fable::multiplayer
         [[nodiscard]] bool IsStarted() const noexcept;
         [[nodiscard]] bool HasPeer() const noexcept;
         [[nodiscard]] bool HasFailed() const noexcept;
+        [[nodiscard]] std::size_t ConnectedPeerCount() const noexcept;
 
     private:
         struct Implementation;

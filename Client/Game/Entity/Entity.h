@@ -58,6 +58,7 @@ namespace fable::game
         bool SetFriendsWithEverything(bool enabled);
         bool SetActivationTriggerStatus(bool enabled);
         bool SetKillOnLevelUnload(bool enabled);
+        bool RequestDestroy(bool immediate = false);
         bool UpdateAttachment();
         bool IncrementScriptCounter();
         bool DecrementScriptCounter();

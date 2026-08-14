@@ -41,6 +41,9 @@ namespace fable::game::creature::locomotion
         bool RouteHeroShadow(Entity* sourcePuppet, Entity* targetHero);
         void ClearHeroShadow() noexcept;
         void TickHeroShadow();
+        bool RequestPosition(
+            Entity* entity,
+            const Vector3& desiredPosition) const;
         bool SetPhysicsWorldPosition(Entity* entity, const Vector3& worldPosition) const;
         [[nodiscard]] unsigned int MirroredPhysicsWorldPositionCount() const noexcept;
         [[nodiscard]] unsigned int MirroredAnimationMotionCount() const noexcept;

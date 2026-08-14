@@ -25,7 +25,13 @@ namespace fable::game::creature::look::native
         static constexpr std::uintptr_t ResetForceLookAtRva = 0x018A17F0;
         static constexpr std::uintptr_t PhysicsNavigatorVtableRva = 0x02B079AC;
         static constexpr std::uintptr_t PhysicsControlledVtableRva = 0x02B0764C;
+        // Slots 65-67 expose the three normalized Euler components. Each
+        // setter preserves the other two: slot 68 replaces component 0 and is
+        // the horizontal heading used by Fable creatures; 69/70 are the
+        // presentation tilt axes and must remain untouched.
+        static constexpr std::size_t GetNavigatorFacingSlot = 65;
         static constexpr std::size_t SetNavigatorFacingSlot = 68;
+        static constexpr std::uintptr_t GetNavigatorFacingRva = 0x01A79790;
         static constexpr std::uintptr_t SetNavigatorFacingRva = 0x01A79880;
 
         static bool ValidateDefinitions(HMODULE gameModule) noexcept;
@@ -42,5 +48,9 @@ namespace fable::game::creature::look::native
             HMODULE gameModule,
             void* physicsNavigator,
             float normalizedTurns) noexcept;
+        static bool ReadNavigatorFacing(
+            HMODULE gameModule,
+            void* physicsNavigator,
+            float& normalizedTurns) noexcept;
     };
 }
