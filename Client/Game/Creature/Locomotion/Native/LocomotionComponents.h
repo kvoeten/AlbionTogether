@@ -31,6 +31,7 @@ namespace fable::game::creature::locomotion::native
         // IDA confirms virtual slot 23 returns the corresponding component ID
         // and slot 24 returns the class name for all three definitions.
         static constexpr std::uintptr_t PhysicsNavigatorVtableRva = 0x02B079AC;
+        static constexpr std::uintptr_t PhysicsControlledVtableRva = 0x02B0764C;
         static constexpr std::uintptr_t CreatureNavigationVtableRva = 0x02AF30D4;
         static constexpr std::uintptr_t AnimationComplexVtableRva = 0x02AED3D4;
 

@@ -3,12 +3,14 @@
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Creature/Locomotion/Native/CreatureModeManagerFunctions.h"
+#include "Game/Math/Vector3.h"
 
 #include <Windows.h>
 
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 namespace fable::game::creature::locomotion
 {
@@ -21,6 +23,13 @@ namespace fable::game::creature::locomotion
             void* sourcePlayerCreature,
             void* targetCreature) noexcept;
         static void ClearAnimationMotionSource() noexcept;
+        static bool SetReplicatedAnimationMotion(
+            void* targetCreature,
+            const Vector3& linearVelocity,
+            float angularVelocity) noexcept;
+        static void ClearReplicatedAnimationMotion(
+            void* targetCreature) noexcept;
+        static void ClearReplicatedAnimationMotions() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] static unsigned int MirroredAnimationMotionCount() noexcept;
@@ -42,6 +51,15 @@ namespace fable::game::creature::locomotion
             std::array<std::uint32_t, ModeSnapshotDwordCount> modeDwords = {};
         };
 
+        struct ReplicatedAnimationMotion final
+        {
+            void* owner = nullptr;
+            Vector3 linearVelocity = {};
+            float angularVelocity = 0.0f;
+            std::uint64_t updatedAt = 0;
+            std::uint64_t evaluatedAt = 0;
+        };
+
         static bool __fastcall ObserveAddSource(
             void* manager,
             void* unused,
@@ -53,7 +71,7 @@ namespace fable::game::creature::locomotion
         static void __fastcall ObserveLocomotionEvaluation(
             void* mode,
             void* unused,
-            float deltaSeconds);
+            void* evaluationContext);
 
         static Snapshot Capture(void* manager) noexcept;
         void Report(
@@ -68,9 +86,11 @@ namespace fable::game::creature::locomotion
         void ReportLocomotionEvaluation(
             void* mode,
             void* owner,
-            float deltaSeconds,
+            void* evaluationContext,
             float motionX,
             float motionY,
+            float angularVelocity,
+            float evaluationSeconds,
             unsigned int ordinal) const;
 
         static CreatureModeManagerObserver* active_;
@@ -95,5 +115,7 @@ namespace fable::game::creature::locomotion
         std::atomic<void*> animationMotionSource_{nullptr};
         std::atomic<void*> animationMotionTarget_{nullptr};
         std::atomic_uint mirroredAnimationMotionCount_{0};
+        SRWLOCK replicatedAnimationMotionLock_ = SRWLOCK_INIT;
+        std::vector<ReplicatedAnimationMotion> replicatedAnimationMotions_;
     };
 }

@@ -1,5 +1,7 @@
 #include "ScriptHost.h"
 
+#include "Automation/LocalInstance/MapTransitionAcceptanceDriver.h"
+#include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Capabilities/CapabilityRegistry.h"
 #include "Game/Creature/CreatureService.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
@@ -20,6 +22,7 @@
 #include "Scripting/Runtime/Scheduling/SchedulerBindings.h"
 #include "Scripting/Runtime/Storage/PersistentStore.h"
 #include "Scripting/Runtime/Storage/StorageBindings.h"
+#include "Multiplayer/Runtime/MultiplayerSession.h"
 #include "UI/Hud/HudService.h"
 
 #include <angelscript.h>
@@ -140,7 +143,10 @@ namespace fable::scripting
           capabilities_(std::make_unique<core::CapabilityRegistry>()),
           events_(std::make_unique<EventBus>()),
           storage_(std::make_unique<PersistentStore>()),
-          scheduler_(std::make_unique<Scheduler>())
+          scheduler_(std::make_unique<Scheduler>()),
+          transitionAcceptanceDriver_(std::make_unique<
+              automation::local_instance::MapTransitionAcceptanceDriver>()),
+          multiplayerSession_(std::make_unique<multiplayer::MultiplayerSession>())
     {
     }
 
@@ -153,6 +159,7 @@ namespace fable::scripting
         HMODULE clientModule,
         HMODULE gameModule,
         const wchar_t* persistentStorageRoot,
+        const automation::runtime::RuntimeConfiguration& runtimeConfiguration,
         const core::Diagnostics& diagnostics)
     {
         Shutdown();
@@ -187,6 +194,24 @@ namespace fable::scripting
             return false;
         }
 
+        if (!multiplayerSession_->Initialize(
+                runtimeConfiguration,
+                *entityService_,
+                *npcService_,
+                *creatureLocomotionService_,
+                *creatureLookService_,
+                diagnostics_))
+        {
+            diagnostics_.Log("Multiplayer: session initialization failed.");
+            return false;
+        }
+        transitionAcceptanceDriver_->Initialize(
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition") ||
+                runtimeConfiguration.ScenarioIs(
+                    L"multiplayer_guest_transition"),
+            *entityService_,
+            *creatureLocomotionService_,
+            diagnostics_);
         RegisterApiCoverage(*capabilities_);
 
         std::filesystem::path scriptsRoot;
@@ -489,6 +514,11 @@ namespace fable::scripting
         {
             return;
         }
+        if (!multiplayerSession_->OnWorldReady())
+        {
+            diagnostics_.Event("ClientFailed", "multiplayer-world-entry");
+            return;
+        }
         for (const auto& module : modules_)
         {
             if (!module->enabled || module->onWorldReady == nullptr)
@@ -513,6 +543,9 @@ namespace fable::scripting
 
         scheduler_->Tick(deltaSeconds);
         creatureLocomotionService_->TickHeroShadow();
+        transitionAcceptanceDriver_->Tick(
+            deltaSeconds,
+            multiplayerSession_->HasActiveRemotePresentation());
 
         for (const auto& module : modules_)
         {
@@ -542,8 +575,36 @@ namespace fable::scripting
         }
     }
 
+    bool ScriptHost::ProcessMultiplayerPresentation()
+    {
+        if (!loaded_)
+        {
+            return false;
+        }
+        // Creature creation and retirement must execute from Fable's verified
+        // game-thread queue boundary. Network state is still received by the
+        // transport worker and movement is still consumed by creature hooks;
+        // this drains only the single bounded lifecycle delta.
+        return multiplayerSession_->ProcessPresentationLifecycle();
+    }
+
+    void ScriptHost::DriveReplicatedMovement()
+    {
+        if (loaded_)
+        {
+            multiplayerSession_->DriveReplicatedMovement();
+        }
+    }
+
     bool ScriptHost::Reload()
     {
+        if (multiplayerSession_->IsEnabled())
+        {
+            diagnostics_.Event(
+                "ScriptReloadSkipped",
+                "multiplayer owns shared locomotion and combat routes");
+            return false;
+        }
         if (engine_ == nullptr || scriptsRoot_.empty())
         {
             return false;
@@ -607,6 +668,8 @@ namespace fable::scripting
 
     void ScriptHost::Shutdown()
     {
+        transitionAcceptanceDriver_->Shutdown();
+        multiplayerSession_->Shutdown();
         creatureCombatService_->ClearPlayerCombat();
         creatureLocomotionService_->ClearHeroShadow();
         if (loaded_)

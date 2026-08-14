@@ -32,12 +32,15 @@ namespace fable::game::creature::look::native
             base + ResetForceLookAtRva);
         const auto* const setFacing = reinterpret_cast<const void*>(
             base + SetNavigatorFacingRva);
+        const auto* const getFacing = reinterpret_cast<const void*>(
+            base + GetNavigatorFacingRva);
         bool valid = false;
         __try
         {
             valid = interfaceVtable[ForceLookAtNothingSlot] == force &&
                 interfaceVtable[ResetForceLookAtSlot] == reset &&
                 navigatorVtable[SetNavigatorFacingSlot] == setFacing &&
+                navigatorVtable[GetNavigatorFacingSlot] == getFacing &&
                 std::memcmp(force, lookPrefix.data(), lookPrefix.size()) == 0 &&
                 std::memcmp(reset, lookPrefix.data(), lookPrefix.size()) == 0 &&
                 std::memcmp(
@@ -64,8 +67,11 @@ namespace fable::game::creature::look::native
         bool valid = false;
         __try
         {
-            valid = *static_cast<void**>(physicsNavigator) ==
-                reinterpret_cast<void*>(base + PhysicsNavigatorVtableRva);
+            const void* const vtable = *static_cast<void**>(physicsNavigator);
+            valid = vtable == reinterpret_cast<void*>(
+                    base + PhysicsNavigatorVtableRva) ||
+                vtable == reinterpret_cast<void*>(
+                    base + PhysicsControlledVtableRva);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -151,5 +157,47 @@ namespace fable::game::creature::look::native
             applied = false;
         }
         return applied;
+    }
+
+    bool CreatureLookFunctions::ReadNavigatorFacing(
+        HMODULE gameModule,
+        void* physicsNavigator,
+        float& normalizedTurns) noexcept
+    {
+        normalizedTurns = 0.0f;
+        if (!ValidateNavigator(gameModule, physicsNavigator))
+        {
+            return false;
+        }
+        bool read = false;
+        __try
+        {
+            // The facing setter rebuilds this 3x2 transform at +0x50 while
+            // preserving the two tilt components. Its paired getter reads
+            // Euler component 0 back from the final transform, so this
+            // observes the horizontal heading Fable retained instead of
+            // echoing our request.
+            auto** const vtable = *reinterpret_cast<void***>(physicsNavigator);
+            using ReadFacingFunction = float(__thiscall*)(void*);
+            const auto function = reinterpret_cast<ReadFacingFunction>(
+                vtable[GetNavigatorFacingSlot]);
+            normalizedTurns = function(physicsNavigator);
+            read = std::isfinite(normalizedTurns);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            read = false;
+        }
+        if (!read)
+        {
+            normalizedTurns = 0.0f;
+            return false;
+        }
+        normalizedTurns -= std::floor(normalizedTurns);
+        if (normalizedTurns < 0.0f)
+        {
+            normalizedTurns += 1.0f;
+        }
+        return true;
     }
 }

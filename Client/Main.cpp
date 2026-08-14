@@ -3,6 +3,7 @@
 #include "Automation/AppearanceCycle/AppearanceCycleScenario.h"
 #include "Automation/CharacterSnapshot/ServerCharacterSnapshot.h"
 #include "Automation/FixtureDocuments/Hooks/DocumentsFolderRedirectHook.h"
+#include "Automation/LocalInstance/Hooks/ForegroundWindowHook.h"
 #include "Automation/LocalInstance/Hooks/UnrealSingletonHook.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Diagnostics/DiagnosticLog.h"
@@ -12,6 +13,7 @@
 #include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
 #include "Game/Creature/Locomotion/Hooks/FollowCreatureActionHook.h"
 #include "Game/Creature/Locomotion/Hooks/PhysicsNavigatorObserver.h"
+#include "Game/Definitions/Hooks/CompiledDefinitionsRedirectHook.h"
 #include "Game/HeroPawn/TransformProbe/Hooks/HeroTransformCompatibilityHooks.h"
 #include "Scripting/Runtime/Host/ScriptHost.h"
 #include "UI/FrontEnd/Hooks/FrontEndLifecycleHooks.h"
@@ -205,6 +207,8 @@ namespace
         g_documentsFolderRedirectHook;
     fable::automation::local_instance::UnrealSingletonHook
         g_unrealSingletonHook;
+    fable::automation::local_instance::ForegroundWindowHook
+        g_foregroundWindowHook;
     fable::core::game_thread::GameThreadIdleHook g_gameThreadIdleHook;
     fable::game::creature::ai::AiBrainUpdateObserver g_aiBrainUpdateObserver;
     fable::game::creature::CreatureConstructorHook g_creatureConstructorHook;
@@ -214,6 +218,8 @@ namespace
         g_followCreatureActionHook;
     fable::game::creature::locomotion::PhysicsNavigatorObserver
         g_physicsNavigatorObserver;
+    fable::game::definitions::CompiledDefinitionsRedirectHook
+        g_compiledDefinitionsRedirectHook;
     fable::game::hero_pawn::transform_probe::HeroTransformCompatibilityHooks
         g_heroTransformCompatibilityHooks;
     fable::scripting::ScriptHost g_scriptHost;
@@ -532,8 +538,18 @@ namespace
 
         const EXCEPTION_RECORD* record = exceptionPointers->ExceptionRecord;
         if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION ||
-            record->NumberParameters < 2 ||
-            record->ExceptionInformation[1] >= 0x1'0000)
+            record->NumberParameters < 2)
+        {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        const auto gameBase = reinterpret_cast<std::uintptr_t>(g_gameModule);
+        const auto instruction = reinterpret_cast<std::uintptr_t>(
+            record->ExceptionAddress);
+        const bool lowAddress = record->ExceptionInformation[1] < 0x1'0000;
+        const bool insideGame = gameBase != 0 && instruction >= gameBase &&
+            instruction < gameBase + kExpectedImageSize;
+        if (!lowAddress && !insideGame)
         {
             return EXCEPTION_CONTINUE_SEARCH;
         }
@@ -553,9 +569,10 @@ namespace
         fault.accessedAddress = reinterpret_cast<void*>(record->ExceptionInformation[1]);
 
         LogFormat(
-            "Process exception observer: event=%u thread=%lu; continuing Windows exception dispatch.",
+            "Process exception observer: event=%u thread=%lu scope=%s; continuing Windows exception dispatch.",
             observation,
-            static_cast<unsigned long>(GetCurrentThreadId()));
+            static_cast<unsigned long>(GetCurrentThreadId()),
+            insideGame ? "game" : "low-address");
         LogNativeFault(fault);
 
 #if defined(_M_IX86)
@@ -1402,11 +1419,16 @@ namespace
         const bool bootstrapScenario = ScenarioIs(L"bootstrap_fixture_probe");
         const bool loadScenario = ScenarioLoadsFixture();
         const bool appearanceScenario = ScenarioIs(L"appearance_cycle");
-        const bool startInvoked = bootstrapScenario
+        const bool multiplayerSession = g_runtimeConfiguration.MultiplayerEnabled();
+        const bool startInvoked = multiplayerSession
+            ? true
+            : bootstrapScenario
             ? g_bootstrapStartInvoked.load(std::memory_order_acquire)
             : loadScenario &&
                 g_loadFixtureStartInvoked.load(std::memory_order_acquire);
-        const bool observationComplete = appearanceScenario
+        const bool observationComplete = multiplayerSession
+            ? g_bootstrapHeroReadyLogged.load(std::memory_order_acquire)
+            : appearanceScenario
             ? g_appearanceCycleScenario.IsComplete()
             : bootstrapScenario
             ? g_bootstrapHeroReadyLogged.load(std::memory_order_acquire)
@@ -1414,7 +1436,7 @@ namespace
                 (g_characterSnapshotConfigured
                     ? g_characterSnapshotAssertionPassed.load(std::memory_order_acquire)
                     : g_characterStateAssertionPassed.load(std::memory_order_acquire));
-        if ((!bootstrapScenario && !loadScenario) ||
+        if ((!bootstrapScenario && !loadScenario && !multiplayerSession) ||
             !startInvoked ||
             observationComplete)
         {
@@ -1422,7 +1444,9 @@ namespace
         }
 
         const ULONGLONG now = GetTickCount64();
-        const ULONGLONG invokedAt = bootstrapScenario
+        const ULONGLONG invokedAt = multiplayerSession
+            ? now - std::min<ULONGLONG>(now, 5'000)
+            : bootstrapScenario
             ? g_bootstrapStartInvokedAt.load(std::memory_order_acquire)
             : g_loadFixtureStartInvokedAt.load(std::memory_order_acquire);
         if (invokedAt == 0 || now - invokedAt < 5'000)
@@ -1532,7 +1556,11 @@ namespace
                     heroPointerInfo,
                     heroReady ? "true" : "false");
                 LogEvent(
-                    bootstrapScenario ? "BootstrapHeroProbe" : "FixtureLoadHeroProbe",
+                    multiplayerSession
+                        ? "MultiplayerHeroProbe"
+                        : bootstrapScenario
+                        ? "BootstrapHeroProbe"
+                        : "FixtureLoadHeroProbe",
                     detail);
             }
         }
@@ -1585,7 +1613,9 @@ namespace
             LogEvent("HeroReady", detail);
             LogEvent(
                 "WorldReady",
-                bootstrapScenario
+                multiplayerSession
+                    ? "Hero object resolved after player-selected save load"
+                    : bootstrapScenario
                     ? "Hero object resolved after isolated New Game bootstrap"
                     : "Hero object resolved after exact isolated AutoSave load");
             g_scriptHost.DispatchWorldReady();
@@ -2288,11 +2318,12 @@ namespace
         {
             Log("Automation: run-scoped shutdown event received; posting WM_QUIT.");
             LogEvent("ShutdownStarted", "run-scoped-event");
-            PostQuitMessage(0);
-            // The Win32 launcher layer consumes WM_QUIT without unwinding
-            // the UE3 process at the front end. This path exists only for
-            // a run-scoped automation process owned by our launcher.
-            ExitProcess(ERROR_SUCCESS);
+            // This is a launcher-owned disposable local test process. Calling
+            // ExitProcess here can deadlock in third-party DLL detach handlers
+            // when the harness deliberately keeps a background DX9 window in
+            // its active-rendering state. Terminate only this known PID without
+            // running the retail process's unrelated unload handlers.
+            TerminateProcess(GetCurrentProcess(), ERROR_SUCCESS);
         }
 
         for (auto& candidate : g_frontEndStartObjects)
@@ -2311,6 +2342,13 @@ namespace
         DriveSaveListObservation();
         ObserveSaveListReadiness();
         DriveFixtureLoad();
+        if (g_scriptHost.ProcessMultiplayerPresentation())
+        {
+            // SCRIPT_NAME_HERO is reconstructed for the destination map. The
+            // previous readiness edge represented the departing world.
+            g_bootstrapHeroReadyLogged.store(false, std::memory_order_release);
+            g_bootstrapHeroLastProbeAt.store(0, std::memory_order_release);
+        }
     }
 
     bool ValidateExecutable()
@@ -2899,6 +2937,15 @@ namespace
         {
             g_scriptHost.Tick(
                 static_cast<float>(kHotkeyPollIntervalMilliseconds) / 1000.0f);
+            // The window timer keeps firing for local multiplayer instances
+            // even when UE3 throttles an unfocused creature update. Drive all
+            // replicated actors through their physics components here as a
+            // background-safe fallback; focused creature frames still own
+            // their normal animation update path.
+            if (GetForegroundWindow() != g_gameWindow)
+            {
+                g_scriptHost.DriveReplicatedMovement();
+            }
         }
 
         if (g_runtimeConfiguration.Mode() != ClientMode::TransformProbe &&
@@ -2994,7 +3041,8 @@ namespace
         }
 
         if (g_runtimeConfiguration.Mode() == ClientMode::TransformProbe ||
-            appearanceScriptEnabled)
+            appearanceScriptEnabled ||
+            g_runtimeConfiguration.MultiplayerEnabled())
         {
             const PVOID exceptionObserver = AddVectoredExceptionHandler(1, ObserveProcessException);
             LogFormat(
@@ -3013,6 +3061,16 @@ namespace
             ScriptLog,
             ScriptEvent,
         };
+        if (!g_runtimeConfiguration.GameDefinitionsPath().empty())
+        {
+            if (!g_compiledDefinitionsRedirectHook.IsInstalled())
+            {
+                Log("Client disabled because the early compiled-definitions redirect was not installed.");
+                LogEvent("ClientFailed", "compiled-definitions-redirect-installation");
+                return 18;
+            }
+            g_compiledDefinitionsRedirectHook.Report(scriptDiagnostics);
+        }
         if (g_runtimeConfiguration.IsLocalInstance())
         {
             g_unrealSingletonHook.Report(scriptDiagnostics);
@@ -3061,6 +3119,7 @@ namespace
                 g_clientModule,
                 g_gameModule,
                 g_runtimeConfiguration.ScriptDataPath().c_str(),
+                g_runtimeConfiguration,
                 scriptDiagnostics))
         {
             Log("AngelScript gameplay framework initialization failed.");
@@ -3100,7 +3159,8 @@ namespace
             return 14;
         }
 
-        if (appearanceScriptEnabled &&
+        if ((appearanceScriptEnabled ||
+                g_runtimeConfiguration.MultiplayerEnabled()) &&
             !g_creatureModeManagerObserver.Install(
                 g_gameModule,
                 scriptDiagnostics))
@@ -3191,16 +3251,38 @@ namespace
         const bool captureNumberRowOne =
             g_runtimeConfiguration.Mode() == ClientMode::TransformProbe ||
             g_runtimeConfiguration.Mode() == ClientMode::AppearanceCycle;
+        const bool preserveBackgroundRendering =
+            g_runtimeConfiguration.MultiplayerEnabled() &&
+            g_runtimeConfiguration.IsLocalInstance();
+        if (preserveBackgroundRendering &&
+            !g_foregroundWindowHook.Install(
+                g_gameModule,
+                g_gameWindow,
+                mainWindowDiagnostics))
+        {
+            Log("Hook: local multiplayer background simulation installation failed.");
+            LogEvent(
+                "ClientFailed",
+                "local-instance-background-simulation-hook-installation");
+            return 8;
+        }
         if (!g_mainWindowHook.Install(
             g_gameWindow,
             kHotkeyTimerId,
             kHotkeyPollIntervalMilliseconds,
             captureNumberRowOne,
+            preserveBackgroundRendering,
             mainWindowCallbacks,
             mainWindowDiagnostics))
         {
             Log("Hook: MainWindow installation failed; client disabled.");
             return 2;
+        }
+        if (preserveBackgroundRendering)
+        {
+            LogEvent(
+                "MultiplayerBackgroundRenderingEnabled",
+                "local peer keeps retail actor and animation simulation active while retaining normal Windows and DirectInput focus");
         }
 
         if (g_runtimeConfiguration.Mode() == ClientMode::TransformProbe)
@@ -3263,10 +3345,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
         }
         if (hasSession)
         {
-            const bool knownInstance =
-                std::wcscmp(localInstance, L"host") == 0 ||
-                std::wcscmp(localInstance, L"guest") == 0;
-            if (!knownInstance || g_gameModule == nullptr ||
+            if (g_gameModule == nullptr ||
                 !g_unrealSingletonHook.Install(
                     g_gameModule,
                     localSession,
@@ -3289,6 +3368,21 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
             {
                 return FALSE;
             }
+        }
+
+        wchar_t gameDefinitions[32'768] = {};
+        const DWORD definitionsLength = GetEnvironmentVariableW(
+            L"FABLETOGETHER_GAME_DEFINITIONS",
+            gameDefinitions,
+            static_cast<DWORD>(std::size(gameDefinitions)));
+        if (definitionsLength >= std::size(gameDefinitions) ||
+            (definitionsLength > 0 &&
+                (g_gameModule == nullptr ||
+                    !g_compiledDefinitionsRedirectHook.InstallEarly(
+                        g_gameModule,
+                        gameDefinitions))))
+        {
+            return FALSE;
         }
         DisableThreadLibraryCalls(module);
         const HANDLE thread = CreateThread(nullptr, 0, BootstrapThread, nullptr, 0, nullptr);

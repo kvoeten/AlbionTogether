@@ -110,6 +110,8 @@ namespace fable::game::creature::locomotion::native
 
         const auto moduleBase = reinterpret_cast<std::uintptr_t>(gameModule);
         const auto physicsVtable = moduleBase + PhysicsNavigatorVtableRva;
+        const auto controlledPhysicsVtable =
+            moduleBase + PhysicsControlledVtableRva;
         const auto navigationVtable = moduleBase + CreatureNavigationVtableRva;
         const auto animationVtable = moduleBase + AnimationComplexVtableRva;
         const auto* thingBytes = static_cast<const std::uint8_t*>(nativeThing);
@@ -166,9 +168,9 @@ namespace fable::game::creature::locomotion::native
             return false;
         }
 
-        snapshot.physicsNavigatorValidated = HasVtable(
-            snapshot.physicsNavigator,
-            physicsVtable);
+        snapshot.physicsNavigatorValidated =
+            HasVtable(snapshot.physicsNavigator, physicsVtable) ||
+            HasVtable(snapshot.physicsNavigator, controlledPhysicsVtable);
         snapshot.creatureNavigationValidated = HasVtable(
             snapshot.creatureNavigation,
             navigationVtable);

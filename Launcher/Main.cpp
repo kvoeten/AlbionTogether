@@ -2,6 +2,8 @@
 #include <TlHelp32.h>
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -28,6 +30,17 @@ namespace
     constexpr wchar_t kScriptDataEnvironment[] = L"FABLETOGETHER_SCRIPT_DATA";
     constexpr wchar_t kLocalSessionEnvironment[] = L"FABLETOGETHER_LOCAL_SESSION";
     constexpr wchar_t kLocalInstanceEnvironment[] = L"FABLETOGETHER_LOCAL_INSTANCE";
+    constexpr wchar_t kMultiplayerRoleEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_ROLE";
+    constexpr wchar_t kMultiplayerAddressEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_ADDRESS";
+    constexpr wchar_t kMultiplayerPortEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_PORT";
+    constexpr wchar_t kMultiplayerPlayerIdEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_PLAYER_ID";
+    constexpr wchar_t kMultiplayerAppearanceEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_APPEARANCE";
+    constexpr wchar_t kGameDefinitionsEnvironment[] = L"FABLETOGETHER_GAME_DEFINITIONS";
+    // The deployed definitions sidecar patches this ordinary creature with
+    // the Hero graphic and presentation stack. Retaining its creature
+    // lifecycle avoids constructing a second world-unique CREATURE_HERO.
+    constexpr wchar_t kRemoteHeroDefinition[] =
+        L"CREATURE_HERO_RIVAL_GOOD_01";
     constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
     constexpr wchar_t kDevelopmentGameRoot[] = L"D:\\SteamLibrary\\steamapps\\common\\Fable Anniversary";
     constexpr wchar_t kFableSteamAppId[] = L"288470";
@@ -256,10 +269,19 @@ namespace
         std::wstring automationScenario;
         std::wstring localSession;
         std::wstring localInstance;
+        std::wstring multiplayerRole;
+        std::wstring multiplayerAddress;
+        std::wstring multiplayerPlayerId;
+        std::wstring multiplayerAppearance;
+        unsigned short multiplayerPort = 38171;
         unsigned int automationTimeoutSeconds = 120;
         unsigned int dualInstanceHoldSeconds = 10;
         bool transformationProbe = false;
         bool dualInstanceTest = false;
+        bool multiplayerTest = false;
+        bool multiplayerRosterTest = false;
+        bool multiplayerTransitionTest = false;
+        bool multiplayerPlaytest = false;
         bool dryRun = false;
         bool showHelp = false;
     };
@@ -421,6 +443,36 @@ namespace
                 options.dualInstanceTest = true;
                 continue;
             }
+            if (argument == L"--multiplayer-test")
+            {
+                options.multiplayerTest = true;
+                continue;
+            }
+            if (argument == L"--multiplayer-roster-test")
+            {
+                options.multiplayerRosterTest = true;
+                continue;
+            }
+            if (argument == L"--multiplayer-transition-test")
+            {
+                options.multiplayerTransitionTest = true;
+                continue;
+            }
+            if (argument == L"--multiplayer-playtest")
+            {
+                options.multiplayerPlaytest = true;
+                continue;
+            }
+            if (argument == L"--host")
+            {
+                if (!options.multiplayerRole.empty())
+                {
+                    error = L"Choose either --host or --join, not both";
+                    return false;
+                }
+                options.multiplayerRole = L"host";
+                continue;
+            }
             if (argument == L"--transform-probe")
             {
                 if (!options.automationScenario.empty())
@@ -467,7 +519,7 @@ namespace
             {
                 if (++index >= argc)
                 {
-                    error = L"Missing host or guest after --local-instance";
+                    error = L"Missing identifier after --local-instance";
                     return false;
                 }
                 options.localInstance = argv[index];
@@ -480,6 +532,55 @@ namespace
                     return false;
                 }
                 options.localSession = argv[index];
+            }
+            else if (argument == L"--join")
+            {
+                if (!options.multiplayerRole.empty())
+                {
+                    error = L"Choose either --host or --join, not both";
+                    return false;
+                }
+                if (++index >= argc)
+                {
+                    error = L"Missing IPv4 host address after --join";
+                    return false;
+                }
+                options.multiplayerRole = L"guest";
+                options.multiplayerAddress = argv[index];
+            }
+            else if (argument == L"--port")
+            {
+                if (++index >= argc)
+                {
+                    error = L"Missing UDP port after --port";
+                    return false;
+                }
+                wchar_t* end = nullptr;
+                const unsigned long value = std::wcstoul(argv[index], &end, 10);
+                if (end == argv[index] || *end != L'\0' || value == 0 || value > 65'535)
+                {
+                    error = L"--port must be between 1 and 65535";
+                    return false;
+                }
+                options.multiplayerPort = static_cast<unsigned short>(value);
+            }
+            else if (argument == L"--player-id")
+            {
+                if (++index >= argc || argv[index][0] == L'\0')
+                {
+                    error = L"Missing player identifier after --player-id";
+                    return false;
+                }
+                options.multiplayerPlayerId = argv[index];
+            }
+            else if (argument == L"--appearance")
+            {
+                if (++index >= argc || argv[index][0] == L'\0')
+                {
+                    error = L"Missing creature definition after --appearance";
+                    return false;
+                }
+                options.multiplayerAppearance = argv[index];
             }
             else if (argument == L"--hold")
             {
@@ -548,12 +649,22 @@ namespace
             error = L"Unknown automation scenario: " + options.automationScenario;
             return false;
         }
-        if (!options.localInstance.empty() &&
-            options.localInstance != L"host" &&
-            options.localInstance != L"guest")
+        if (!options.localInstance.empty())
         {
-            error = L"--local-instance must be host or guest";
-            return false;
+            const bool valid = options.localInstance.size() <= 32 &&
+                std::all_of(
+                    options.localInstance.begin(),
+                    options.localInstance.end(),
+                    [](wchar_t character)
+                    {
+                        return std::iswalnum(character) != 0 ||
+                            character == L'-' || character == L'_';
+                    });
+            if (!valid)
+            {
+                error = L"--local-instance accepts at most 32 letters, digits, hyphens, or underscores";
+                return false;
+            }
         }
         if (!options.localSession.empty() && options.localInstance.empty())
         {
@@ -585,6 +696,50 @@ namespace
         {
             error = L"--dual-instance-test cannot be combined with automation, transform-probe, or --local-instance";
             return false;
+        }
+        if ((options.multiplayerTest || options.multiplayerRosterTest ||
+                options.multiplayerTransitionTest ||
+                options.multiplayerPlaytest) &&
+            (options.dualInstanceTest || !options.multiplayerRole.empty() ||
+                !options.automationScenario.empty() || options.transformationProbe ||
+                !options.localInstance.empty()))
+        {
+            error = L"multiplayer test/playtest cannot be combined with another launch mode";
+            return false;
+        }
+        if ((options.multiplayerTest ? 1 : 0) +
+                (options.multiplayerRosterTest ? 1 : 0) +
+                (options.multiplayerTransitionTest ? 1 : 0) +
+                (options.multiplayerPlaytest ? 1 : 0) > 1)
+        {
+            error = L"Choose one multiplayer test or playtest mode";
+            return false;
+        }
+        if (!options.multiplayerRole.empty() &&
+            (!options.automationScenario.empty() || options.transformationProbe))
+        {
+            error = L"--host and --join cannot be combined with automation or transform-probe";
+            return false;
+        }
+        if (options.multiplayerRole.empty() &&
+            (!options.multiplayerPlayerId.empty() ||
+                !options.multiplayerAppearance.empty()))
+        {
+            error = L"--player-id and --appearance require --host or --join";
+            return false;
+        }
+        if (!options.multiplayerRole.empty())
+        {
+            if (options.multiplayerPlayerId.empty())
+            {
+                options.multiplayerPlayerId = options.multiplayerRole == L"host"
+                    ? L"Host"
+                    : L"Guest";
+            }
+            if (options.multiplayerAppearance.empty())
+            {
+                options.multiplayerAppearance = kRemoteHeroDefinition;
+            }
         }
         if (!options.localInstance.empty() &&
             (!options.automationScenario.empty() || options.transformationProbe))
@@ -677,9 +832,18 @@ namespace
             << L"  --character-snapshot <json>  Optional server-character state to apply after fixture load\n"
             << L"  --automation <id>  Run observe_frontend, observe_save_list, bootstrap_fixture_probe, load_fixture, or appearance_cycle\n"
             << L"  --timeout <sec>     Automation timeout from 10 to 600 seconds (default: 120)\n"
-            << L"  --local-instance <host|guest>  Start one isolated 1280x720 local development instance\n"
+            << L"  --local-instance <id>  Start one isolated 1280x720 local development instance\n"
             << L"  --local-session <id>  Reuse a local development session identifier\n"
             << L"  --dual-instance-test  Prove isolated host and guest title windows coexist\n"
+            << L"  --host              Host a multiplayer UDP session\n"
+            << L"  --join <IPv4>       Join a host session\n"
+            << L"  --port <port>       Multiplayer UDP port (default: 38171)\n"
+            << L"  --player-id <name>  Multiplayer display identity\n"
+            << L"  --appearance <id>   Stable creature definition used as this player's body\n"
+            << L"  --multiplayer-test  Load two adult-town peers and prove remote locomotion\n"
+            << L"  --multiplayer-roster-test  Load a host and two guests and prove guest-to-guest relay\n"
+            << L"  --multiplayer-transition-test  Transition both peers and prove destination replication\n"
+            << L"  --multiplayer-playtest  Load two connected adult-town peers and leave them running\n"
             << L"  --hold <sec>        Dual-instance stability interval from 5 to 300 seconds (default: 10)\n"
             << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
             << L"  --dry-run          Resolve and validate paths without launching\n"
@@ -838,6 +1002,109 @@ namespace
     {
         const std::string marker = std::string("\"state\":\"") + state + "\"";
         return content.find(marker) != std::string::npos;
+    }
+
+    std::size_t EventCount(const std::string& content, const char* state)
+    {
+        const std::string marker = std::string("\"state\":\"") + state + "\"";
+        std::size_t count = 0;
+        std::size_t position = 0;
+        while ((position = content.find(marker, position)) !=
+            std::string::npos)
+        {
+            ++count;
+            position += marker.size();
+        }
+        return count;
+    }
+
+    bool EventDetailContains(
+        const std::string& content,
+        const char* state,
+        const char* detail)
+    {
+        const std::string stateMarker =
+            std::string("\"state\":\"") + state + "\"";
+        std::size_t position = 0;
+        while ((position = content.find(stateMarker, position)) !=
+            std::string::npos)
+        {
+            const std::size_t end = content.find('\n', position);
+            const std::size_t length = end == std::string::npos
+                ? std::string::npos
+                : end - position;
+            if (content.substr(position, length).find(detail) !=
+                std::string::npos)
+            {
+                return true;
+            }
+            position += stateMarker.size();
+        }
+        return false;
+    }
+
+    std::uint64_t StablePlayerActorId(
+        const std::wstring& role,
+        const std::wstring& playerId)
+    {
+        const int required = WideCharToMultiByte(
+            CP_UTF8, 0, playerId.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (required <= 1)
+        {
+            return 0;
+        }
+        std::string utf8(static_cast<std::size_t>(required), '\0');
+        WideCharToMultiByte(
+            CP_UTF8, 0, playerId.c_str(), -1, utf8.data(), required, nullptr,
+            nullptr);
+        utf8.pop_back();
+        std::uint64_t hash = 14695981039346656037ull;
+        for (const unsigned char character : utf8)
+        {
+            hash ^= character;
+            hash *= 1099511628211ull;
+        }
+        hash ^= role == L"host" ? 1u : 2u;
+        hash *= 1099511628211ull;
+        return hash == 0 ? 1 : hash;
+    }
+
+    bool ReplicatedMovementWasApplied(
+        const std::string& content,
+        std::uint64_t actorId = 0)
+    {
+        const std::string actorMarker = actorId == 0
+            ? std::string()
+            : "actor_id=" + std::to_string(actorId);
+        const std::array<const char*, 2> markers = {
+            "\"state\":\"CreatureMovementFacingRouted\"",
+            "\"state\":\"CreatureBackgroundReplicatedMovementDriven\""};
+        for (const char* const marker : markers)
+        {
+            std::size_t position = 0;
+            while ((position = content.find(marker, position)) !=
+                std::string::npos)
+            {
+                const std::size_t end = content.find('\n', position);
+                const std::string event = content.substr(
+                    position,
+                    end == std::string::npos
+                        ? std::string::npos
+                        : end - position);
+                const std::size_t motion = event.find("linear_velocity=(");
+                if ((actorMarker.empty() ||
+                        event.find(actorMarker) != std::string::npos) &&
+                    motion != std::string::npos &&
+                    event.find(
+                        "linear_velocity=(0.000000,0.000000,0.000000)",
+                        motion) == std::string::npos)
+                {
+                    return true;
+                }
+                position += std::strlen(marker);
+            }
+        }
+        return false;
     }
 
     bool CloseCreatedProcess(HANDLE process, DWORD processId, HANDLE shutdownEvent)
@@ -1111,10 +1378,25 @@ namespace
         const std::wstring& runId,
         const std::wstring& localSession,
         const std::wstring& localInstance,
+        const std::wstring& multiplayerRole,
+        const std::wstring& multiplayerAddress,
+        unsigned short multiplayerPort,
+        const std::wstring& multiplayerPlayerId,
+        const std::wstring& multiplayerAppearance,
         const std::vector<std::wstring>& arguments,
         LaunchedGame& launched)
     {
         launched = {};
+        const fs::path gameDefinitions = multiplayerRole.empty()
+            ? fs::path()
+            : AbsolutePath(clientDll.parent_path() / L"definitions" / L"game.bin");
+        if (!multiplayerRole.empty() && !IsFile(gameDefinitions))
+        {
+            std::wcerr
+                << L"Multiplayer requires the remote-Hero definitions sidecar: "
+                << gameDefinitions.wstring() << L'\n';
+            return false;
+        }
         std::error_code logError;
         fs::remove(clientLog, logError);
         if (logError)
@@ -1153,6 +1435,27 @@ namespace
         ScopedEnvironmentVariable localInstanceEnvironment(
             kLocalInstanceEnvironment,
             localInstance.c_str());
+        const std::wstring multiplayerPortText = multiplayerRole.empty()
+            ? std::wstring()
+            : std::to_wstring(multiplayerPort);
+        ScopedEnvironmentVariable multiplayerRoleEnvironment(
+            kMultiplayerRoleEnvironment,
+            multiplayerRole.c_str());
+        ScopedEnvironmentVariable multiplayerAddressEnvironment(
+            kMultiplayerAddressEnvironment,
+            multiplayerAddress.c_str());
+        ScopedEnvironmentVariable multiplayerPortEnvironment(
+            kMultiplayerPortEnvironment,
+            multiplayerPortText.c_str());
+        ScopedEnvironmentVariable multiplayerPlayerIdEnvironment(
+            kMultiplayerPlayerIdEnvironment,
+            multiplayerPlayerId.c_str());
+        ScopedEnvironmentVariable multiplayerAppearanceEnvironment(
+            kMultiplayerAppearanceEnvironment,
+            multiplayerAppearance.c_str());
+        ScopedEnvironmentVariable gameDefinitionsEnvironment(
+            kGameDefinitionsEnvironment,
+            gameDefinitions.c_str());
         if (!steamAppId.applied() || !steamGameId.applied() ||
             !modeEnvironment.applied() || !scenarioEnvironment.applied() ||
             !runIdEnvironment.applied() || !eventPathEnvironment.applied() ||
@@ -1161,7 +1464,13 @@ namespace
             !characterSnapshotEnvironment.applied() ||
             !scriptDataEnvironment.applied() ||
             !localSessionEnvironment.applied() ||
-            !localInstanceEnvironment.applied())
+            !localInstanceEnvironment.applied() ||
+            !multiplayerRoleEnvironment.applied() ||
+            !multiplayerAddressEnvironment.applied() ||
+            !multiplayerPortEnvironment.applied() ||
+            !multiplayerPlayerIdEnvironment.applied() ||
+            !multiplayerAppearanceEnvironment.applied() ||
+            !gameDefinitionsEnvironment.applied())
         {
             std::wcerr << L"Could not prepare the child-process environment for Fable Anniversary.\n";
             return false;
@@ -1383,6 +1692,783 @@ namespace
         return arguments;
     }
 
+    bool WaitForMultiplayerEvent(
+        LaunchedGame& game,
+        const fs::path& eventPath,
+        const wchar_t* instance,
+        const char* expectedState,
+        unsigned int timeoutSeconds)
+    {
+        const ULONGLONG deadline = GetTickCount64() +
+            static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" reported a client failure while waiting for "
+                           << expectedState << L".\n";
+                return false;
+            }
+            if (EventWasReported(events, expectedState))
+            {
+                return true;
+            }
+            const DWORD state = WaitForSingleObject(game.process.get(), 250);
+            if (state == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(game.process.get(), &exitCode);
+                std::wcerr << L"Multiplayer " << instance
+                           << L" exited while waiting for " << expectedState
+                           << L"; exit code " << exitCode << L".\n";
+                return false;
+            }
+            if (state == WAIT_FAILED || GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" timed out while waiting for " << expectedState
+                           << L".\n";
+                return false;
+            }
+        }
+    }
+
+    bool WaitForMultiplayerEventCount(
+        LaunchedGame& game,
+        const fs::path& eventPath,
+        const wchar_t* instance,
+        const char* expectedState,
+        std::size_t expectedCount,
+        unsigned int timeoutSeconds)
+    {
+        const ULONGLONG deadline = GetTickCount64() +
+            static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" reported a client failure while waiting for "
+                           << expectedState << L" count " << expectedCount
+                           << L".\n";
+                return false;
+            }
+            if (EventCount(events, expectedState) >= expectedCount)
+            {
+                return true;
+            }
+            const DWORD state = WaitForSingleObject(game.process.get(), 250);
+            if (state == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(game.process.get(), &exitCode);
+                std::wcerr << L"Multiplayer " << instance
+                           << L" exited while waiting for " << expectedState
+                           << L" count " << expectedCount << L"; exit code "
+                           << exitCode << L".\n";
+                return false;
+            }
+            if (state == WAIT_FAILED || GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" timed out while waiting for " << expectedState
+                           << L" count " << expectedCount << L".\n";
+                return false;
+            }
+        }
+    }
+
+    bool WaitForMultiplayerEventDetail(
+        LaunchedGame& game,
+        const fs::path& eventPath,
+        const wchar_t* instance,
+        const char* expectedState,
+        const std::string& expectedDetail,
+        unsigned int timeoutSeconds)
+    {
+        const ULONGLONG deadline = GetTickCount64() +
+            static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" reported a client failure while waiting for "
+                           << expectedState << L".\n";
+                return false;
+            }
+            if (EventDetailContains(
+                    events, expectedState, expectedDetail.c_str()))
+            {
+                return true;
+            }
+            const DWORD state = WaitForSingleObject(game.process.get(), 250);
+            if (state == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(game.process.get(), &exitCode);
+                std::wcerr << L"Multiplayer " << instance
+                           << L" exited while waiting for " << expectedState
+                           << L"; exit code " << exitCode << L".\n";
+                return false;
+            }
+            if (state == WAIT_FAILED || GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" timed out while waiting for " << expectedState
+                           << L" with the required actor detail.\n";
+                return false;
+            }
+        }
+    }
+
+    bool WaitForBackgroundMovement(
+        LaunchedGame& game,
+        const fs::path& eventPath,
+        const wchar_t* instance,
+        std::uint64_t actorId,
+        unsigned int timeoutSeconds)
+    {
+        const ULONGLONG deadline = GetTickCount64() +
+            static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" reported a client failure while waiting for "
+                              L"unfocused remote movement.\n";
+                return false;
+            }
+            if (ReplicatedMovementWasApplied(events, actorId))
+            {
+                return true;
+            }
+            const DWORD state = WaitForSingleObject(game.process.get(), 250);
+            if (state == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(game.process.get(), &exitCode);
+                std::wcerr << L"Multiplayer " << instance
+                           << L" exited while waiting for unfocused remote "
+                              L"movement; exit code " << exitCode << L".\n";
+                return false;
+            }
+            if (state == WAIT_FAILED || GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" timed out while waiting for unfocused remote "
+                              L"movement.\n";
+                return false;
+            }
+        }
+    }
+
+    bool MoveMultiplayerPeer(
+        LaunchedGame& game,
+        const wchar_t* instance)
+    {
+        game.window = FindMainWindow(game.processId);
+        if (game.window == nullptr || !WindowIsResponsive(game.window))
+        {
+            std::wcerr << L"Multiplayer " << instance
+                       << L" has no responsive game window for movement.\n";
+            return false;
+        }
+        const auto activate = [](HWND window)
+        {
+            if (GetForegroundWindow() == window)
+            {
+                return true;
+            }
+            MSG message = {};
+            PeekMessageW(&message, nullptr, 0, 0, PM_NOREMOVE);
+            const DWORD currentThread = GetCurrentThreadId();
+            const DWORD targetThread = GetWindowThreadProcessId(window, nullptr);
+            const HWND previousForeground = GetForegroundWindow();
+            const DWORD foregroundThread = previousForeground != nullptr
+                ? GetWindowThreadProcessId(previousForeground, nullptr)
+                : 0;
+            const bool attachedForeground = foregroundThread != 0 &&
+                foregroundThread != currentThread &&
+                AttachThreadInput(currentThread, foregroundThread, TRUE) != FALSE;
+            const bool attachedTarget = targetThread != 0 &&
+                targetThread != currentThread &&
+                targetThread != foregroundThread &&
+                AttachThreadInput(currentThread, targetThread, TRUE) != FALSE;
+            ShowWindowAsync(window, SW_RESTORE);
+            BringWindowToTop(window);
+            SetForegroundWindow(window);
+            SetFocus(window);
+            if (attachedTarget)
+            {
+                AttachThreadInput(currentThread, targetThread, FALSE);
+            }
+            if (attachedForeground)
+            {
+                AttachThreadInput(currentThread, foregroundThread, FALSE);
+            }
+            if (GetForegroundWindow() != window)
+            {
+                INPUT alt[2] = {};
+                alt[0].type = INPUT_KEYBOARD;
+                alt[0].ki.wVk = VK_MENU;
+                alt[1] = alt[0];
+                alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
+                SendInput(2, alt, sizeof(INPUT));
+                SetForegroundWindow(window);
+            }
+            const ULONGLONG deadline = GetTickCount64() + 1'000;
+            while (GetForegroundWindow() != window && GetTickCount64() < deadline)
+            {
+                Sleep(25);
+            }
+            return GetForegroundWindow() == window;
+        };
+        if (!activate(game.window))
+        {
+            std::wcerr << L"Could not activate multiplayer " << instance << L".\n";
+            return false;
+        }
+        Sleep(250);
+        // Both local acceptance peers load the same fixture save and therefore
+        // begin at the exact same transform between a wall and the Bowerstone
+        // Jail transition. Take a short forward-right diagonal before handoff:
+        // collision slides the Hero away from the wall without retreating into
+        // the map boundary.
+        ScopedSyntheticKey forward('W');
+        ScopedSyntheticKey lateral('D');
+        if (!forward.Press() || !lateral.Press())
+        {
+            forward.Release();
+            lateral.Release();
+            std::wcerr << L"Could not press W+D in multiplayer " << instance << L".\n";
+            return false;
+        }
+        std::wcout << L"Multiplayer test: moving " << instance
+                   << L" through Fable's normal player input.\n";
+        Sleep(1'250);
+        const bool forwardReleased = forward.Release();
+        const bool lateralReleased = lateral.Release();
+        if (!forwardReleased || !lateralReleased)
+        {
+            std::wcerr << L"Could not release W+D in multiplayer " << instance << L".\n";
+            return false;
+        }
+        return true;
+    }
+
+    bool FocusMultiplayerPeer(
+        LaunchedGame& game,
+        const wchar_t* instance)
+    {
+        game.window = FindMainWindow(game.processId);
+        if (game.window == nullptr || !WindowIsResponsive(game.window))
+        {
+            std::wcerr << L"Multiplayer " << instance
+                       << L" has no responsive game window to activate.\n";
+            return false;
+        }
+        MSG message = {};
+        PeekMessageW(&message, nullptr, 0, 0, PM_NOREMOVE);
+        const DWORD currentThread = GetCurrentThreadId();
+        const DWORD targetThread = GetWindowThreadProcessId(game.window, nullptr);
+        const HWND previousForeground = GetForegroundWindow();
+        const DWORD foregroundThread = previousForeground != nullptr
+            ? GetWindowThreadProcessId(previousForeground, nullptr)
+            : 0;
+        const bool attachedForeground = foregroundThread != 0 &&
+            foregroundThread != currentThread &&
+            AttachThreadInput(currentThread, foregroundThread, TRUE) != FALSE;
+        const bool attachedTarget = targetThread != 0 &&
+            targetThread != currentThread &&
+            targetThread != foregroundThread &&
+            AttachThreadInput(currentThread, targetThread, TRUE) != FALSE;
+        ShowWindowAsync(game.window, SW_RESTORE);
+        BringWindowToTop(game.window);
+        SetForegroundWindow(game.window);
+        SetFocus(game.window);
+        if (attachedTarget)
+        {
+            AttachThreadInput(currentThread, targetThread, FALSE);
+        }
+        if (attachedForeground)
+        {
+            AttachThreadInput(currentThread, foregroundThread, FALSE);
+        }
+        if (GetForegroundWindow() != game.window)
+        {
+            INPUT alt[2] = {};
+            alt[0].type = INPUT_KEYBOARD;
+            alt[0].ki.wVk = VK_MENU;
+            alt[1] = alt[0];
+            alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, alt, sizeof(INPUT));
+            SetForegroundWindow(game.window);
+        }
+        const ULONGLONG deadline = GetTickCount64() + 1'000;
+        while (GetForegroundWindow() != game.window && GetTickCount64() < deadline)
+        {
+            Sleep(25);
+        }
+        if (GetForegroundWindow() != game.window)
+        {
+            std::wcerr << L"Windows refused to activate multiplayer "
+                       << instance << L".\n";
+            return false;
+        }
+        Sleep(500);
+        return true;
+    }
+
+    int RunMultiplayerTest(
+        const fs::path& executable,
+        const fs::path& clientDll,
+        const fs::path& fixtureDocumentsSource,
+        const fs::path& sessionRoot,
+        const std::wstring& sessionId,
+        unsigned short port,
+        unsigned int timeoutSeconds,
+        bool interactive,
+        bool rosterTest,
+        bool transitionTest,
+        const std::vector<std::wstring>& originalArguments)
+    {
+        const std::vector<std::wstring> arguments =
+            LocalWindowArguments(originalArguments);
+        const auto roleRoot = [&](const wchar_t* role)
+        {
+            return sessionRoot / role;
+        };
+        const auto prepareRole = [&](const wchar_t* role) -> bool
+        {
+            const fs::path root = roleRoot(role);
+            std::error_code error;
+            fs::create_directories(root / L"Documents", error);
+            if (!error)
+            {
+                fs::create_directories(root / L"script-data", error);
+            }
+            if (!error)
+            {
+                fs::copy(
+                    fixtureDocumentsSource,
+                    root / L"Documents",
+                    fs::copy_options::recursive |
+                        fs::copy_options::overwrite_existing,
+                    error);
+            }
+            return !error;
+        };
+        if (!prepareRole(L"host") || !prepareRole(L"guest") ||
+            (rosterTest && !prepareRole(L"guest2")))
+        {
+            std::wcerr << L"Could not prepare multiplayer adult-town fixtures.\n";
+            return 1;
+        }
+
+        LaunchedGame host;
+        LaunchedGame guest;
+        LaunchedGame guest2;
+        const auto stop = [](LaunchedGame& game)
+        {
+            if (game.process.valid())
+            {
+                CloseCreatedProcess(
+                    game.process.get(),
+                    game.processId,
+                    game.shutdownEvent.get());
+            }
+        };
+        const auto spawnRole = [&](
+            const wchar_t* instance,
+            const wchar_t* scenario,
+            const wchar_t* role,
+            const wchar_t* address,
+            const wchar_t* player,
+            const wchar_t* appearance,
+            LaunchedGame& game) -> bool
+        {
+            const fs::path root = roleRoot(instance);
+            const std::wstring runId = sessionId + L"-" + instance;
+            return SpawnGame(
+                executable,
+                clientDll,
+                root / L"client.log",
+                root / L"events.jsonl",
+                root / L"Documents",
+                {},
+                root / L"script-data",
+                L"observe",
+                scenario,
+                runId,
+                sessionId,
+                instance,
+                role,
+                address,
+                port,
+                player,
+                appearance,
+                arguments,
+                game);
+        };
+        const auto stopAll = [&]
+        {
+            stop(guest2);
+            stop(guest);
+            stop(host);
+        };
+
+        std::wcout << L"Multiplayer test: starting host.\n";
+        if (!spawnRole(
+                L"host",
+                transitionTest
+                    ? L"multiplayer_host_transition"
+                    : L"multiplayer_host",
+                L"host",
+                L"",
+                L"Host",
+                kRemoteHeroDefinition,
+                host) ||
+            !WaitForLocalInstanceReady(
+                host,
+                roleRoot(L"host") / L"events.jsonl",
+                L"host",
+                0,
+                timeoutSeconds))
+        {
+            stop(host);
+            return 1;
+        }
+
+        // A real host owns an already-loaded world before a guest joins it.
+        // Starting the second DX9 window while Continue is replacing the
+        // host's front-end world can steal focus inside a retail engine state
+        // predicate whose gameplay manager is transiently null.  Let the host
+        // finish the selected-save transition before launching the guest; this
+        // also makes the local acceptance lifecycle match the product flow.
+        const fs::path hostEvents = roleRoot(L"host") / L"events.jsonl";
+        if (!WaitForMultiplayerEvent(
+                host,
+                hostEvents,
+                L"host",
+                "MultiplayerLocalHeroReady",
+                timeoutSeconds))
+        {
+            stop(host);
+            return 1;
+        }
+        std::wcout
+            << L"Multiplayer test: host selected-save Hero is in-world; starting guest.\n";
+
+        if (!spawnRole(
+                L"guest",
+                transitionTest
+                    ? L"multiplayer_guest_transition"
+                    : L"multiplayer_guest",
+                L"guest",
+                L"127.0.0.1",
+                L"Guest",
+                kRemoteHeroDefinition,
+                guest) ||
+            !WaitForLocalInstanceReady(
+                guest,
+                roleRoot(L"guest") / L"events.jsonl",
+                L"guest",
+                1280,
+                timeoutSeconds))
+        {
+            stop(guest);
+            stop(host);
+            return 1;
+        }
+
+        const fs::path guestEvents = roleRoot(L"guest") / L"events.jsonl";
+        const bool localHeroesReady = WaitForMultiplayerEvent(
+                guest, guestEvents, L"guest", "MultiplayerLocalHeroReady", timeoutSeconds);
+        bool worldsReady = localHeroesReady &&
+            (transitionTest || FocusMultiplayerPeer(host, L"host")) &&
+            WaitForMultiplayerEvent(
+                host, hostEvents, L"host", "MultiplayerRemoteDefinitionCreated", timeoutSeconds) &&
+            (transitionTest || FocusMultiplayerPeer(guest, L"guest")) &&
+            WaitForMultiplayerEvent(
+                guest, guestEvents, L"guest", "MultiplayerRemoteDefinitionCreated", timeoutSeconds);
+        const fs::path guest2Events = roleRoot(L"guest2") / L"events.jsonl";
+        if (worldsReady && rosterTest)
+        {
+            std::wcout
+                << L"Multiplayer roster test: starting a second independently owned guest.\n";
+            worldsReady = spawnRole(
+                    L"guest2",
+                    L"multiplayer_guest",
+                    L"guest",
+                    L"127.0.0.1",
+                    L"Guest Two",
+                    kRemoteHeroDefinition,
+                    guest2) &&
+                WaitForLocalInstanceReady(
+                    guest2,
+                    guest2Events,
+                    L"guest2",
+                    2560,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest2,
+                    guest2Events,
+                    L"guest2",
+                    "MultiplayerLocalHeroReady",
+                    timeoutSeconds);
+            if (worldsReady)
+            {
+                const std::uint64_t guestActorId =
+                    StablePlayerActorId(L"guest", L"Guest");
+                const std::uint64_t guest2ActorId =
+                    StablePlayerActorId(L"guest", L"Guest Two");
+                worldsReady =
+                    WaitForMultiplayerEventDetail(
+                        host,
+                        hostEvents,
+                        L"host",
+                        "MultiplayerRemoteDefinitionCreated",
+                        "actor_id=" + std::to_string(guest2ActorId),
+                        timeoutSeconds) &&
+                    WaitForMultiplayerEventDetail(
+                        guest,
+                        guestEvents,
+                        L"guest",
+                        "MultiplayerRemoteDefinitionCreated",
+                        "actor_id=" + std::to_string(guest2ActorId),
+                        timeoutSeconds) &&
+                    WaitForMultiplayerEventDetail(
+                        guest2,
+                        guest2Events,
+                        L"guest2",
+                        "MultiplayerRemoteDefinitionCreated",
+                        "actor_id=" + std::to_string(guestActorId),
+                        timeoutSeconds);
+            }
+        }
+        if (!worldsReady)
+        {
+            stopAll();
+            return 1;
+        }
+
+        std::wcout << (rosterTest
+            ? L"Multiplayer roster test: every process created a native presentation for each other player actor.\n"
+            : L"Multiplayer test: both remote definitions were created from the safe game dispatch context at distinct native transforms.\n");
+        if (transitionTest)
+        {
+            const bool transitionCompleted =
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerTransitionAcceptanceStarted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerWorldTransitionStarted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerWorldTransitionCompleted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteWorldPresentationQuarantined",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerTransitionAcceptanceStarted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerWorldTransitionStarted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerWorldTransitionCompleted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerRemoteWorldPresentationQuarantined",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteDefinitionCreated",
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerRemoteDefinitionCreated",
+                    2,
+                    timeoutSeconds);
+            // The original fault arrived from Fable's asynchronous graphics
+            // queue shortly after destination bind. Keep both peers alive for
+            // several seconds beyond the lifecycle events before accepting.
+            if (transitionCompleted)
+            {
+                Sleep(8'000);
+            }
+            host.window = FindMainWindow(host.processId);
+            guest.window = FindMainWindow(guest.processId);
+            const bool peersSurvived = transitionCompleted &&
+                WaitForSingleObject(host.process.get(), 0) == WAIT_TIMEOUT &&
+                WaitForSingleObject(guest.process.get(), 0) == WAIT_TIMEOUT &&
+                host.window != nullptr && guest.window != nullptr &&
+                WindowIsResponsive(host.window) &&
+                WindowIsResponsive(guest.window) &&
+                !EventWasReported(ReadEventFile(hostEvents), "ClientFailed") &&
+                !EventWasReported(ReadEventFile(guestEvents), "ClientFailed");
+            const bool guestStopped = CloseCreatedProcess(
+                guest.process.get(), guest.processId, guest.shutdownEvent.get());
+            const bool hostStopped = CloseCreatedProcess(
+                host.process.get(), host.processId, host.shutdownEvent.get());
+            if (!peersSurvived || !guestStopped || !hostStopped)
+            {
+                std::wcerr
+                    << L"Multiplayer transition acceptance failed during destination bind, graphics-queue grace, or shutdown.\n";
+                return 1;
+            }
+            std::wcout
+                << L"Multiplayer transition acceptance passed: both peers crossed the adjacent map boundary, kept their actor-channel sequences monotonic, quarantined each old map-scoped remote presentation, recreated both remote Heroes in the destination, and remained responsive beyond the former crash windows.\n"
+                << L"State root: " << sessionRoot.wstring() << L"\n";
+            return 0;
+        }
+        if (interactive)
+        {
+            std::wcout
+                << L"Manual multiplayer playtest is ready. Host PID "
+                << host.processId << L", guest PID " << guest.processId
+                << L". Both processes are being left running.\n"
+                << L"Both native remote characters exist. Use either window normally; the launcher no longer blocks handoff on an arbitrary automated separation distance.\n"
+                << L"State root: " << sessionRoot.wstring() << L"\n";
+            return 0;
+        }
+        if (rosterTest)
+        {
+            const std::uint64_t guestActorId =
+                StablePlayerActorId(L"guest", L"Guest");
+            const bool guestRelayed = MoveMultiplayerPeer(guest, L"guest") &&
+                WaitForBackgroundMovement(
+                    host,
+                    hostEvents,
+                    L"host",
+                    guestActorId,
+                    timeoutSeconds) &&
+                WaitForBackgroundMovement(
+                    guest2,
+                    guest2Events,
+                    L"guest2",
+                    guestActorId,
+                    timeoutSeconds);
+            const bool guest2Stopped = CloseCreatedProcess(
+                guest2.process.get(), guest2.processId,
+                guest2.shutdownEvent.get());
+            const bool guestStopped = CloseCreatedProcess(
+                guest.process.get(), guest.processId,
+                guest.shutdownEvent.get());
+            const bool hostStopped = CloseCreatedProcess(
+                host.process.get(), host.processId,
+                host.shutdownEvent.get());
+            if (!guestRelayed || !guest2Stopped || !guestStopped ||
+                !hostStopped)
+            {
+                std::wcerr
+                    << L"Multiplayer roster acceptance failed during guest-to-guest relay or shutdown.\n";
+                return 1;
+            }
+            std::wcout
+                << L"Multiplayer roster acceptance passed: host plus two independently owned guests established three actor channels, every process presented both remote actors, and one guest's movement reached both the host and the other unfocused guest through host routing.\n"
+                << L"State root: " << sessionRoot.wstring() << L"\n";
+            return 0;
+        }
+        // Keep the observer unfocused while its owner moves. UE3 may throttle
+        // that process's animation worker, so the background gate is native
+        // physics displacement; animation is asserted independently after a
+        // peer owns the foreground again.
+        const std::uint64_t hostActorId = StablePlayerActorId(L"host", L"Host");
+        const std::uint64_t guestActorId = StablePlayerActorId(L"guest", L"Guest");
+        const bool hostMoved = MoveMultiplayerPeer(host, L"host") &&
+            WaitForBackgroundMovement(
+                guest, guestEvents, L"guest", hostActorId, timeoutSeconds);
+        const bool guestMoved = hostMoved && MoveMultiplayerPeer(guest, L"guest") &&
+            WaitForBackgroundMovement(
+                host, hostEvents, L"host", guestActorId, timeoutSeconds);
+        const bool nativeAnimationApplied = guestMoved &&
+            (EventWasReported(
+                 ReadEventFile(hostEvents),
+                 "MultiplayerRemoteAvatarWalking") ||
+                EventWasReported(
+                    ReadEventFile(guestEvents),
+                    "MultiplayerRemoteAvatarWalking"));
+        const bool appearancesApplied = nativeAnimationApplied &&
+            WaitForMultiplayerEvent(
+                host,
+                hostEvents,
+                L"host",
+                "MultiplayerRemoteAppearanceModifiersApplied",
+                timeoutSeconds) &&
+            WaitForMultiplayerEvent(
+                guest,
+                guestEvents,
+                L"guest",
+                "MultiplayerRemoteAppearanceModifiersApplied",
+                timeoutSeconds) &&
+            WaitForMultiplayerEvent(
+                host,
+                hostEvents,
+                L"host",
+                "MultiplayerRemoteBoneScalesApplied",
+                timeoutSeconds) &&
+            WaitForMultiplayerEvent(
+                guest,
+                guestEvents,
+                L"guest",
+                "MultiplayerRemoteBoneScalesApplied",
+                timeoutSeconds);
+        const bool guestStopped = CloseCreatedProcess(
+            guest.process.get(), guest.processId, guest.shutdownEvent.get());
+        const bool hostStopped = CloseCreatedProcess(
+            host.process.get(), host.processId, host.shutdownEvent.get());
+        if (!hostMoved || !guestMoved || !nativeAnimationApplied ||
+            !appearancesApplied ||
+            !guestStopped || !hostStopped)
+        {
+            std::wcerr << L"Multiplayer acceptance failed during movement or shutdown.\n";
+            return 1;
+        }
+
+        std::wcout
+            << L"Multiplayer structural acceptance passed: both remote definitions were created from the safe dispatch context, each unfocused peer applied non-zero remote physics movement without focus handoff, the shared focused native-animation path remained live, and each reconciled selected-save appearance. This command does not claim pixel-level visibility.\n"
+            << L"State root: " << sessionRoot.wstring() << L"\n";
+        return 0;
+    }
+
     int RunDualInstanceTest(
         const fs::path& executable,
         const fs::path& clientDll,
@@ -1439,6 +2525,11 @@ namespace
                 runId,
                 sessionId,
                 role,
+                {},
+                {},
+                0,
+                {},
+                {},
                 arguments,
                 game);
         };
@@ -1551,6 +2642,11 @@ namespace
         const std::wstring& runId,
         const std::wstring& localSession,
         const std::wstring& localInstance,
+        const std::wstring& multiplayerRole,
+        const std::wstring& multiplayerAddress,
+        unsigned short multiplayerPort,
+        const std::wstring& multiplayerPlayerId,
+        const std::wstring& multiplayerAppearance,
         unsigned int automationTimeoutSeconds,
         const std::vector<std::wstring>& arguments)
     {
@@ -1568,6 +2664,11 @@ namespace
                 runId,
                 localSession,
                 localInstance,
+                multiplayerRole,
+                multiplayerAddress,
+                multiplayerPort,
+                multiplayerPlayerId,
+                multiplayerAppearance,
                 arguments,
                 launched))
         {
@@ -1650,7 +2751,10 @@ int wmain(int argc, wchar_t** argv)
         : eventPath.parent_path() / L"character-snapshot.json";
     const bool loadFixtureScenario =
         options.automationScenario == L"load_fixture" ||
-        options.automationScenario == L"appearance_cycle";
+        options.automationScenario == L"appearance_cycle" ||
+        options.multiplayerTest || options.multiplayerRosterTest ||
+        options.multiplayerTransitionTest ||
+        options.multiplayerPlaytest;
     const fs::path fixtureDocumentsSource = loadFixtureScenario
         ? options.fixtureDocuments.empty()
             ? ResolveDeploymentAsset(
@@ -1678,6 +2782,8 @@ int wmain(int argc, wchar_t** argv)
         : fs::path();
     const std::wstring clientMode = options.transformationProbe
         ? L"transform_probe"
+        : !options.multiplayerRole.empty()
+            ? L"observe"
         : localSingleInstance || options.dualInstanceTest
             ? L"observe"
         : options.automationScenario.empty()
@@ -1688,7 +2794,10 @@ int wmain(int argc, wchar_t** argv)
                << L"Client: " << clientDll.wstring() << L'\n'
                << L"Mode:   " << clientMode << L'\n'
                << L"Run:    " << runId << L'\n';
-    if (!options.dualInstanceTest)
+    if (!options.dualInstanceTest && !options.multiplayerTest &&
+        !options.multiplayerRosterTest &&
+        !options.multiplayerTransitionTest &&
+        !options.multiplayerPlaytest)
     {
         std::wcout << L"Log:    " << clientLog.wstring() << L'\n'
                    << L"Events: " << eventPath.wstring() << L'\n';
@@ -1700,9 +2809,35 @@ int wmain(int argc, wchar_t** argv)
                    << L"Documents: " << fixtureDocuments.wstring() << L'\n'
                    << L"Script data: " << scriptData.wstring() << L'\n';
     }
+    if (!options.multiplayerRole.empty())
+    {
+        std::wcout << L"Multiplayer: role=" << options.multiplayerRole
+                   << L" port=" << options.multiplayerPort
+                   << L" player=" << options.multiplayerPlayerId
+                   << L" appearance=" << options.multiplayerAppearance << L'\n';
+        if (options.multiplayerRole == L"guest")
+        {
+            std::wcout << L"Host:   " << options.multiplayerAddress << L'\n';
+        }
+    }
     if (options.dualInstanceTest)
     {
         std::wcout << L"Test:   dual_instance_title_screen\n"
+                   << L"State:  " << artifactRoot.wstring() << L'\n';
+    }
+    if (options.multiplayerTest || options.multiplayerRosterTest ||
+        options.multiplayerTransitionTest ||
+        options.multiplayerPlaytest)
+    {
+        std::wcout << L"Test:   "
+                   << (options.multiplayerPlaytest
+                       ? L"multiplayer_adult_town_manual"
+                       : options.multiplayerTransitionTest
+                           ? L"multiplayer_map_transition"
+                       : options.multiplayerRosterTest
+                           ? L"multiplayer_three_peer_roster"
+                       : L"multiplayer_adult_town") << L"\n"
+                   << L"Fixture Source: " << fixtureDocumentsSource.wstring() << L'\n'
                    << L"State:  " << artifactRoot.wstring() << L'\n';
     }
     if (!options.automationScenario.empty())
@@ -1776,6 +2911,23 @@ int wmain(int argc, wchar_t** argv)
             runId,
             options.automationTimeoutSeconds,
             options.dualInstanceHoldSeconds,
+            options.gameArguments);
+    }
+    if (options.multiplayerTest || options.multiplayerRosterTest ||
+        options.multiplayerTransitionTest ||
+        options.multiplayerPlaytest)
+    {
+        return RunMultiplayerTest(
+            executable,
+            clientDll,
+            fixtureDocumentsSource,
+            artifactRoot,
+            runId,
+            options.multiplayerPort,
+            options.automationTimeoutSeconds,
+            options.multiplayerPlaytest,
+            options.multiplayerRosterTest,
+            options.multiplayerTransitionTest,
             options.gameArguments);
     }
 
@@ -1872,6 +3024,11 @@ int wmain(int argc, wchar_t** argv)
         runId,
         localSession,
         options.localInstance,
+        options.multiplayerRole,
+        options.multiplayerAddress,
+        options.multiplayerPort,
+        options.multiplayerPlayerId,
+        options.multiplayerAppearance,
         options.automationTimeoutSeconds,
         gameArguments);
 }

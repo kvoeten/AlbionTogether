@@ -49,6 +49,9 @@ namespace fable::game
         bool SetFriendsWithEverything(const native::ScriptThing& handle, bool enabled);
         bool SetActivationTriggerStatus(const native::ScriptThing& handle, bool enabled);
         bool SetKillOnLevelUnload(const native::ScriptThing& handle, bool enabled);
+        bool RequestDestroy(
+            const native::ScriptThing& handle,
+            bool immediate = false);
         bool UpdateAttachment(const native::ScriptThing& handle);
         bool IncrementScriptCounter(const native::ScriptThing& handle);
         bool DecrementScriptCounter(const native::ScriptThing& handle);
@@ -129,6 +132,7 @@ namespace fable::game
         bool staticApiValidated_ = false;
         bool metadataApiValidated_ = false;
         bool interactionApiValidated_ = false;
+        bool lifecycleApiValidated_ = false;
         native::GameInterfaceAccess interfaceAccess_;
     };
 }

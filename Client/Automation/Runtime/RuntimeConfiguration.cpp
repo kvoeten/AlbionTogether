@@ -14,10 +14,24 @@ namespace
     constexpr wchar_t kCharacterSnapshotEnvironment[] =
         L"FABLETOGETHER_CHARACTER_SNAPSHOT";
     constexpr wchar_t kScriptDataEnvironment[] = L"FABLETOGETHER_SCRIPT_DATA";
+    constexpr wchar_t kGameDefinitionsEnvironment[] =
+        L"FABLETOGETHER_GAME_DEFINITIONS";
     constexpr wchar_t kLocalSessionEnvironment[] =
         L"FABLETOGETHER_LOCAL_SESSION";
     constexpr wchar_t kLocalInstanceEnvironment[] =
         L"FABLETOGETHER_LOCAL_INSTANCE";
+    constexpr wchar_t kMultiplayerRoleEnvironment[] =
+        L"FABLETOGETHER_MULTIPLAYER_ROLE";
+    constexpr wchar_t kMultiplayerAddressEnvironment[] =
+        L"FABLETOGETHER_MULTIPLAYER_ADDRESS";
+    constexpr wchar_t kMultiplayerPortEnvironment[] =
+        L"FABLETOGETHER_MULTIPLAYER_PORT";
+    constexpr wchar_t kMultiplayerPlayerIdEnvironment[] =
+        L"FABLETOGETHER_MULTIPLAYER_PLAYER_ID";
+    constexpr wchar_t kMultiplayerAppearanceEnvironment[] =
+        L"FABLETOGETHER_MULTIPLAYER_APPEARANCE";
+    constexpr wchar_t kMorphSelfTestEnvironment[] =
+        L"FABLETOGETHER_MORPH_SELF_TEST";
     constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
 
     std::wstring ReadEnvironment(const wchar_t* name)
@@ -67,8 +81,25 @@ namespace fable::automation::runtime
         fixtureDocumentsPath_ = ReadEnvironment(kFixtureDocumentsEnvironment);
         characterSnapshotPath_ = ReadEnvironment(kCharacterSnapshotEnvironment);
         scriptDataPath_ = ReadEnvironment(kScriptDataEnvironment);
+        gameDefinitionsPath_ = ReadEnvironment(kGameDefinitionsEnvironment);
         localSessionId_ = ReadEnvironment(kLocalSessionEnvironment);
         localInstanceId_ = ReadEnvironment(kLocalInstanceEnvironment);
+        multiplayerRole_ = ReadEnvironment(kMultiplayerRoleEnvironment);
+        multiplayerAddress_ = ReadEnvironment(kMultiplayerAddressEnvironment);
+        multiplayerPlayerId_ = ReadEnvironment(kMultiplayerPlayerIdEnvironment);
+        multiplayerAppearance_ = ReadEnvironment(kMultiplayerAppearanceEnvironment);
+        morphSelfTest_ = ReadEnvironment(kMorphSelfTestEnvironment) == L"1";
+        multiplayerPort_ = 0;
+        const std::wstring port = ReadEnvironment(kMultiplayerPortEnvironment);
+        if (!port.empty())
+        {
+            wchar_t* end = nullptr;
+            const unsigned long value = std::wcstoul(port.c_str(), &end, 10);
+            if (end != port.c_str() && *end == L'\0' && value <= 65'535)
+            {
+                multiplayerPort_ = static_cast<unsigned short>(value);
+            }
+        }
 
         if (shutdownEvent_ != nullptr)
         {
@@ -122,6 +153,11 @@ namespace fable::automation::runtime
         return scriptDataPath_;
     }
 
+    const std::wstring& RuntimeConfiguration::GameDefinitionsPath() const noexcept
+    {
+        return gameDefinitionsPath_;
+    }
+
     const std::wstring& RuntimeConfiguration::LocalSessionId() const noexcept
     {
         return localSessionId_;
@@ -132,6 +168,36 @@ namespace fable::automation::runtime
         return localInstanceId_;
     }
 
+    const std::wstring& RuntimeConfiguration::MultiplayerRole() const noexcept
+    {
+        return multiplayerRole_;
+    }
+
+    const std::wstring& RuntimeConfiguration::MultiplayerAddress() const noexcept
+    {
+        return multiplayerAddress_;
+    }
+
+    const std::wstring& RuntimeConfiguration::MultiplayerPlayerId() const noexcept
+    {
+        return multiplayerPlayerId_;
+    }
+
+    const std::wstring& RuntimeConfiguration::MultiplayerAppearance() const noexcept
+    {
+        return multiplayerAppearance_;
+    }
+
+    unsigned short RuntimeConfiguration::MultiplayerPort() const noexcept
+    {
+        return multiplayerPort_;
+    }
+
+    bool RuntimeConfiguration::MorphSelfTest() const noexcept
+    {
+        return morphSelfTest_;
+    }
+
     HANDLE RuntimeConfiguration::ShutdownEvent() const noexcept
     {
         return shutdownEvent_;
@@ -140,6 +206,13 @@ namespace fable::automation::runtime
     bool RuntimeConfiguration::IsLocalInstance() const noexcept
     {
         return !localSessionId_.empty() && !localInstanceId_.empty();
+    }
+
+    bool RuntimeConfiguration::MultiplayerEnabled() const noexcept
+    {
+        return (multiplayerRole_ == L"host" || multiplayerRole_ == L"guest") &&
+            multiplayerPort_ != 0 && !multiplayerPlayerId_.empty() &&
+            !multiplayerAppearance_.empty();
     }
 
     bool RuntimeConfiguration::ScenarioIs(const wchar_t* value) const noexcept
@@ -153,11 +226,20 @@ namespace fable::automation::runtime
             ScenarioIs(L"observe_save_list") ||
             ScenarioIs(L"bootstrap_fixture_probe") ||
             ScenarioIs(L"load_fixture") ||
-            ScenarioIs(L"appearance_cycle");
+            ScenarioIs(L"appearance_cycle") ||
+            ScenarioIs(L"multiplayer_host") ||
+            ScenarioIs(L"multiplayer_host_transition") ||
+            ScenarioIs(L"multiplayer_guest") ||
+            ScenarioIs(L"multiplayer_guest_transition");
     }
 
     bool RuntimeConfiguration::LoadsFixture() const noexcept
     {
-        return ScenarioIs(L"load_fixture") || ScenarioIs(L"appearance_cycle");
+        return ScenarioIs(L"load_fixture") ||
+            ScenarioIs(L"appearance_cycle") ||
+            ScenarioIs(L"multiplayer_host") ||
+            ScenarioIs(L"multiplayer_host_transition") ||
+            ScenarioIs(L"multiplayer_guest") ||
+            ScenarioIs(L"multiplayer_guest_transition");
     }
 }
