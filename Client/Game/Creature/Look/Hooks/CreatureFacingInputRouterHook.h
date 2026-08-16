@@ -29,6 +29,7 @@ namespace fable::game::creature::look
             void* context,
             void* creature,
             ReplicatedMovementInput& input);
+        using FrameObserver = void(*)(void* context, void* creature);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
         bool Bind(
@@ -38,6 +39,9 @@ namespace fable::game::creature::look
             void* providerContext = nullptr);
         void Unbind(void* targetCreature) noexcept;
         bool Drive(void* targetCreature);
+        void SetFrameObserver(
+            FrameObserver observer,
+            void* context) noexcept;
         void Clear() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
@@ -71,6 +75,8 @@ namespace fable::game::creature::look
         void** vtableSlot_ = nullptr;
         mutable SRWLOCK bindingLock_ = SRWLOCK_INIT;
         std::vector<Binding> bindings_;
+        std::atomic<FrameObserver> frameObserver_{nullptr};
+        std::atomic<void*> frameObserverContext_{nullptr};
         std::atomic_uint routedFacingCount_{0};
         std::atomic_uint backgroundMovementCount_{0};
     };

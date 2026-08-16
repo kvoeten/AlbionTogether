@@ -21,6 +21,43 @@
 
 namespace fable::multiplayer::replication
 {
+    namespace
+    {
+        std::uint64_t ReadNativeThingUid(void* thing) noexcept
+        {
+            if (thing == nullptr)
+            {
+                return 0;
+            }
+            __try
+            {
+                return *reinterpret_cast<const std::uint64_t*>(
+                    static_cast<const std::uint8_t*>(thing) + 0x14);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+
+        std::uint16_t ReadNativeThingMapId(void* thing) noexcept
+        {
+            if (thing == nullptr)
+            {
+                return 0;
+            }
+            __try
+            {
+                return *reinterpret_cast<const std::uint16_t*>(
+                    static_cast<const std::uint8_t*>(thing) + 0x9A);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+    }
+
     void LocalHeroReplication::Initialize(
         game::EntityService& entities,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
@@ -97,6 +134,17 @@ namespace fable::multiplayer::replication
         hero_ = currentHero;
         nativeHero_ = currentNative;
         mapName_ = currentMap;
+        mapId_ = ReadNativeThingMapId(nativeHero_);
+        if (mapId_ == 0)
+        {
+            currentHero->Release();
+            hero_ = nullptr;
+            nativeHero_ = nullptr;
+            mapName_.clear();
+            return false;
+        }
+        const std::uint64_t scriptThingUid = hero_->GetUid();
+        const std::uint64_t nativeThingUid = ReadNativeThingUid(nativeHero_);
         const game::Vector3 position = hero_->GetPosition();
         const float facing = ReadHeroFacing();
 
@@ -140,7 +188,7 @@ namespace fable::multiplayer::replication
             channel_->Open(
                 actorId_, 1, role_, playerId_, appearanceDefinition_,
                 heroMorph, heroClothing, heroBoneScales, modifiers, mapName_,
-                position, facing, GetTickCount64());
+                mapId_, position, facing, GetTickCount64());
         }
         PlayerState baseline;
         {
@@ -184,6 +232,18 @@ namespace fable::multiplayer::replication
             heroMorph.alignment, heroMorph.fatness,
             heroMorph.child ? "true" : "false");
         diagnostics_.Event("MultiplayerLocalHeroReady", detail);
+        char identityDetail[256] = {};
+        std::snprintf(
+            identityDetail,
+            sizeof(identityDetail),
+            "script_uid=%llu native_uid=%llu match=%s map=%s native=%p",
+            static_cast<unsigned long long>(scriptThingUid),
+            static_cast<unsigned long long>(nativeThingUid),
+            scriptThingUid != 0 && scriptThingUid == nativeThingUid
+                ? "true"
+                : "false",
+            mapName_.c_str(), nativeHero_);
+        diagnostics_.Event("MultiplayerLocalHeroThingIdentity", identityDetail);
         if (transitionCompleted_)
         {
             diagnostics_.Event(
@@ -474,6 +534,7 @@ namespace fable::multiplayer::replication
         nextAppearanceCaptureAt_ = 0;
         graphicRuntimeReported_ = false;
         mapName_.clear();
+        mapId_ = 0;
     }
 
     void LocalHeroReplication::Shutdown() noexcept
@@ -521,6 +582,11 @@ namespace fable::multiplayer::replication
     const std::string& LocalHeroReplication::MapName() const noexcept
     {
         return mapName_;
+    }
+
+    std::uint16_t LocalHeroReplication::MapId() const noexcept
+    {
+        return mapId_;
     }
 
     const PlayerState* LocalHeroReplication::CurrentState() const noexcept

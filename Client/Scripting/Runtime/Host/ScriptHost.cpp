@@ -1,15 +1,22 @@
 #include "ScriptHost.h"
 
 #include "Automation/LocalInstance/MapTransitionAcceptanceDriver.h"
+#include "Automation/Multiplayer/Combat/CombatTargetAcceptanceDriver.h"
+#include "Automation/Multiplayer/Transition/NpcTransferAcceptanceDriver.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Capabilities/CapabilityRegistry.h"
 #include "Game/Creature/CreatureService.h"
+#include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/Creature/Look/CreatureLookService.h"
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
 #include "Game/Entity/EntityService.h"
+#include "Game/Entity/Presence/Hooks/ThingPresenceObserver.h"
+#include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/HeroPawn/HeroPawnService.h"
 #include "Game/NPC/NpcService.h"
+#include "Game/NPC/Simulation/DummyVillager/DummyVillagerService.h"
+#include "Game/NPC/Village/VillageMembershipService.h"
 #include "Game/Player/PlayerService.h"
 #include "Game/Player/Input/PlayerInputService.h"
 #include "Game/Quest/QuestService.h"
@@ -132,11 +139,17 @@ namespace fable::scripting
               std::make_unique<game::creature::look::CreatureLookService>()),
           creatureCombatService_(
               std::make_unique<game::creature::combat::CreatureCombatService>()),
+          creatureAnimationService_(
+              std::make_unique<game::creature::animation::CreatureAnimationService>()),
           playerService_(std::make_unique<game::PlayerService>()),
           playerInputService_(
               std::make_unique<game::player::input::PlayerInputService>()),
           questService_(std::make_unique<game::QuestService>()),
           npcService_(std::make_unique<game::NpcService>()),
+          villageMembershipService_(std::make_unique<
+              game::npc::village::VillageMembershipService>()),
+          dummyVillagerService_(std::make_unique<
+              game::npc::simulation::DummyVillagerService>()),
           heroPawnService_(std::make_unique<game::HeroPawnService>()),
           worldService_(std::make_unique<game::WorldService>()),
           hudService_(std::make_unique<ui::HudService>()),
@@ -146,6 +159,12 @@ namespace fable::scripting
           scheduler_(std::make_unique<Scheduler>()),
           transitionAcceptanceDriver_(std::make_unique<
               automation::local_instance::MapTransitionAcceptanceDriver>()),
+          combatTargetAcceptanceDriver_(std::make_unique<
+              automation::multiplayer::combat::
+                  CombatTargetAcceptanceDriver>()),
+          npcTransferAcceptanceDriver_(std::make_unique<
+              automation::multiplayer::transition::
+                  NpcTransferAcceptanceDriver>()),
           multiplayerSession_(std::make_unique<multiplayer::MultiplayerSession>())
     {
     }
@@ -180,6 +199,9 @@ namespace fable::scripting
             !creatureLocomotionService_->Initialize(*entityService_, diagnostics_) ||
             !creatureLookService_->Initialize(*entityService_, diagnostics_) ||
             !creatureCombatService_->Initialize(*entityService_, diagnostics_) ||
+            !creatureAnimationService_->Initialize(*entityService_, diagnostics_) ||
+            !villageMembershipService_->Initialize(gameModule, diagnostics_) ||
+            !dummyVillagerService_->Initialize(gameModule, diagnostics_) ||
             !playerInputService_->Initialize(gameModule, diagnostics_) ||
             !playerService_->Initialize(
                 *entityService_,
@@ -200,6 +222,10 @@ namespace fable::scripting
                 *npcService_,
                 *creatureLocomotionService_,
                 *creatureLookService_,
+                *creatureCombatService_,
+                *creatureAnimationService_,
+                *villageMembershipService_,
+                *dummyVillagerService_,
                 diagnostics_))
         {
             diagnostics_.Log("Multiplayer: session initialization failed.");
@@ -208,9 +234,28 @@ namespace fable::scripting
         transitionAcceptanceDriver_->Initialize(
             runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition") ||
                 runtimeConfiguration.ScenarioIs(
+                    L"multiplayer_host_authority") ||
+                runtimeConfiguration.ScenarioIs(
                     L"multiplayer_guest_transition"),
+            runtimeConfiguration.ScenarioIs(
+                L"multiplayer_host_authority"),
             *entityService_,
             *creatureLocomotionService_,
+            diagnostics_);
+        combatTargetAcceptanceDriver_->Initialize(
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_combat") ||
+                runtimeConfiguration.ScenarioIs(
+                    L"multiplayer_guest_combat"),
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_combat"),
+            *entityService_,
+            *creatureService_,
+            *npcService_,
+            diagnostics_);
+        npcTransferAcceptanceDriver_->Initialize(
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition"),
+            *entityService_,
+            *npcService_,
+            *multiplayerSession_,
             diagnostics_);
         RegisterApiCoverage(*capabilities_);
 
@@ -302,6 +347,48 @@ namespace fable::scripting
             modules_.size());
         diagnostics_.Event("ScriptRuntimeReady", detail);
         return true;
+    }
+
+    bool ScriptHost::AttachThingPresenceObserver(
+        game::entity::presence::ThingPresenceObserver& observer)
+    {
+        return multiplayerSession_->AttachThingPresenceObserver(observer);
+    }
+
+    bool ScriptHost::AttachSavedEntityMapBlobObserver(
+        game::entity::persistence::SavedEntityMapBlobObserver& observer)
+    {
+        return multiplayerSession_->AttachSavedEntityMapBlobObserver(observer);
+    }
+
+    bool ScriptHost::AttachThingSaveProjectionHook(
+        game::entity::persistence::ThingSaveProjectionHook& hook)
+    {
+        return multiplayerSession_->AttachThingSaveProjectionHook(hook);
+    }
+
+    bool ScriptHost::AttachPopulationSimulationHook(
+        game::npc::population::PopulationSimulationHook& hook)
+    {
+        return multiplayerSession_->AttachPopulationSimulationHook(hook);
+    }
+
+    bool ScriptHost::AttachCreatureActionObserver(
+        game::creature::actions::CreatureActionLifecycleObserver& observer)
+    {
+        return multiplayerSession_->AttachCreatureActionObserver(observer);
+    }
+
+    bool ScriptHost::AttachAiBrainUpdateObserver(
+        game::creature::ai::AiBrainUpdateObserver& observer)
+    {
+        return multiplayerSession_->AttachAiBrainUpdateObserver(observer);
+    }
+
+    bool ScriptHost::AttachWorldTravelObserver(
+        game::world::travel::WorldTravelObserver& observer)
+    {
+        return multiplayerSession_->AttachWorldTravelObserver(observer);
     }
 
     bool ScriptHost::RegisterApi()
@@ -543,8 +630,12 @@ namespace fable::scripting
 
         scheduler_->Tick(deltaSeconds);
         creatureLocomotionService_->TickHeroShadow();
+        npcTransferAcceptanceDriver_->Tick(
+            multiplayerSession_->HasActiveRemotePresentation());
         transitionAcceptanceDriver_->Tick(
             deltaSeconds,
+            multiplayerSession_->HasActiveRemotePresentation());
+        combatTargetAcceptanceDriver_->Tick(
             multiplayerSession_->HasActiveRemotePresentation());
 
         for (const auto& module : modules_)
@@ -668,6 +759,8 @@ namespace fable::scripting
 
     void ScriptHost::Shutdown()
     {
+        npcTransferAcceptanceDriver_->Shutdown();
+        combatTargetAcceptanceDriver_->Shutdown();
         transitionAcceptanceDriver_->Shutdown();
         multiplayerSession_->Shutdown();
         creatureCombatService_->ClearPlayerCombat();

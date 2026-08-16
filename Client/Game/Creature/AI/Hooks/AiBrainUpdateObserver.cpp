@@ -76,6 +76,20 @@ namespace fable::game::creature::ai
         return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
     }
 
+    void AiBrainUpdateObserver::SetExecutionSink(
+        ExecutionSink sink,
+        void* context) noexcept
+    {
+        if (sink == nullptr)
+        {
+            executionSink_.store(nullptr, std::memory_order_release);
+            executionSinkContext_.store(nullptr, std::memory_order_release);
+            return;
+        }
+        executionSinkContext_.store(context, std::memory_order_release);
+        executionSink_.store(sink, std::memory_order_release);
+    }
+
     unsigned int AiBrainUpdateObserver::ObservedBrainCount() const noexcept
     {
         return observedBrainCount_.load(std::memory_order_acquire);
@@ -115,7 +129,44 @@ namespace fable::game::creature::ai
         return false;
     }
 
-    void AiBrainUpdateObserver::Report(void* brain, unsigned int ordinal) const
+    void* AiBrainUpdateObserver::ResolveOwnerThing(void* brain) noexcept
+    {
+        void* ownerThing = nullptr;
+        __try
+        {
+            if (brain != nullptr)
+            {
+                ownerThing = *reinterpret_cast<void* const*>(
+                    static_cast<const std::uint8_t*>(brain) +
+                    native::AiBrainFunctions::ContextBeginOffset +
+                    sizeof(void*));
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            ownerThing = nullptr;
+        }
+        return ownerThing;
+    }
+
+    bool AiBrainUpdateObserver::ShouldExecute(void* ownerThing) const noexcept
+    {
+        const ExecutionSink sink = executionSink_.load(
+            std::memory_order_acquire);
+        if (sink == nullptr)
+        {
+            return true;
+        }
+        return sink(
+            executionSinkContext_.load(std::memory_order_acquire),
+            ownerThing);
+    }
+
+    void AiBrainUpdateObserver::Report(
+        void* brain,
+        void* ownerThing,
+        unsigned int ordinal,
+        bool executed) const
     {
         void* fiber = nullptr;
         void* fiberVtable = nullptr;
@@ -158,7 +209,7 @@ namespace fable::game::creature::ai
         std::snprintf(
             detail,
             std::size(detail),
-            "brain=%p ordinal=%u fiber=%p fiber_vtable=%p dispatch=%p paused=%s definition=%p context0=%p owner_candidate=%p readable=%s thread=%lu",
+            "brain=%p ordinal=%u fiber=%p fiber_vtable=%p dispatch=%p paused=%s definition=%p context0=%p owner_thing=%p executed=%s readable=%s thread=%lu",
             brain,
             ordinal,
             fiber,
@@ -167,7 +218,8 @@ namespace fable::game::creature::ai
             fiberPaused ? "true" : "false",
             definition,
             context0,
-            context1,
+            ownerThing != nullptr ? ownerThing : context1,
+            executed ? "true" : "false",
             readable ? "true" : "false",
             static_cast<unsigned long>(GetCurrentThreadId()));
         diagnostics_.Event("AiBrainFirstUpdateObserved", detail);
@@ -184,9 +236,15 @@ namespace fable::game::creature::ai
         unsigned int ordinal = 0;
         const bool firstUpdate = brain != nullptr &&
             observer->TrackFirstUpdate(brain, ordinal);
+        void* const ownerThing = ResolveOwnerThing(brain);
+        const bool execute = observer->ShouldExecute(ownerThing);
         if (firstUpdate)
         {
-            observer->Report(brain, ordinal);
+            observer->Report(brain, ownerThing, ordinal, execute);
+        }
+        if (!execute)
+        {
+            return;
         }
         observer->original_(brain);
     }

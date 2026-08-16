@@ -63,6 +63,7 @@ namespace fable::multiplayer::replication
         const game::hero_pawn::appearance::HeroBoneScaleState& heroBoneScales,
         const game::hero_pawn::appearance::HeroAppearanceModifierState& modifiers,
         const std::string& mapName,
+        std::uint16_t mapId,
         const game::Vector3& position,
         float facing,
         std::uint64_t capturedAtMilliseconds)
@@ -85,6 +86,7 @@ namespace fable::multiplayer::replication
         state_.playerId = playerId;
         state_.appearanceDefinition = appearanceDefinition;
         state_.mapName = mapName;
+        state_.mapId = mapId;
         state_.position = position;
         state_.facing = NormalizeFacing(facing);
         const bool appearanceReady = !appearanceDefinition.empty() &&

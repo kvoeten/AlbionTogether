@@ -18,6 +18,8 @@ namespace fable::game::creature::look
     public:
         using ReplicatedMovementProvider =
             CreatureFacingInputRouterHook::ReplicatedMovementProvider;
+        using CreatureFrameObserver =
+            CreatureFacingInputRouterHook::FrameObserver;
 
         ~CreatureLookService();
 
@@ -29,13 +31,23 @@ namespace fable::game::creature::look
             Entity* target,
             ReplicatedMovementProvider provider,
             void* context);
+        bool RouteReplicatedNativeMovement(
+            void* nativeTarget,
+            ReplicatedMovementProvider provider,
+            void* context);
         void StopRouting(
             Entity* target,
             bool restoreAutonomousLook = true) noexcept;
+        void StopRoutingNative(void* nativeTarget) noexcept;
         bool DriveReplicatedMovement(Entity* target);
+        bool DriveReplicatedNativeMovement(void* nativeTarget);
+        void SetCreatureFrameObserver(
+            CreatureFrameObserver observer,
+            void* context) noexcept;
         void ClearMovementFacing() noexcept;
 
         [[nodiscard]] unsigned int RoutedMovementFacingCount() const noexcept;
+        [[nodiscard]] HMODULE GameModule() const noexcept;
 
     private:
         struct RoutedTarget final

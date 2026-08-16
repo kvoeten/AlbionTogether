@@ -1,5 +1,6 @@
 #include "RemotePlayerPresentation.h"
 
+#include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/Creature/Control/ScriptControl.h"
 #include "Game/Creature/Look/CreatureLookService.h"
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
@@ -29,6 +30,7 @@ namespace fable::multiplayer::presentation
         game::NpcService& npcs,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
+        game::creature::combat::CreatureCombatService& combat,
         const core::Diagnostics& diagnostics,
         game::hero_pawn::appearance::hooks::
             RemoteHeroPresentationFactoryHook& presentationFactory)
@@ -37,10 +39,46 @@ namespace fable::multiplayer::presentation
         entities_ = &entities;
         npcs_ = &npcs;
         look_ = &look;
+        combat_ = &combat;
         diagnostics_ = diagnostics;
         presentationFactory_ = &presentationFactory;
         movement_.Initialize(locomotion, diagnostics);
         initialized_ = true;
+        return true;
+    }
+
+    bool RemotePlayerPresentation::ApplyHealth(
+        float currentHealth,
+        float maximumHealth,
+        std::uint32_t revision)
+    {
+        if (!initialized_ || combat_ == nullptr || nativeAvatar_ == nullptr ||
+            revision == 0)
+        {
+            return false;
+        }
+        if (healthCreature_ == nativeAvatar_ &&
+            appliedHealthRevision_ == revision)
+        {
+            return true;
+        }
+        if (!combat_->ApplyAuthoritativeCombatHealth(
+                nativeAvatar_, currentHealth, maximumHealth))
+        {
+            return false;
+        }
+        healthCreature_ = nativeAvatar_;
+        appliedHealthRevision_ = revision;
+        char detail[256] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "actor=%llu revision=%u health=%.3f maximum=%.3f",
+            static_cast<unsigned long long>(actorId_),
+            revision,
+            currentHealth,
+            maximumHealth);
+        diagnostics_.Event("MultiplayerRemotePlayerVitalsApplied", detail);
         return true;
     }
 
@@ -74,6 +112,7 @@ namespace fable::multiplayer::presentation
         {
             return;
         }
+        actorId_ = state.actorId;
         movement_.Update(MovementSample(state, receivedAt), localMap);
         if (state.mapName.empty() || state.mapName != localMap)
         {
@@ -529,6 +568,8 @@ namespace fable::multiplayer::presentation
             avatar_ = nullptr;
         }
         nativeAvatar_ = nullptr;
+        healthCreature_ = nullptr;
+        appliedHealthRevision_ = 0;
         if (!worldUnloading)
         {
             playerId_.clear();
@@ -559,9 +600,11 @@ namespace fable::multiplayer::presentation
         entities_ = nullptr;
         npcs_ = nullptr;
         look_ = nullptr;
+        combat_ = nullptr;
         presentationFactory_ = nullptr;
         diagnostics_ = {};
         nextSpawnAttemptAt_ = 0;
+        actorId_ = 0;
         initialized_ = false;
     }
 }

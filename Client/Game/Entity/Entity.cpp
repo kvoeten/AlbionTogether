@@ -57,6 +57,7 @@ namespace fable::game
     std::string Entity::GetDataString() const { return service_ != nullptr ? service_->GetDataString(handle_) : std::string{}; }
     std::string Entity::GetCurrentMapName() const { return service_ != nullptr ? service_->GetCurrentMapName(handle_) : std::string{}; }
     std::string Entity::GetHomeMapName() const { return service_ != nullptr ? service_->GetHomeMapName(handle_) : std::string{}; }
+    std::uint64_t Entity::GetUid() const { return service_ != nullptr ? service_->GetUid(handle_) : 0; }
     bool Entity::GetActivationTriggerStatus() const { return service_ != nullptr && service_->GetActivationTriggerStatus(handle_); }
     int Entity::GetScriptCounter() const { return service_ != nullptr ? service_->GetScriptCounter(handle_) : 0; }
 

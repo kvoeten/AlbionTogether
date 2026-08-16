@@ -383,7 +383,8 @@ the server so it is general, auditable, and tradable.
 - The server owns enemy/player health, hit validation, damage, death/custody,
   drops, and revisions.
 - Clients can predict effects and animation but cannot award damage.
-- NPC AI runs once in the authoritative host simulation.
+- NPC AI runs once on the authoritative map or per-entity action lease owner;
+  the host remains the durable state and conflict-resolution authority.
 - Player and remote visual proxies keep their native NPC body, navigator,
   animation, and scripted-action stack but have autonomous `CAIBrain` updates
   paused for their entire active or cached lifetime. Local input or a server

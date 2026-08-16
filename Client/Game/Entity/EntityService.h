@@ -8,6 +8,7 @@
 #include <Windows.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace fable::game
@@ -39,9 +40,13 @@ namespace fable::game
         [[nodiscard]] bool IsSummonedCreature(const native::ScriptThing& handle) const;
         [[nodiscard]] std::string GetName(const native::ScriptThing& handle) const;
         [[nodiscard]] std::string GetDefinitionName(const native::ScriptThing& handle) const;
+        bool ResolveDefinitionName(
+            std::uint16_t definitionIndex,
+            std::string& definitionName) const;
         [[nodiscard]] std::string GetDataString(const native::ScriptThing& handle) const;
         [[nodiscard]] std::string GetCurrentMapName(const native::ScriptThing& handle) const;
         [[nodiscard]] std::string GetHomeMapName(const native::ScriptThing& handle) const;
+        [[nodiscard]] std::uint64_t GetUid(const native::ScriptThing& handle) const;
         bool SetDataString(const native::ScriptThing& handle, const std::string& value);
         [[nodiscard]] bool GetActivationTriggerStatus(const native::ScriptThing& handle) const;
         [[nodiscard]] int GetScriptCounter(const native::ScriptThing& handle) const;
@@ -51,6 +56,9 @@ namespace fable::game
         bool SetKillOnLevelUnload(const native::ScriptThing& handle, bool enabled);
         bool RequestDestroy(
             const native::ScriptThing& handle,
+            bool immediate = false);
+        bool RequestDestroyNative(
+            void* nativeThing,
             bool immediate = false);
         bool UpdateAttachment(const native::ScriptThing& handle);
         bool IncrementScriptCounter(const native::ScriptThing& handle);
@@ -133,6 +141,7 @@ namespace fable::game
         bool metadataApiValidated_ = false;
         bool interactionApiValidated_ = false;
         bool lifecycleApiValidated_ = false;
+        bool definitionLookupApiValidated_ = false;
         native::GameInterfaceAccess interfaceAccess_;
     };
 }

@@ -180,6 +180,13 @@ namespace fable::game::creature::combat
 
         if (playerAttackCommand)
         {
+            if (hook->service_ != nullptr)
+            {
+                hook->service_->ObservePlayerAttack(
+                    creature,
+                    abilityId,
+                    charge);
+            }
             const unsigned int ordinal =
                 hook->interceptedAttackCount_.fetch_add(
                     1,

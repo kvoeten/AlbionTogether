@@ -56,6 +56,7 @@ namespace fable::multiplayer::replication
         [[nodiscard]] game::Entity* Hero() const noexcept;
         [[nodiscard]] void* NativeHero() const noexcept;
         [[nodiscard]] const std::string& MapName() const noexcept;
+        [[nodiscard]] std::uint16_t MapId() const noexcept;
         [[nodiscard]] const PlayerState* CurrentState() const noexcept;
 
     private:
@@ -77,6 +78,7 @@ namespace fable::multiplayer::replication
         std::string playerId_;
         std::string appearanceDefinition_;
         std::string mapName_;
+        std::uint16_t mapId_ = 0;
         std::string departingMapName_;
         game::Entity* hero_ = nullptr;
         void* nativeHero_ = nullptr;

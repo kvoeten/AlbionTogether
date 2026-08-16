@@ -281,6 +281,8 @@ namespace
         bool multiplayerTest = false;
         bool multiplayerRosterTest = false;
         bool multiplayerTransitionTest = false;
+        bool multiplayerAuthorityTest = false;
+        bool multiplayerCombatTest = false;
         bool multiplayerPlaytest = false;
         bool dryRun = false;
         bool showHelp = false;
@@ -456,6 +458,16 @@ namespace
             if (argument == L"--multiplayer-transition-test")
             {
                 options.multiplayerTransitionTest = true;
+                continue;
+            }
+            if (argument == L"--multiplayer-authority-test")
+            {
+                options.multiplayerAuthorityTest = true;
+                continue;
+            }
+            if (argument == L"--multiplayer-combat-test")
+            {
+                options.multiplayerCombatTest = true;
                 continue;
             }
             if (argument == L"--multiplayer-playtest")
@@ -699,6 +711,8 @@ namespace
         }
         if ((options.multiplayerTest || options.multiplayerRosterTest ||
                 options.multiplayerTransitionTest ||
+                options.multiplayerAuthorityTest ||
+                options.multiplayerCombatTest ||
                 options.multiplayerPlaytest) &&
             (options.dualInstanceTest || !options.multiplayerRole.empty() ||
                 !options.automationScenario.empty() || options.transformationProbe ||
@@ -710,6 +724,8 @@ namespace
         if ((options.multiplayerTest ? 1 : 0) +
                 (options.multiplayerRosterTest ? 1 : 0) +
                 (options.multiplayerTransitionTest ? 1 : 0) +
+                (options.multiplayerAuthorityTest ? 1 : 0) +
+                (options.multiplayerCombatTest ? 1 : 0) +
                 (options.multiplayerPlaytest ? 1 : 0) > 1)
         {
             error = L"Choose one multiplayer test or playtest mode";
@@ -843,6 +859,8 @@ namespace
             << L"  --multiplayer-test  Load two adult-town peers and prove remote locomotion\n"
             << L"  --multiplayer-roster-test  Load a host and two guests and prove guest-to-guest relay\n"
             << L"  --multiplayer-transition-test  Transition both peers and prove destination replication\n"
+            << L"  --multiplayer-authority-test  Move only the host away and prove guest NPC ownership handoff\n"
+            << L"  --multiplayer-combat-test  Attack from the guest and prove per-NPC authority handoff\n"
             << L"  --multiplayer-playtest  Load two connected adult-town peers and leave them running\n"
             << L"  --hold <sec>        Dual-instance stability interval from 5 to 300 seconds (default: 10)\n"
             << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
@@ -1041,6 +1059,52 @@ namespace
             position += stateMarker.size();
         }
         return false;
+    }
+
+    std::size_t EventDetailCount(
+        const std::string& content,
+        const char* state,
+        const char* detail)
+    {
+        const std::string stateMarker =
+            std::string("\"state\":\"") + state + "\"";
+        std::size_t count = 0;
+        std::size_t position = 0;
+        while ((position = content.find(stateMarker, position)) !=
+            std::string::npos)
+        {
+            const std::size_t end = content.find('\n', position);
+            const std::size_t length = end == std::string::npos
+                ? std::string::npos
+                : end - position;
+            if (content.substr(position, length).find(detail) !=
+                std::string::npos)
+            {
+                ++count;
+            }
+            position += stateMarker.size();
+        }
+        return count;
+    }
+
+    bool LastEventDetailContains(
+        const std::string& content,
+        const char* state,
+        const char* detail)
+    {
+        const std::string stateMarker =
+            std::string("\"state\":\"") + state + "\"";
+        const std::size_t position = content.rfind(stateMarker);
+        if (position == std::string::npos)
+        {
+            return false;
+        }
+        const std::size_t end = content.find('\n', position);
+        const std::size_t length = end == std::string::npos
+            ? std::string::npos
+            : end - position;
+        return content.substr(position, length).find(detail) !=
+            std::string::npos;
     }
 
     std::uint64_t StablePlayerActorId(
@@ -1826,6 +1890,57 @@ namespace
         }
     }
 
+    bool WaitForMultiplayerEventDetailCount(
+        LaunchedGame& game,
+        const fs::path& eventPath,
+        const wchar_t* instance,
+        const char* expectedState,
+        const std::string& expectedDetail,
+        std::size_t expectedCount,
+        unsigned int timeoutSeconds)
+    {
+        const ULONGLONG deadline = GetTickCount64() +
+            static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
+        for (;;)
+        {
+            const std::string events = ReadEventFile(eventPath);
+            if (EventWasReported(events, "ClientFailed"))
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" reported a client failure while waiting for "
+                           << expectedState << L" count " << expectedCount
+                           << L".\n";
+                return false;
+            }
+            if (EventDetailCount(
+                    events,
+                    expectedState,
+                    expectedDetail.c_str()) >= expectedCount)
+            {
+                return true;
+            }
+            const DWORD state = WaitForSingleObject(game.process.get(), 250);
+            if (state == WAIT_OBJECT_0)
+            {
+                DWORD exitCode = 0;
+                GetExitCodeProcess(game.process.get(), &exitCode);
+                std::wcerr << L"Multiplayer " << instance
+                           << L" exited while waiting for " << expectedState
+                           << L" count " << expectedCount << L"; exit code "
+                           << exitCode << L".\n";
+                return false;
+            }
+            if (state == WAIT_FAILED || GetTickCount64() >= deadline)
+            {
+                std::wcerr << L"Multiplayer " << instance
+                           << L" timed out while waiting for " << expectedState
+                           << L" count " << expectedCount
+                           << L" with the required detail.\n";
+                return false;
+            }
+        }
+    }
+
     bool WaitForBackgroundMovement(
         LaunchedGame& game,
         const fs::path& eventPath,
@@ -1871,7 +1986,8 @@ namespace
 
     bool MoveMultiplayerPeer(
         LaunchedGame& game,
-        const wchar_t* instance)
+        const wchar_t* instance,
+        unsigned int durationMilliseconds = 1'250)
     {
         game.window = FindMainWindow(game.processId);
         if (game.window == nullptr || !WindowIsResponsive(game.window))
@@ -1952,7 +2068,7 @@ namespace
         }
         std::wcout << L"Multiplayer test: moving " << instance
                    << L" through Fable's normal player input.\n";
-        Sleep(1'250);
+        Sleep(durationMilliseconds);
         const bool forwardReleased = forward.Release();
         const bool lateralReleased = lateral.Release();
         if (!forwardReleased || !lateralReleased)
@@ -2026,6 +2142,32 @@ namespace
         return true;
     }
 
+    bool AttackWithMultiplayerPeer(
+        LaunchedGame& game,
+        const wchar_t* instance,
+        unsigned int attempts)
+    {
+        if (attempts == 0 || !FocusMultiplayerPeer(game, instance))
+        {
+            return false;
+        }
+        ScopedSyntheticMouseButton attack;
+        for (unsigned int attempt = 0; attempt < attempts; ++attempt)
+        {
+            if (!attack.Press(game.window))
+            {
+                return false;
+            }
+            Sleep(100);
+            if (!attack.Release())
+            {
+                return false;
+            }
+            Sleep(350);
+        }
+        return true;
+    }
+
     int RunMultiplayerTest(
         const fs::path& executable,
         const fs::path& clientDll,
@@ -2037,6 +2179,8 @@ namespace
         bool interactive,
         bool rosterTest,
         bool transitionTest,
+        bool authorityTest,
+        bool combatTest,
         const std::vector<std::wstring>& originalArguments)
     {
         const std::vector<std::wstring> arguments =
@@ -2127,7 +2271,11 @@ namespace
         std::wcout << L"Multiplayer test: starting host.\n";
         if (!spawnRole(
                 L"host",
-                transitionTest
+                combatTest
+                    ? L"multiplayer_host_combat"
+                : authorityTest
+                    ? L"multiplayer_host_authority"
+                : transitionTest
                     ? L"multiplayer_host_transition"
                     : L"multiplayer_host",
                 L"host",
@@ -2168,7 +2316,11 @@ namespace
 
         if (!spawnRole(
                 L"guest",
-                transitionTest
+                combatTest
+                    ? L"multiplayer_guest_combat"
+                : authorityTest
+                    ? L"multiplayer_guest_authority"
+                : transitionTest
                     ? L"multiplayer_guest_transition"
                     : L"multiplayer_guest",
                 L"guest",
@@ -2192,10 +2344,12 @@ namespace
         const bool localHeroesReady = WaitForMultiplayerEvent(
                 guest, guestEvents, L"guest", "MultiplayerLocalHeroReady", timeoutSeconds);
         bool worldsReady = localHeroesReady &&
-            (transitionTest || FocusMultiplayerPeer(host, L"host")) &&
+            (transitionTest || authorityTest ||
+                FocusMultiplayerPeer(host, L"host")) &&
             WaitForMultiplayerEvent(
                 host, hostEvents, L"host", "MultiplayerRemoteDefinitionCreated", timeoutSeconds) &&
-            (transitionTest || FocusMultiplayerPeer(guest, L"guest")) &&
+            (transitionTest || authorityTest ||
+                FocusMultiplayerPeer(guest, L"guest")) &&
             WaitForMultiplayerEvent(
                 guest, guestEvents, L"guest", "MultiplayerRemoteDefinitionCreated", timeoutSeconds);
         const fs::path guest2Events = roleRoot(L"guest2") / L"events.jsonl";
@@ -2262,9 +2416,426 @@ namespace
         std::wcout << (rosterTest
             ? L"Multiplayer roster test: every process created a native presentation for each other player actor.\n"
             : L"Multiplayer test: both remote definitions were created from the safe game dispatch context at distinct native transforms.\n");
+        if (combatTest)
+        {
+            const std::string combatTargetScript =
+                "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
+            const bool targetReady =
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatTargetSpawned",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityMaterialized",
+                    combatTargetScript,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatTargetArmed",
+                    timeoutSeconds);
+            const std::uint64_t guestActorId =
+                StablePlayerActorId(L"guest", L"Guest");
+            const std::string guestActor = std::to_string(guestActorId);
+            const std::string guestCombatOwner =
+                "kind=5 authority_actor_id=" +
+                guestActor + " map=BowerstonePosh";
+            const std::string guestMovementOwner =
+                "owner_actor_id=" + guestActor +
+                " map=BowerstonePosh epoch=1";
+            const std::string guestVitalsOwner = "owner=" + guestActor;
+            const std::string guestPlayerVitals =
+                "subject=player actor=" + guestActor;
+            const std::string guestRemoteVitals = "actor=" + guestActor;
+            const std::size_t guestPlayerVitalsBeforeAttack =
+                EventDetailCount(
+                    ReadEventFile(guestEvents),
+                    "MultiplayerEntityVitalsPublished",
+                    guestPlayerVitals.c_str());
+            const std::size_t hostRemoteVitalsBeforeAttack =
+                EventDetailCount(
+                    ReadEventFile(hostEvents),
+                    "MultiplayerRemotePlayerVitalsApplied",
+                    guestRemoteVitals.c_str());
+            const bool attackSubmitted = targetReady &&
+                AttackWithMultiplayerPeer(guest, L"guest", 8);
+            const bool handoffCompleted = attackSubmitted &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "CreaturePlayerAttackTargetObserved",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatEngagementRequested",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerActionAuthorityChanged",
+                    guestCombatOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerActionAuthorityChanged",
+                    guestCombatOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntitySimulationCoverage",
+                    "local_simulation=22 fenced=1",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntitySimulationCoverage",
+                    "local_simulation=1 fenced=22",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityMovementPublishedMoving",
+                    guestMovementOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityMovementAcceptedMoving",
+                    guestMovementOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityActionBegan",
+                    guestVitalsOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityAnimationApplied",
+                    guestVitalsOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityVitalsPublished",
+                    guestVitalsOwner,
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityVitalsAccepted",
+                    guestVitalsOwner,
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityVitalsApplied",
+                    guestVitalsOwner,
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatTargetHealthMutationApplied",
+                    "source=native-creature-health-setter",
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityVitalsPublished",
+                    guestPlayerVitals,
+                    guestPlayerVitalsBeforeAttack + 1,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatGuestHealthMutationApplied",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemotePlayerVitalsApplied",
+                    guestRemoteVitals,
+                    hostRemoteVitalsBeforeAttack + 1,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityActionEnded",
+                    "PlayerAttackEngagement",
+                    timeoutSeconds);
+            if (handoffCompleted)
+            {
+                Sleep(2'000);
+            }
+            const std::string hostEventContent = ReadEventFile(hostEvents);
+            const std::string guestEventContent = ReadEventFile(guestEvents);
+            const bool authorityReturned = handoffCompleted &&
+                LastEventDetailContains(
+                    hostEventContent,
+                    "MultiplayerEntitySimulationCoverage",
+                    "local_simulation=23 fenced=0") &&
+                LastEventDetailContains(
+                    guestEventContent,
+                    "MultiplayerEntitySimulationCoverage",
+                    "local_simulation=0 fenced=23");
+            host.window = FindMainWindow(host.processId);
+            guest.window = FindMainWindow(guest.processId);
+            const bool peersSurvived = authorityReturned &&
+                WaitForSingleObject(host.process.get(), 0) == WAIT_TIMEOUT &&
+                WaitForSingleObject(guest.process.get(), 0) == WAIT_TIMEOUT &&
+                host.window != nullptr && guest.window != nullptr &&
+                WindowIsResponsive(host.window) &&
+                WindowIsResponsive(guest.window) &&
+                !EventWasReported(hostEventContent, "ClientFailed") &&
+                !EventWasReported(guestEventContent, "ClientFailed");
+            const bool guestStopped = CloseCreatedProcess(
+                guest.process.get(), guest.processId, guest.shutdownEvent.get());
+            const bool hostStopped = CloseCreatedProcess(
+                host.process.get(), host.processId, host.shutdownEvent.get());
+            if (!peersSurvived || !guestStopped || !hostStopped)
+            {
+                std::wcerr
+                    << L"Multiplayer combat authority acceptance failed during the primary-attacker lease handoff.\n";
+                return 1;
+            }
+            std::wcout
+                << L"Multiplayer combat authority acceptance passed: Fable's mapped ATTACK selected a native enemy, the host granted only that enemy to the guest attacker, its AI, movement, and animations moved to the guest, native enemy and guest-Hero health changes converged through host revisions, and idle release restored map-owner control.\n"
+                << L"State root: " << sessionRoot.wstring() << L"\n";
+            return 0;
+        }
+        if (authorityTest)
+        {
+            const std::uint64_t hostActorId =
+                StablePlayerActorId(L"host", L"Host");
+            const std::uint64_t guestActorId =
+                StablePlayerActorId(L"guest", L"Guest");
+            const std::string guestGrant =
+                "map=BowerstonePosh authority_actor_id=" +
+                std::to_string(guestActorId) + " epoch=2";
+            const std::string guestMovementOwner =
+                "owner_actor_id=" + std::to_string(guestActorId) +
+                " map=BowerstonePosh epoch=2";
+            const bool handoffCompleted =
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerTransitionAcceptanceStarted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerWorldTransitionCompleted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerMapAuthorityChanged",
+                    guestGrant,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerMapAuthorityChanged",
+                    guestGrant,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntitySimulationCoverage",
+                    "local_simulation=22 fenced=0",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityMovementPublishedMoving",
+                    guestMovementOwner,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityMovementAcceptedMoving",
+                    guestMovementOwner,
+                    timeoutSeconds);
+            const bool returnCompleted = handoffCompleted &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerTransitionAcceptanceReturned",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteDefinitionCreated",
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerRemoteAvatarResumed",
+                    "player=Host map=BowerstonePosh action=resumed",
+                    timeoutSeconds);
+            if (returnCompleted)
+            {
+                Sleep(2'000);
+            }
+            std::string hostEventContent = ReadEventFile(hostEvents);
+            std::string guestEventContent = ReadEventFile(guestEvents);
+            const bool stickyGuestAuthority = returnCompleted &&
+                EventDetailContains(
+                    hostEventContent,
+                    "MultiplayerMapAuthorityChanged",
+                    guestGrant.c_str()) &&
+                EventDetailContains(
+                    guestEventContent,
+                    "MultiplayerMapAuthorityChanged",
+                    guestGrant.c_str()) &&
+                EventDetailCount(
+                    hostEventContent,
+                    "MultiplayerMapAuthorityChanged",
+                    "operation=grant map=BowerstonePosh") == 2 &&
+                EventDetailCount(
+                    guestEventContent,
+                    "MultiplayerMapAuthorityChanged",
+                    "operation=grant map=BowerstonePosh") == 2;
+            host.window = FindMainWindow(host.processId);
+            guest.window = FindMainWindow(guest.processId);
+            const bool peersTogether = stickyGuestAuthority &&
+                WaitForSingleObject(host.process.get(), 0) == WAIT_TIMEOUT &&
+                WaitForSingleObject(guest.process.get(), 0) == WAIT_TIMEOUT &&
+                host.window != nullptr && guest.window != nullptr &&
+                WindowIsResponsive(host.window) &&
+                WindowIsResponsive(guest.window) &&
+                !EventWasReported(hostEventContent, "ClientFailed") &&
+                !EventWasReported(guestEventContent, "ClientFailed");
+            const bool guestStopped = peersTogether && CloseCreatedProcess(
+                guest.process.get(),
+                guest.processId,
+                guest.shutdownEvent.get());
+            const std::string hostRecoveryGrant =
+                "map=BowerstonePosh authority_actor_id=" +
+                std::to_string(hostActorId) + " epoch=3";
+            const bool disconnectRecovered = guestStopped &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerMapAuthorityChanged",
+                    hostRecoveryGrant,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntitySimulationCoverage",
+                    "local_simulation=22 fenced=0",
+                    timeoutSeconds);
+            if (disconnectRecovered)
+            {
+                Sleep(2'000);
+            }
+            hostEventContent = ReadEventFile(hostEvents);
+            host.window = FindMainWindow(host.processId);
+            const bool hostSurvivedRecovery = disconnectRecovered &&
+                WaitForSingleObject(host.process.get(), 0) == WAIT_TIMEOUT &&
+                host.window != nullptr && WindowIsResponsive(host.window) &&
+                !EventWasReported(hostEventContent, "ClientFailed");
+            const bool hostStopped = CloseCreatedProcess(
+                host.process.get(), host.processId, host.shutdownEvent.get());
+            if (!hostSurvivedRecovery || !hostStopped)
+            {
+                std::wcerr
+                    << L"Multiplayer authority acceptance failed during split-map handoff, sticky host re-entry, or owner-disconnect recovery.\n";
+                return 1;
+            }
+            std::wcout
+                << L"Multiplayer authority acceptance passed: the host left Bowerstone Posh, atomically granted epoch 2 to the remaining guest, returned without stealing that sticky lease, then recovered all 22 NPC simulations at epoch 3 after the owning guest disconnected.\n"
+                << L"State root: " << sessionRoot.wstring() << L"\n";
+            return 0;
+        }
         if (transitionTest)
         {
-            const bool transitionCompleted =
+            const std::string transferTarget =
+                "script_name=SCRIPT_NAME_FABLE_TOGETHER_TRANSFER_TARGET";
+            const std::uint64_t hostActorId =
+                StablePlayerActorId(L"host", L"Host");
+            const std::uint64_t guestActorId =
+                StablePlayerActorId(L"guest", L"Guest");
+            const std::string destinationGrant =
+                "operation=grant map=BowerstoneJail";
+            const std::string sourceRelease =
+                "operation=release map=BowerstonePosh authority_actor_id=0";
+            const bool npcSourceTransferCompleted =
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerNpcTransferTargetSpawned",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerNpcTransferSourceTeardownRequested",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityTransferred",
+                    timeoutSeconds);
+            const std::size_t hostTransferMaterializationsBeforeArrival =
+                EventDetailCount(
+                    ReadEventFile(hostEvents),
+                    "MultiplayerEntityMaterialized",
+                    transferTarget.c_str());
+            const std::size_t guestTransferMaterializationsBeforeArrival =
+                EventDetailCount(
+                    ReadEventFile(guestEvents),
+                    "MultiplayerEntityMaterialized",
+                    transferTarget.c_str());
+            const bool transitionCompleted = npcSourceTransferCompleted &&
                 WaitForMultiplayerEvent(
                     host,
                     hostEvents,
@@ -2326,6 +2897,50 @@ namespace
                     L"guest",
                     "MultiplayerRemoteDefinitionCreated",
                     2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerMapAuthorityChanged",
+                    destinationGrant,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerMapAuthorityChanged",
+                    destinationGrant,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerMapAuthorityChanged",
+                    sourceRelease,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerMapAuthorityChanged",
+                    sourceRelease,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerEntityMaterialized",
+                    transferTarget,
+                    hostTransferMaterializationsBeforeArrival + 1,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityMaterialized",
+                    transferTarget,
+                    guestTransferMaterializationsBeforeArrival + 1,
                     timeoutSeconds);
             // The original fault arrived from Fable's asynchronous graphics
             // queue shortly after destination bind. Keep both peers alive for
@@ -2334,16 +2949,59 @@ namespace
             {
                 Sleep(8'000);
             }
+            const std::string hostEventContent = ReadEventFile(hostEvents);
+            const std::string guestEventContent = ReadEventFile(guestEvents);
+            const std::string hostDestinationOwner =
+                destinationGrant + " authority_actor_id=" +
+                std::to_string(hostActorId);
+            const std::string guestDestinationOwner =
+                destinationGrant + " authority_actor_id=" +
+                std::to_string(guestActorId);
+            const bool oneAtomicDestinationOwner = transitionCompleted &&
+                EventDetailCount(
+                    hostEventContent,
+                    "MultiplayerMapAuthorityChanged",
+                    destinationGrant.c_str()) == 1 &&
+                EventDetailCount(
+                    guestEventContent,
+                    "MultiplayerMapAuthorityChanged",
+                    destinationGrant.c_str()) == 1 &&
+                ((EventDetailContains(
+                        hostEventContent,
+                        "MultiplayerMapAuthorityChanged",
+                        hostDestinationOwner.c_str()) &&
+                    EventDetailContains(
+                        guestEventContent,
+                        "MultiplayerMapAuthorityChanged",
+                        hostDestinationOwner.c_str())) ||
+                 (EventDetailContains(
+                        hostEventContent,
+                        "MultiplayerMapAuthorityChanged",
+                        guestDestinationOwner.c_str()) &&
+                    EventDetailContains(
+                        guestEventContent,
+                        "MultiplayerMapAuthorityChanged",
+                        guestDestinationOwner.c_str())));
+            const bool healthFollowedGeneration =
+                EventDetailContains(
+                    hostEventContent,
+                    "MultiplayerEntityVitalsRestored",
+                    transferTarget.c_str()) ||
+                EventDetailContains(
+                    guestEventContent,
+                    "MultiplayerEntityVitalsRestored",
+                    transferTarget.c_str());
             host.window = FindMainWindow(host.processId);
             guest.window = FindMainWindow(guest.processId);
-            const bool peersSurvived = transitionCompleted &&
+            const bool peersSurvived = oneAtomicDestinationOwner &&
+                healthFollowedGeneration &&
                 WaitForSingleObject(host.process.get(), 0) == WAIT_TIMEOUT &&
                 WaitForSingleObject(guest.process.get(), 0) == WAIT_TIMEOUT &&
                 host.window != nullptr && guest.window != nullptr &&
                 WindowIsResponsive(host.window) &&
                 WindowIsResponsive(guest.window) &&
-                !EventWasReported(ReadEventFile(hostEvents), "ClientFailed") &&
-                !EventWasReported(ReadEventFile(guestEvents), "ClientFailed");
+                !EventWasReported(hostEventContent, "ClientFailed") &&
+                !EventWasReported(guestEventContent, "ClientFailed");
             const bool guestStopped = CloseCreatedProcess(
                 guest.process.get(), guest.processId, guest.shutdownEvent.get());
             const bool hostStopped = CloseCreatedProcess(
@@ -2355,7 +3013,7 @@ namespace
                 return 1;
             }
             std::wcout
-                << L"Multiplayer transition acceptance passed: both peers crossed the adjacent map boundary, kept their actor-channel sequences monotonic, quarantined each old map-scoped remote presentation, recreated both remote Heroes in the destination, and remained responsive beyond the former crash windows.\n"
+                << L"Multiplayer transition acceptance passed: simultaneous boundary requests resolved to one destination owner, one canonical guard retained health while crossing source high-sim through host low-sim, materialized for both destination observers, and both processes remained responsive beyond the former crash windows.\n"
                 << L"State root: " << sessionRoot.wstring() << L"\n";
             return 0;
         }
@@ -2754,6 +3412,8 @@ int wmain(int argc, wchar_t** argv)
         options.automationScenario == L"appearance_cycle" ||
         options.multiplayerTest || options.multiplayerRosterTest ||
         options.multiplayerTransitionTest ||
+        options.multiplayerAuthorityTest ||
+        options.multiplayerCombatTest ||
         options.multiplayerPlaytest;
     const fs::path fixtureDocumentsSource = loadFixtureScenario
         ? options.fixtureDocuments.empty()
@@ -2797,6 +3457,8 @@ int wmain(int argc, wchar_t** argv)
     if (!options.dualInstanceTest && !options.multiplayerTest &&
         !options.multiplayerRosterTest &&
         !options.multiplayerTransitionTest &&
+        !options.multiplayerAuthorityTest &&
+        !options.multiplayerCombatTest &&
         !options.multiplayerPlaytest)
     {
         std::wcout << L"Log:    " << clientLog.wstring() << L'\n'
@@ -2827,11 +3489,17 @@ int wmain(int argc, wchar_t** argv)
     }
     if (options.multiplayerTest || options.multiplayerRosterTest ||
         options.multiplayerTransitionTest ||
+        options.multiplayerAuthorityTest ||
+        options.multiplayerCombatTest ||
         options.multiplayerPlaytest)
     {
         std::wcout << L"Test:   "
                    << (options.multiplayerPlaytest
                        ? L"multiplayer_adult_town_manual"
+                       : options.multiplayerCombatTest
+                           ? L"multiplayer_combat_authority_handoff"
+                       : options.multiplayerAuthorityTest
+                           ? L"multiplayer_map_authority_handoff"
                        : options.multiplayerTransitionTest
                            ? L"multiplayer_map_transition"
                        : options.multiplayerRosterTest
@@ -2915,6 +3583,8 @@ int wmain(int argc, wchar_t** argv)
     }
     if (options.multiplayerTest || options.multiplayerRosterTest ||
         options.multiplayerTransitionTest ||
+        options.multiplayerAuthorityTest ||
+        options.multiplayerCombatTest ||
         options.multiplayerPlaytest)
     {
         return RunMultiplayerTest(
@@ -2928,6 +3598,8 @@ int wmain(int argc, wchar_t** argv)
             options.multiplayerPlaytest,
             options.multiplayerRosterTest,
             options.multiplayerTransitionTest,
+            options.multiplayerAuthorityTest,
+            options.multiplayerCombatTest,
             options.gameArguments);
     }
 

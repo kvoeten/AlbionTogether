@@ -42,6 +42,7 @@ namespace fable::multiplayer
         // this beside linear velocity lets the receiver extrapolate the
         // complete planar transform and derive animation state from motion.
         float angularVelocity = 0.0f;
+        std::uint16_t mapId = 0;
         std::string playerId;
         std::string mapName;
         std::string appearanceDefinition;

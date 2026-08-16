@@ -24,6 +24,7 @@ namespace fable::multiplayer::replication
             const game::hero_pawn::appearance::HeroAppearanceModifierState&
                 heroAppearanceModifiers,
             const std::string& mapName,
+            std::uint16_t mapId,
             const game::Vector3& position,
             float facing,
             std::uint64_t capturedAtMilliseconds);

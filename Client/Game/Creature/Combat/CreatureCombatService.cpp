@@ -1,10 +1,36 @@
 #include "CreatureCombatService.h"
 
+#include "Game/Creature/Combat/Native/HeroTargetingComponent.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
+#include "Game/Entity/Native/ThingComponentAccess.h"
+
+#include <Windows.h>
 
 #include <cstdio>
+
+namespace
+{
+    std::uint64_t ReadThingUid(void* thing) noexcept
+    {
+        if (thing == nullptr)
+        {
+            return 0;
+        }
+        std::uint64_t uid = 0;
+        __try
+        {
+            uid = *reinterpret_cast<const std::uint64_t*>(
+                static_cast<const std::uint8_t*>(thing) + 0x14);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            uid = 0;
+        }
+        return uid;
+    }
+}
 
 namespace fable::game::creature::combat
 {
@@ -19,20 +45,24 @@ namespace fable::game::creature::combat
     {
         entities_ = &entities;
         diagnostics_ = diagnostics;
+        observedPlayerAttackCount_.store(0, std::memory_order_release);
         const bool attackHookInstalled =
             playerAttackAbilityHook_.Install(
                 entities.GameModule(),
                 *this,
                 diagnostics_);
+        const bool healthHookInstalled =
+            combatHealthMutationHook_.Install(
+                entities.GameModule(), diagnostics_);
         diagnostics_.Event(
             "CreatureCombatAbiValidated",
-            attackHookInstalled
-                ? "CThingCreature ability submission and player ATTACK caller validated"
-                : "CThingCreature ability submission validation failed");
+            attackHookInstalled && healthHookInstalled
+                ? "CThingCreature ability submission, player ATTACK caller, and shared player/NPC health mutation validated"
+                : "one or more CThingCreature combat definitions failed validation");
         diagnostics_.Log(attackHookInstalled
             ? "Creature combat: deep native player ATTACK-to-creature ability routing validated."
             : "Creature combat: current-build player ATTACK ability routing definition failed validation.");
-        return attackHookInstalled;
+        return attackHookInstalled && healthHookInstalled;
     }
 
     bool CreatureCombatService::RoutePlayerCombat(Entity* hero, Entity* puppet)
@@ -144,5 +174,104 @@ namespace fable::game::creature::combat
         routedAttackCount_.fetch_add(1, std::memory_order_acq_rel);
         ReleaseSRWLockShared(&routeLock_);
         return true;
+    }
+
+    void CreatureCombatService::ObservePlayerAttack(
+        void* sourceCreature,
+        unsigned int abilityId,
+        float charge) noexcept
+    {
+        const PlayerAttackSink sink = playerAttackSink_.load(
+            std::memory_order_acquire);
+        if (sink == nullptr || entities_ == nullptr || sourceCreature == nullptr)
+        {
+            return;
+        }
+
+        void* const targeting = entity::native::ThingComponentAccess::Find(
+            sourceCreature,
+            entity::native::ThingComponentType::Targeting);
+        native::HeroTargetingSnapshot targets;
+        const bool targetsRead = native::HeroTargetingComponent::ReadTargets(
+            entities_->GameModule(), targeting, targets);
+        (void)targetsRead;
+        void* target = targets.selected != nullptr
+            ? targets.selected
+            : (targets.candidatePrimary != nullptr
+                ? targets.candidatePrimary
+                : targets.candidateSecondary);
+        if (!::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(entities_->GameModule(), target))
+        {
+            target = nullptr;
+        }
+
+        PlayerAttackEvent event;
+        event.sourceCreature = sourceCreature;
+        event.targetCreature = target;
+        event.targetThingUid = ReadThingUid(target);
+        event.abilityId = abilityId;
+        event.charge = charge;
+        event.observedAt = GetTickCount64();
+        const unsigned int observed =
+            observedPlayerAttackCount_.fetch_add(
+                1,
+                std::memory_order_acq_rel) + 1;
+        if (observed <= 8)
+        {
+            char detail[384] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "event=%u source=%p targeting=%p read=%s selected=%p primary=%p secondary=%p accepted_target=%p target_uid=%llu ability=%u charge=%.3f",
+                observed,
+                sourceCreature,
+                targeting,
+                targetsRead ? "true" : "false",
+                targets.selected,
+                targets.candidatePrimary,
+                targets.candidateSecondary,
+                target,
+                static_cast<unsigned long long>(event.targetThingUid),
+                abilityId,
+                charge);
+            diagnostics_.Event("CreaturePlayerAttackTargetObserved", detail);
+        }
+        sink(
+            playerAttackSinkContext_.load(std::memory_order_acquire),
+            event);
+    }
+
+    void CreatureCombatService::SetPlayerAttackSink(
+        PlayerAttackSink sink,
+        void* context) noexcept
+    {
+        playerAttackSinkContext_.store(context, std::memory_order_release);
+        playerAttackSink_.store(sink, std::memory_order_release);
+    }
+
+    void CreatureCombatService::SetHealthMutationSink(
+        HealthMutationSink sink,
+        void* context) noexcept
+    {
+        combatHealthMutationHook_.SetEventSink(sink, context);
+    }
+
+    bool CreatureCombatService::ReadCombatHealth(
+        void* creature,
+        float& currentHealth,
+        float& maximumHealth) const noexcept
+    {
+        return combatHealthMutationHook_.Read(
+            creature, currentHealth, maximumHealth);
+    }
+
+    bool CreatureCombatService::ApplyAuthoritativeCombatHealth(
+        void* creature,
+        float currentHealth,
+        float maximumHealth) noexcept
+    {
+        return combatHealthMutationHook_.ApplyAuthoritative(
+            creature, currentHealth, maximumHealth);
     }
 }

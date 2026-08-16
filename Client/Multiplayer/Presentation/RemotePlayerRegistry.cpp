@@ -14,6 +14,7 @@ namespace fable::multiplayer::presentation
         game::NpcService& npcs,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
+        game::creature::combat::CreatureCombatService& combat,
         const core::Diagnostics& diagnostics,
         std::uint64_t localActorId)
     {
@@ -22,6 +23,7 @@ namespace fable::multiplayer::presentation
         npcs_ = &npcs;
         locomotion_ = &locomotion;
         look_ = &look;
+        combat_ = &combat;
         diagnostics_ = diagnostics;
         localActorId_ = localActorId;
         if (!presentationFactory_.Install(entities.GameModule(), diagnostics))
@@ -44,7 +46,7 @@ namespace fable::multiplayer::presentation
     {
         auto presentation = std::make_unique<RemotePlayerPresentation>();
         if (!presentation->Initialize(
-                *entities_, *npcs_, *locomotion_, *look_, diagnostics_,
+                *entities_, *npcs_, *locomotion_, *look_, *combat_, diagnostics_,
                 presentationFactory_))
         {
             return nullptr;
@@ -143,6 +145,19 @@ namespace fable::multiplayer::presentation
         }
     }
 
+    bool RemotePlayerRegistry::ApplyHealth(
+        std::uint64_t actorId,
+        float currentHealth,
+        float maximumHealth,
+        std::uint32_t revision)
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->ApplyHealth(
+                currentHealth, maximumHealth, revision);
+    }
+
     void RemotePlayerRegistry::Shutdown() noexcept
     {
         for (auto& [actorId, presentation] : presentations_)
@@ -156,6 +171,7 @@ namespace fable::multiplayer::presentation
         npcs_ = nullptr;
         locomotion_ = nullptr;
         look_ = nullptr;
+        combat_ = nullptr;
         diagnostics_ = {};
         localActorId_ = 0;
         initialized_ = false;
