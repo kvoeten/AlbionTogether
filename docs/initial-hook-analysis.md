@@ -98,7 +98,7 @@ is often the useful signature anchor.
 | Hero morphs | `CHeroMorphDef`; `Strength`, `Skill`, `Morality`, `Fatness`, `Teenager`, and `HairModifierNames` metadata near `0x02EF7888`-`0x02EF7D30` | Stable evidence for semantic stat/body/hair synchronization; the exact old-age channel still needs a live trace. |
 | Animation/action | `.PlayAnimation` ref at `0x01760E1C` | Script/native dispatch anchor for semantic action playback. |
 | Door state | `SetDoorOpen` push at `0x01768FBF` | Dispatch anchor for authoritative open/closed state. |
-| Combat health | `.ModifyHealth` push at `0x01761CBF`; interface target `0x01C8DE50`; `CThingPlayerCreature` vtable slot `+0x100` target `0x01F5A520` | Confirmed normal health-mutation path. The player creature stores maximum HP at `+0xCC` and current HP at `+0xD0`. |
+| Combat health | `.ModifyHealth` push at `0x01761CBF`; interface target `0x01C8DE50`; `CThingPlayerCreature` vtable slot `+0x100` target `0x01F5A520`; shared `CThingCreature::ModifyCombatHealth` target `0x01F59CB0` | Confirmed common player/NPC health-mutation path. All creatures store maximum HP at `+0xCC` and current HP at `+0xD0`; the player override only rounds its delta before delegating to the shared function. |
 | Damage policy | `.SetDamageable` push at `0x0176099F` | Dispatch anchor for proxy/authority damage rules. |
 | Hero progression "Health" | `GiveHeroHealth` push at `0x01766459`; target `0x01C9DA40` | Component type 4 progression value at `+0x30`, with maximum from `0x01DCC6DA`. This is not combat HP. |
 | ScriptThing transform | position helper `0x0175B93F`; facing helper `0x0175B994` | Live read-only transform seam confirmed against the loaded Hero. |
@@ -124,7 +124,13 @@ objects before selecting permanent hooks.
 The active Hero resolves to RTTI type `CThingPlayerCreature` with preferred
 vtable `0x02F1DBB4` (RVA `0x02B1DBB4`). Its combat-health fraction helper at
 `0x01F58C80` returns `current(+0xD0) / maximum(+0xCC)`, and the maximum setter at
-`0x01F58E10` updates `+0xCC` then clamps `+0xD0`. Automated run
+`0x01F58E10` updates `+0xCC` then clamps `+0xD0`. The multiplayer observer is
+installed on the common creature mutation at preferred `0x01F59CB0` (RVA
+`0x01B59CB0`) so Hero, guard, and NPC damage follows the same path. The
+multiplayer vitals channel publishes reliable absolute current/maximum values
+at that mutation boundary: each player authors their own Hero, while the
+current entity publisher authors guards and NPCs; the host validates and
+revisions both. Automated run
 `20260807-193935-836-24140` used the normal vtable `+0x100` mutation path to
 change HP from 20 to 17 and the script `TeleportThing` path to apply a distinct
 server spawn, then verified both for three ticks.
@@ -493,12 +499,13 @@ The recovered native ownership chain is:
 - the existing `SetBound`/`SetFree` script APIs manipulate component type
   `0x31`, not `CTCScriptedControl`, so they are not used as an AI toggle.
 
-The client installs one validated `CAIBrain` vtable hook. It calls the original
-for every ordinary creature and returns early only when the exact brain pointer
-appears in the bounded appearance-puppet registry. Entries remain registered
-while proxies are hidden in the reuse cache. This preserves the native physics
-navigator, animation, body, and scripted-action surface while removing
-autonomous target selection and attack submission.
+The earlier appearance-proxy experiment installed one validated `CAIBrain`
+vtable hook and returned early only for exact proxy brain pointers retained in
+a bounded registry. The multiplayer implementation now resolves the exact
+owning Thing from `CAIBrain +0x20` and applies the current map/action publisher
+lease instead. It also freezes active-action updates and rejects new action
+submissions on non-owners, preserving the native physics, animation, body, and
+replay surface without allowing independent target selection or damage.
 
 Automated run `20260808-105155-995-46800` observed and suppressed 58 guard, 45
 villager, 41 hobbe, and 45 reused-guard updates. The hidden cached guard accrued
@@ -577,6 +584,28 @@ Automation run `20260811-143557-839-33304` observed command `0x16`, ability ID
 and clean shutdown. This proves the native submission handoff; damage
 attribution, weapon equipment, live-target hit results, and the other combat
 actions remain separate acceptance gates.
+
+## Durable NPC village membership recovered on 2026-08-15
+
+`CTCVillageMember` is component `0x23`. Its serialized `VillageUID` is stored at
+`+0x18/+0x1C`; its cached intelligent pointer at `+0x10` resolves the Village
+Thing and component `0x22`. The retail idle scheduler component `0xD3` resets
+when an AI brain is created, so its queues are transient high-sim state rather
+than a durable off-map schedule cursor.
+
+The multiplayer lifecycle now carries one optional `VillageUID` per canonical
+NPC. Existing host records cannot be overwritten by a successor map owner's
+stale local save. Before high-sim is unfrozen, the materializer calls the
+validated retail setter at preferred `0x01F11730`, writes the authoritative UID,
+then invokes the reconciliation method at `0x01F11C80`. This rebinds the cached
+Village Thing and updates the village's native member collections without
+replicating unbounded AI history.
+
+The same setter is now intercepted for runtime changes. Save hydration is
+ignored until the Thing is live; an explicit change from the current map owner
+is submitted as a generation/epoch-fenced lifecycle mutation. The host updates
+its one current record and broadcasts a normal authoritative upsert, while
+authoritative local application suppresses hook echo.
 
 ## First practical milestones
 

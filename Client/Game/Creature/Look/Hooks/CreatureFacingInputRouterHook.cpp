@@ -338,6 +338,14 @@ namespace fable::game::creature::look
         return positioned && facingApplied;
     }
 
+    void CreatureFacingInputRouterHook::SetFrameObserver(
+        FrameObserver observer,
+        void* context) noexcept
+    {
+        frameObserverContext_.store(context, std::memory_order_release);
+        frameObserver_.store(observer, std::memory_order_release);
+    }
+
     bool CreatureFacingInputRouterHook::IsInstalled() const noexcept
     {
         return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
@@ -504,6 +512,15 @@ namespace fable::game::creature::look
         }
 
         const bool result = router->original_(creature);
+        const FrameObserver observer = router->frameObserver_.load(
+            std::memory_order_acquire);
+        if (observer != nullptr)
+        {
+            observer(
+                router->frameObserverContext_.load(
+                    std::memory_order_acquire),
+                creature);
+        }
         void* const navigator = activeBinding.navigator;
         if (navigator == nullptr)
         {

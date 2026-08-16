@@ -25,6 +25,7 @@ namespace fable::automation::local_instance
     public:
         void Initialize(
             bool enabled,
+            bool returnToSource,
             game::EntityService& entities,
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             const core::Diagnostics& diagnostics) noexcept;
@@ -37,8 +38,11 @@ namespace fable::automation::local_instance
             nullptr;
         core::Diagnostics diagnostics_ = {};
         std::string sourceMap_;
-        std::uint64_t startedAt_ = 0;
+        std::string destinationMap_;
+        std::uint64_t phaseStartedAt_ = 0;
         unsigned int requestCount_ = 0;
+        unsigned int outboundRequestCount_ = 0;
+        bool returnToSource_ = false;
         bool enabled_ = false;
         bool completed_ = false;
     };

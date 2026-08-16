@@ -32,6 +32,16 @@ namespace fable::automation::local_instance
     class MapTransitionAcceptanceDriver;
 }
 
+namespace fable::automation::multiplayer::combat
+{
+    class CombatTargetAcceptanceDriver;
+}
+
+namespace fable::automation::multiplayer::transition
+{
+    class NpcTransferAcceptanceDriver;
+}
+
 namespace fable::multiplayer
 {
     class MultiplayerSession;
@@ -47,6 +57,11 @@ namespace fable::game::creature::combat
     class CreatureCombatService;
 }
 
+namespace fable::game::creature::animation
+{
+    class CreatureAnimationService;
+}
+
 namespace fable::game::creature::look
 {
     class CreatureLookService;
@@ -55,6 +70,47 @@ namespace fable::game::creature::look
 namespace fable::game::player::input
 {
     class PlayerInputService;
+}
+
+namespace fable::game::creature::actions
+{
+    class CreatureActionLifecycleObserver;
+}
+
+namespace fable::game::creature::ai
+{
+    class AiBrainUpdateObserver;
+}
+
+namespace fable::game::entity::presence
+{
+    class ThingPresenceObserver;
+}
+
+namespace fable::game::entity::persistence
+{
+    class SavedEntityMapBlobObserver;
+    class ThingSaveProjectionHook;
+}
+
+namespace fable::game::npc::population
+{
+    class PopulationSimulationHook;
+}
+
+namespace fable::game::npc::village
+{
+    class VillageMembershipService;
+}
+
+namespace fable::game::npc::simulation
+{
+    class DummyVillagerService;
+}
+
+namespace fable::game::world::travel
+{
+    class WorldTravelObserver;
 }
 
 namespace fable::core
@@ -88,6 +144,20 @@ namespace fable::scripting
             const wchar_t* persistentStorageRoot,
             const automation::runtime::RuntimeConfiguration& runtimeConfiguration,
             const core::Diagnostics& diagnostics);
+        bool AttachThingPresenceObserver(
+            game::entity::presence::ThingPresenceObserver& observer);
+        bool AttachSavedEntityMapBlobObserver(
+            game::entity::persistence::SavedEntityMapBlobObserver& observer);
+        bool AttachThingSaveProjectionHook(
+            game::entity::persistence::ThingSaveProjectionHook& hook);
+        bool AttachPopulationSimulationHook(
+            game::npc::population::PopulationSimulationHook& hook);
+        bool AttachCreatureActionObserver(
+            game::creature::actions::CreatureActionLifecycleObserver& observer);
+        bool AttachAiBrainUpdateObserver(
+            game::creature::ai::AiBrainUpdateObserver& observer);
+        bool AttachWorldTravelObserver(
+            game::world::travel::WorldTravelObserver& observer);
         void DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed);
         void DispatchWorldReady();
         bool ProcessMultiplayerPresentation();
@@ -119,11 +189,17 @@ namespace fable::scripting
             creatureLookService_;
         std::unique_ptr<game::creature::combat::CreatureCombatService>
             creatureCombatService_;
+        std::unique_ptr<game::creature::animation::CreatureAnimationService>
+            creatureAnimationService_;
         std::unique_ptr<game::PlayerService> playerService_;
         std::unique_ptr<game::player::input::PlayerInputService>
             playerInputService_;
         std::unique_ptr<game::QuestService> questService_;
         std::unique_ptr<game::NpcService> npcService_;
+        std::unique_ptr<game::npc::village::VillageMembershipService>
+            villageMembershipService_;
+        std::unique_ptr<game::npc::simulation::DummyVillagerService>
+            dummyVillagerService_;
         std::unique_ptr<game::HeroPawnService> heroPawnService_;
         std::unique_ptr<game::WorldService> worldService_;
         std::unique_ptr<ui::HudService> hudService_;
@@ -133,6 +209,10 @@ namespace fable::scripting
         std::unique_ptr<Scheduler> scheduler_;
         std::unique_ptr<automation::local_instance::
             MapTransitionAcceptanceDriver> transitionAcceptanceDriver_;
+        std::unique_ptr<automation::multiplayer::combat::
+            CombatTargetAcceptanceDriver> combatTargetAcceptanceDriver_;
+        std::unique_ptr<automation::multiplayer::transition::
+            NpcTransferAcceptanceDriver> npcTransferAcceptanceDriver_;
         std::unique_ptr<multiplayer::MultiplayerSession> multiplayerSession_;
         std::filesystem::path scriptsRoot_;
         core::Diagnostics diagnostics_ = {};

@@ -13,6 +13,7 @@ namespace fable::game::entity::native
         Targeting = 0x08,
         InventoryClothing = 0x12,
         ScriptedControl = 0x1F,
+        VillageMember = 0x23,
         CreatureModeManager = 0x31,
         Look = 0x43,
         AnimationComplex = 0x5A,
@@ -22,6 +23,10 @@ namespace fable::game::entity::native
         // store to replace HERO-tagged definition/weight entries before
         // submitting the compiled skeletal resource to the actor graphic.
         SkeletalMorphDefinition = 0x78,
+        // CTCDummyVillager is the retail bounded low-simulation record for a
+        // persistent villager. It carries home/work/creature UIDs, the next
+        // recreation day/frame, and respawnable/guard flags in saved maps.
+        DummyVillager = 0xD6,
     };
 
     struct ThingComponentEntry final

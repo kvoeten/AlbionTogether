@@ -28,6 +28,11 @@ namespace fable::game::creature::look
     class CreatureLookService;
 }
 
+namespace fable::game::creature::combat
+{
+    class CreatureCombatService;
+}
+
 namespace fable::multiplayer::presentation
 {
     // Dynamically owns one native presentation per live remote actor ID. The
@@ -40,6 +45,7 @@ namespace fable::multiplayer::presentation
             game::NpcService& npcs,
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
+            game::creature::combat::CreatureCombatService& combat,
             const core::Diagnostics& diagnostics,
             std::uint64_t localActorId);
         void Reconcile(
@@ -50,6 +56,11 @@ namespace fable::multiplayer::presentation
         void BeginWorldTransition() noexcept;
         void CompleteWorldTransition() noexcept;
         void DriveMovement();
+        bool ApplyHealth(
+            std::uint64_t actorId,
+            float currentHealth,
+            float maximumHealth,
+            std::uint32_t revision);
         void Shutdown() noexcept;
         [[nodiscard]] std::size_t Size() const noexcept;
         [[nodiscard]] std::size_t ActiveCount() const;
@@ -62,6 +73,7 @@ namespace fable::multiplayer::presentation
         game::creature::locomotion::CreatureLocomotionService* locomotion_ =
             nullptr;
         game::creature::look::CreatureLookService* look_ = nullptr;
+        game::creature::combat::CreatureCombatService* combat_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         game::hero_pawn::appearance::hooks::RemoteHeroPresentationFactoryHook
             presentationFactory_;

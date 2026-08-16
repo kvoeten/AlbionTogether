@@ -88,6 +88,7 @@ namespace fable::multiplayer::replication
         if ((changed & player_property::Map) != 0)
         {
             state.mapName = update.mapName;
+            state.mapId = update.mapId;
         }
         if ((changed & player_property::Appearance) != 0)
         {

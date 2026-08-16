@@ -41,6 +41,10 @@ namespace fable::multiplayer::movement
             void* nativeActor,
             const ReplicatedMovementSample& sample,
             const std::string& localMap);
+        void BindNative(
+            void* nativeActor,
+            const ReplicatedMovementSample& sample,
+            const std::string& localMap);
         void Update(
             const ReplicatedMovementSample& sample,
             const std::string& localMap);

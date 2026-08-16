@@ -13,6 +13,10 @@ namespace fable::game::native
         inline constexpr std::uintptr_t GameScriptInterfaceVtable = 0x02AE35C4;
         inline constexpr std::uintptr_t CharStringConstructor = 0x012B7800;
         inline constexpr std::uintptr_t CharStringDestructor = 0x012B75D0;
+        inline constexpr std::uintptr_t DefinitionNameByIndex = 0x012CB160;
+        inline constexpr std::uintptr_t DefinitionNameToCharString =
+            0x012CABB0;
+        inline constexpr std::uintptr_t ThingManagerSlot = 0x0322F1B0;
         inline constexpr std::uintptr_t GetHero = 0x01889940;
         inline constexpr std::uintptr_t GetThingWithScriptName = 0x0189DF10;
         inline constexpr std::uintptr_t CreateCreature = 0x018AF800;
@@ -25,6 +29,7 @@ namespace fable::game::native
         inline constexpr std::uintptr_t TeleportThing = 0x0189EE20;
         inline constexpr std::uintptr_t SetAttackImmediately = 0x018AF5F0;
         inline constexpr std::uintptr_t AddScreenMessage = 0x018916A0;
+        inline constexpr std::uintptr_t SetNoDialogCamera = 0x0188ADF0;
         inline constexpr std::uintptr_t IsQuestActive = 0x01891E50;
         inline constexpr std::uintptr_t IsQuestRegistered = 0x01891E60;
         inline constexpr std::uintptr_t IsQuestCompleted = 0x01891E70;
@@ -39,6 +44,7 @@ namespace fable::game::native
         inline constexpr std::uintptr_t ScriptThingGetFacing = 0x0135B994;
         inline constexpr std::uintptr_t ScriptThingGetCurrentMapName = 0x0135C30F;
         inline constexpr std::uintptr_t ScriptThingGetHomeMapName = 0x0135C33C;
+        inline constexpr std::uintptr_t ScriptThingGetUid = 0x0135C369;
         inline constexpr std::uintptr_t ScriptThingIsNull = 0x0135B9E0;
         inline constexpr std::uintptr_t ScriptThingIsSneaking = 0x0135C398;
         inline constexpr std::uintptr_t ScriptThingIsAwareOfHero = 0x0135C3A7;
@@ -75,6 +81,7 @@ namespace fable::game::native
         inline constexpr std::size_t TeleportThing = 0x7B0 / sizeof(void*);
         inline constexpr std::size_t SetAttackImmediately = 479;
         inline constexpr std::size_t AddScreenMessage = 118;
+        inline constexpr std::size_t SetNoDialogCamera = 0x614 / sizeof(void*);
         inline constexpr std::size_t IsQuestActive = 299;
         inline constexpr std::size_t IsQuestRegistered = 300;
         inline constexpr std::size_t IsQuestCompleted = 301;
@@ -93,6 +100,7 @@ namespace fable::game::native
         inline constexpr std::size_t GetHomeMapName = 9;
         inline constexpr std::size_t GetFacing = 10;
         inline constexpr std::size_t ResolveNative = 11;
+        inline constexpr std::size_t GetUid = 12;
         inline constexpr std::size_t IsSneaking = 15;
         inline constexpr std::size_t IsAwareOfHero = 16;
         inline constexpr std::size_t IsUnconscious = 61;

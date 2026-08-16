@@ -57,13 +57,37 @@ namespace fable::multiplayer::movement
         }
     }
 
+    void ReplicatedActorMovement::BindNative(
+        void* nativeActor,
+        const ReplicatedMovementSample& sample,
+        const std::string& localMap)
+    {
+        Detach();
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        nativeActor_ = nativeActor;
+        samples_[0] = sample;
+        sampleCount_ = 1;
+        localMap_ = localMap;
+        lastPresentationPosition_ = sample.position;
+        presentationVelocity_ = {};
+        lastPresentationFacing_ = sample.facing;
+        presentationAngularVelocity_ = 0.0f;
+        lastPresentationAt_ = 0;
+        presentationMotionReady_ = false;
+        locomotionStartPosition_ = sample.position;
+        locomotionStartAnimationHash_ = 0;
+        lastObservationAt_ = 0;
+        movementCommanded_ = false;
+        walkingReported_ = false;
+    }
+
     void ReplicatedActorMovement::Update(
         const ReplicatedMovementSample& sample,
         const std::string& localMap)
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         localMap_ = localMap;
-        if (actor_ == nullptr || sample.actorId == 0 ||
+        if (nativeActor_ == nullptr || sample.actorId == 0 ||
             sample.mapName.empty())
         {
             return;
@@ -135,7 +159,7 @@ namespace fable::multiplayer::movement
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
             if (nativeActor == nullptr || nativeActor != nativeActor_ ||
-                actor_ == nullptr || sampleCount_ == 0 ||
+                sampleCount_ == 0 ||
                 samples_[sampleCount_ - 1].mapName.empty() ||
                 samples_[sampleCount_ - 1].mapName != localMap_ ||
                 !Evaluate(now, sample))
@@ -149,7 +173,23 @@ namespace fable::multiplayer::movement
                     sample.velocity,
                     sample.angularVelocity);
             actor = actor_;
-            actor->AddRef();
+            if (actor != nullptr)
+            {
+                actor->AddRef();
+            }
+        }
+        input.actorId = sample.actorId;
+        input.position = sample.position;
+        input.velocity = sample.velocity;
+        input.facing = sample.facing;
+        input.angularVelocity = sample.angularVelocity;
+        input.moving = sample.moving;
+        input.sampleAgeSeconds = sample.receivedAt == 0 || now <= sample.receivedAt
+            ? 0.0f
+            : static_cast<float>(now - sample.receivedAt) / 1000.0f;
+        if (actor == nullptr)
+        {
+            return true;
         }
         if (!actor->IsValid())
         {
@@ -186,15 +226,6 @@ namespace fable::multiplayer::movement
                 "remote creature frame consumed an owner-authored movement property");
         }
 
-        input.actorId = sample.actorId;
-        input.position = sample.position;
-        input.velocity = sample.velocity;
-        input.facing = sample.facing;
-        input.angularVelocity = sample.angularVelocity;
-        input.moving = sample.moving;
-        input.sampleAgeSeconds = sample.receivedAt == 0 || now <= sample.receivedAt
-            ? 0.0f
-            : static_cast<float>(now - sample.receivedAt) / 1000.0f;
         ObserveLocomotion(*actor, now);
         actor->Release();
         return true;

@@ -13,7 +13,10 @@ namespace fable::game::creature::ai
     class AiBrainUpdateObserver final
     {
     public:
+        using ExecutionSink = bool(*)(void* context, void* ownerThing);
+
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void SetExecutionSink(ExecutionSink sink, void* context) noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] unsigned int ObservedBrainCount() const noexcept;
@@ -23,7 +26,13 @@ namespace fable::game::creature::ai
 
         static void __fastcall Observe(void* brain, void* unused);
         bool TrackFirstUpdate(void* brain, unsigned int& ordinal) noexcept;
-        void Report(void* brain, unsigned int ordinal) const;
+        static void* ResolveOwnerThing(void* brain) noexcept;
+        bool ShouldExecute(void* ownerThing) const noexcept;
+        void Report(
+            void* brain,
+            void* ownerThing,
+            unsigned int ordinal,
+            bool executed) const;
 
         static AiBrainUpdateObserver* active_;
 
@@ -32,5 +41,7 @@ namespace fable::game::creature::ai
         void** vtableSlot_ = nullptr;
         std::array<std::atomic<void*>, TrackedBrainLimit> trackedBrains_ = {};
         std::atomic_uint observedBrainCount_{0};
+        std::atomic<ExecutionSink> executionSink_{nullptr};
+        std::atomic<void*> executionSinkContext_{nullptr};
     };
 }

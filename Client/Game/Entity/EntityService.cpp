@@ -29,6 +29,7 @@ namespace
     using ScriptThingSetter = void(__thiscall*)(const ScriptThing*, bool);
     using ScriptThingVoid = void(__thiscall*)(const ScriptThing*);
     using ScriptThingInteger = int(__thiscall*)(const ScriptThing*);
+    using ScriptThingUid = std::uint64_t(__thiscall*)(const ScriptThing*);
     using ScriptThingGetBorrowedString = const CharString* (__thiscall*)(const ScriptThing*);
     using ScriptThingGetOwnedString = CharString* (__thiscall*)(const ScriptThing*, CharString*);
     using ScriptThingSetString = void(__thiscall*)(const ScriptThing*, const CharString*);
@@ -48,6 +49,19 @@ namespace
         int);
     using ControlDeleteFunction = void(__cdecl*)(void*);
     using GameHeapFreeFunction = void(__cdecl*)(void*);
+    struct DefinitionNameReference final
+    {
+        void* value = nullptr;
+    };
+    using DefinitionNameByIndexFunction = DefinitionNameReference*
+        (__thiscall*)(
+            void* definitionManager,
+            DefinitionNameReference* result,
+            unsigned int definitionIndex);
+    using DefinitionNameToCharStringFunction = CharString*
+        (__thiscall*)(
+            const DefinitionNameReference* definitionName,
+            CharString* result);
 
     bool CopyCharString(const CharString& source, std::string& destination)
     {
@@ -96,6 +110,7 @@ namespace fable::game
         metadataApiValidated_ = false;
         interactionApiValidated_ = false;
         lifecycleApiValidated_ = false;
+        definitionLookupApiValidated_ = false;
         if (gameModule_ == nullptr)
         {
             diagnostics_.Log("Entity API: game module is unavailable.");
@@ -127,7 +142,8 @@ namespace fable::game
                 expectedScriptThingVtable[native::script_thing_slot::GetDataString] == reinterpret_cast<void*>(base + native::rva::ScriptThingGetDataString) &&
                 expectedScriptThingVtable[native::script_thing_slot::SetDataString] == reinterpret_cast<void*>(base + native::rva::ScriptThingSetDataString) &&
                 expectedScriptThingVtable[native::script_thing_slot::GetCurrentMapName] == reinterpret_cast<void*>(base + native::rva::ScriptThingGetCurrentMapName) &&
-                expectedScriptThingVtable[native::script_thing_slot::GetHomeMapName] == reinterpret_cast<void*>(base + native::rva::ScriptThingGetHomeMapName);
+                expectedScriptThingVtable[native::script_thing_slot::GetHomeMapName] == reinterpret_cast<void*>(base + native::rva::ScriptThingGetHomeMapName) &&
+                expectedScriptThingVtable[native::script_thing_slot::GetUid] == reinterpret_cast<void*>(base + native::rva::ScriptThingGetUid);
             interactionApiValidated_ = staticApiValidated_ &&
                 expectedScriptThingVtable[native::script_thing_slot::IsSneaking] == reinterpret_cast<void*>(base + native::rva::ScriptThingIsSneaking) &&
                 expectedScriptThingVtable[native::script_thing_slot::IsAwareOfHero] == reinterpret_cast<void*>(base + native::rva::ScriptThingIsAwareOfHero) &&
@@ -152,6 +168,22 @@ namespace fable::game
                         base + native::rva::ThingRequestDestroy),
                     expectedRequestDestroy,
                     sizeof(expectedRequestDestroy)) == 0;
+            constexpr unsigned char expectedDefinitionLookup[] = {
+                0x8B, 0x81, 0xBC, 0x00, 0x00, 0x00,
+                0x8B, 0x4C, 0x24, 0x08};
+            constexpr unsigned char expectedDefinitionCopy[] = {
+                0x51, 0x56, 0x8B, 0x74, 0x24, 0x0C};
+            definitionLookupApiValidated_ =
+                std::memcmp(
+                    reinterpret_cast<const void*>(
+                        base + native::rva::DefinitionNameByIndex),
+                    expectedDefinitionLookup,
+                    sizeof(expectedDefinitionLookup)) == 0 &&
+                std::memcmp(
+                    reinterpret_cast<const void*>(
+                        base + native::rva::DefinitionNameToCharString),
+                    expectedDefinitionCopy,
+                    sizeof(expectedDefinitionCopy)) == 0;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -159,6 +191,7 @@ namespace fable::game
             metadataApiValidated_ = false;
             interactionApiValidated_ = false;
             lifecycleApiValidated_ = false;
+            definitionLookupApiValidated_ = false;
         }
 
         diagnostics_.Log(staticApiValidated_
@@ -173,6 +206,9 @@ namespace fable::game
         diagnostics_.Log(lifecycleApiValidated_
             ? "Entity API: native CThing lifecycle ABI validated."
             : "Entity API: native CThing lifecycle ABI unavailable.");
+        diagnostics_.Log(definitionLookupApiValidated_
+            ? "Entity API: definition-index name lookup ABI validated."
+            : "Entity API: definition-index name lookup ABI unavailable.");
         return staticApiValidated_;
     }
 
@@ -434,6 +470,91 @@ namespace fable::game
         return value;
     }
 
+    bool EntityService::ResolveDefinitionName(
+        std::uint16_t definitionIndex,
+        std::string& definitionName) const
+    {
+        definitionName.clear();
+        if (!definitionLookupApiValidated_ || gameModule_ == nullptr ||
+            definitionIndex == 0)
+        {
+            return false;
+        }
+
+        const auto base = reinterpret_cast<std::uintptr_t>(gameModule_);
+        const auto lookup = reinterpret_cast<DefinitionNameByIndexFunction>(
+            base + native::rva::DefinitionNameByIndex);
+        const auto copy =
+            reinterpret_cast<DefinitionNameToCharStringFunction>(
+                base + native::rva::DefinitionNameToCharString);
+        const auto destroy = reinterpret_cast<CharStringDestructor>(
+            base + native::rva::CharStringDestructor);
+
+        CharString name;
+        DefinitionNameReference reference;
+        bool constructed = false;
+        bool valid = false;
+        __try
+        {
+            void* const thingManager = *reinterpret_cast<void* const*>(
+                base + native::rva::ThingManagerSlot);
+            void* const definitionManager = thingManager != nullptr
+                ? *reinterpret_cast<void* const*>(
+                    static_cast<const std::uint8_t*>(thingManager) + 0x2C)
+                : nullptr;
+            if (definitionManager != nullptr &&
+                lookup(definitionManager, &reference, definitionIndex) ==
+                    &reference &&
+                reference.value != nullptr &&
+                copy(&reference, &name) == &name)
+            {
+                constructed = true;
+                valid = CopyCharString(name, definitionName) &&
+                    !definitionName.empty();
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            valid = false;
+        }
+        if (constructed)
+        {
+            __try
+            {
+                destroy(&name);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                valid = false;
+            }
+        }
+        if (!valid)
+        {
+            definitionName.clear();
+        }
+        return valid;
+    }
+
+    std::uint64_t EntityService::GetUid(const native::ScriptThing& handle) const
+    {
+        if (!metadataApiValidated_ || !IsValid(handle))
+        {
+            return 0;
+        }
+        std::uint64_t uid = 0;
+        __try
+        {
+            const auto getter = reinterpret_cast<ScriptThingUid>(
+                handle.vtable[native::script_thing_slot::GetUid]);
+            uid = getter(&handle);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            uid = 0;
+        }
+        return uid;
+    }
+
     bool EntityService::SetDataString(const native::ScriptThing& handle, const std::string& value)
     {
         if (!metadataApiValidated_ || !IsValid(handle))
@@ -642,7 +763,14 @@ namespace fable::game
             return false;
         }
         void* const nativeThing = ResolveNative(handle);
-        if (nativeThing == nullptr)
+        return RequestDestroyNative(nativeThing, immediate);
+    }
+
+    bool EntityService::RequestDestroyNative(
+        void* nativeThing,
+        bool immediate)
+    {
+        if (!lifecycleApiValidated_ || nativeThing == nullptr)
         {
             return false;
         }

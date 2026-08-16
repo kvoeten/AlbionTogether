@@ -9,12 +9,18 @@
 #include "Core/Diagnostics/DiagnosticLog.h"
 #include "Core/GameThread/Hooks/GameThreadIdleHook.h"
 #include "Game/Creature/AI/Hooks/AiBrainUpdateObserver.h"
+#include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Hooks/CreatureConstructorHook.h"
 #include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
 #include "Game/Creature/Locomotion/Hooks/FollowCreatureActionHook.h"
 #include "Game/Creature/Locomotion/Hooks/PhysicsNavigatorObserver.h"
 #include "Game/Definitions/Hooks/CompiledDefinitionsRedirectHook.h"
+#include "Game/Entity/Presence/Hooks/ThingPresenceObserver.h"
+#include "Game/Entity/Persistence/Hooks/SavedEntityMapBlobObserver.h"
+#include "Game/Entity/Persistence/Hooks/ThingSaveProjectionHook.h"
 #include "Game/HeroPawn/TransformProbe/Hooks/HeroTransformCompatibilityHooks.h"
+#include "Game/NPC/Population/Hooks/PopulationSimulationHook.h"
+#include "Game/World/Travel/Hooks/WorldTravelObserver.h"
 #include "Scripting/Runtime/Host/ScriptHost.h"
 #include "UI/FrontEnd/Hooks/FrontEndLifecycleHooks.h"
 #include "UI/FrontEnd/Hooks/FrontEndStartInitializerHook.h"
@@ -211,6 +217,17 @@ namespace
         g_foregroundWindowHook;
     fable::core::game_thread::GameThreadIdleHook g_gameThreadIdleHook;
     fable::game::creature::ai::AiBrainUpdateObserver g_aiBrainUpdateObserver;
+    fable::game::creature::actions::CreatureActionLifecycleObserver
+        g_creatureActionLifecycleObserver;
+    fable::game::entity::presence::ThingPresenceObserver
+        g_thingPresenceObserver;
+    fable::game::entity::persistence::SavedEntityMapBlobObserver
+        g_savedEntityMapBlobObserver;
+    fable::game::entity::persistence::ThingSaveProjectionHook
+        g_thingSaveProjectionHook;
+    fable::game::npc::population::PopulationSimulationHook
+        g_populationSimulationHook;
+    fable::game::world::travel::WorldTravelObserver g_worldTravelObserver;
     fable::game::creature::CreatureConstructorHook g_creatureConstructorHook;
     fable::game::creature::locomotion::CreatureModeManagerObserver
         g_creatureModeManagerObserver;
@@ -531,6 +548,7 @@ namespace
 
     LONG CALLBACK ObserveProcessException(EXCEPTION_POINTERS* exceptionPointers)
     {
+        constexpr unsigned int MaximumLoggedProcessExceptions = 8;
         if (exceptionPointers == nullptr || exceptionPointers->ExceptionRecord == nullptr)
         {
             return EXCEPTION_CONTINUE_SEARCH;
@@ -556,7 +574,7 @@ namespace
 
         const unsigned int observation =
             g_lowAddressAccessViolationsLogged.fetch_add(1, std::memory_order_relaxed) + 1;
-        if (observation > 8)
+        if (observation > MaximumLoggedProcessExceptions)
         {
             return EXCEPTION_CONTINUE_SEARCH;
         }
@@ -3135,12 +3153,137 @@ namespace
             return 12;
         }
 
-        if (appearanceScriptEnabled &&
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_creatureActionLifecycleObserver.Install(
+                g_gameModule,
+                scriptDiagnostics))
+        {
+            Log("Creature action lifecycle observation disabled because the native action hooks failed.");
+            LogEvent("ClientFailed", "creature-action-lifecycle-hook-installation");
+            return 19;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_thingPresenceObserver.Install(
+                g_gameModule,
+                scriptDiagnostics))
+        {
+            Log("Thing presence observation disabled because the native CTCMapwho hooks failed.");
+            LogEvent("ClientFailed", "thing-presence-hook-installation");
+            return 20;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachThingPresenceObserver(
+                g_thingPresenceObserver))
+        {
+            Log("Multiplayer disabled because the Thing presence observer could not attach to the entity registry.");
+            LogEvent("ClientFailed", "thing-presence-observer-attachment");
+            return 21;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_savedEntityMapBlobObserver.Install(
+                g_gameModule,
+                scriptDiagnostics))
+        {
+            Log("Host dormant entity observation disabled because the native CSavedEntities load hook failed.");
+            LogEvent("ClientFailed", "saved-entity-map-blob-hook-installation");
+            return 27;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachSavedEntityMapBlobObserver(
+                g_savedEntityMapBlobObserver))
+        {
+            Log("Multiplayer disabled because the host saved-map baseline observer could not attach.");
+            LogEvent(
+                "ClientFailed",
+                "saved-entity-map-blob-hook-attachment");
+            return 28;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_worldTravelObserver.Install(
+                g_gameModule,
+                scriptDiagnostics))
+        {
+            Log("Destination preparation disabled because the region-exit travel hooks failed.");
+            LogEvent("ClientFailed", "world-travel-hook-installation");
+            return 29;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachWorldTravelObserver(g_worldTravelObserver))
+        {
+            Log("Multiplayer disabled because native destination travel could not attach to host authority.");
+            LogEvent("ClientFailed", "world-travel-hook-attachment");
+            return 30;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_thingSaveProjectionHook.Install(
+                g_gameModule,
+                scriptDiagnostics))
+        {
+            Log("Host world-save projection disabled because the native CThing save hook failed.");
+            LogEvent("ClientFailed", "thing-save-projection-hook-installation");
+            return 23;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachThingSaveProjectionHook(
+                g_thingSaveProjectionHook))
+        {
+            Log("Multiplayer disabled because host world state could not attach to the CThing save path.");
+            LogEvent("ClientFailed", "thing-save-projection-hook-attachment");
+            return 24;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_populationSimulationHook.Install(
+                g_gameModule,
+                scriptDiagnostics))
+        {
+            Log("NPC population authority disabled because the native simulation hooks failed.");
+            LogEvent("ClientFailed", "population-simulation-hook-installation");
+            return 25;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachPopulationSimulationHook(
+                g_populationSimulationHook))
+        {
+            Log("Multiplayer disabled because NPC population simulation could not attach to map authority.");
+            LogEvent("ClientFailed", "population-simulation-hook-attachment");
+            return 26;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachCreatureActionObserver(
+                g_creatureActionLifecycleObserver))
+        {
+            Log("Multiplayer disabled because the creature action observer could not attach to semantic action replication.");
+            LogEvent("ClientFailed", "creature-action-observer-attachment");
+            return 22;
+        }
+
+        if ((appearanceScriptEnabled ||
+                g_runtimeConfiguration.MultiplayerEnabled()) &&
             !g_aiBrainUpdateObserver.Install(g_gameModule, scriptDiagnostics))
         {
             Log("Creature AI observation disabled because the CAIBrain update hook failed.");
             LogEvent("ClientFailed", "ai-brain-update-observer-installation");
             return 15;
+        }
+
+        if (g_runtimeConfiguration.MultiplayerEnabled() &&
+            !g_scriptHost.AttachAiBrainUpdateObserver(
+                g_aiBrainUpdateObserver))
+        {
+            Log("Multiplayer disabled because native NPC decisions could not attach to entity authority.");
+            LogEvent("ClientFailed", "ai-brain-authority-attachment");
+            return 27;
         }
 
         if (appearanceScriptEnabled &&

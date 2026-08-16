@@ -4,6 +4,7 @@
 #include "../Native/ScriptTypes.h"
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace fable::game
@@ -43,6 +44,7 @@ namespace fable::game
         [[nodiscard]] std::string GetDataString() const;
         [[nodiscard]] std::string GetCurrentMapName() const;
         [[nodiscard]] std::string GetHomeMapName() const;
+        [[nodiscard]] std::uint64_t GetUid() const;
         [[nodiscard]] bool GetActivationTriggerStatus() const;
         [[nodiscard]] int GetScriptCounter() const;
         [[nodiscard]] Vector3 GetPosition() const;

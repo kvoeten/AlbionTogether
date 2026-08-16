@@ -60,6 +60,7 @@ namespace fable::scripting::bindings
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "string get_DataString() const", asMETHOD(game::Entity, GetDataString), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "string get_CurrentMapName() const", asMETHOD(game::Entity, GetCurrentMapName), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "string get_HomeMapName() const", asMETHOD(game::Entity, GetHomeMapName), asCALL_THISCALL) : result;
+        result = result >= 0 ? engine.RegisterObjectMethod("Entity", "uint64 get_Uid() const", asMETHOD(game::Entity, GetUid), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "bool get_ActivationTriggerActive() const", asMETHOD(game::Entity, GetActivationTriggerStatus), asCALL_THISCALL) : result;
         result = result >= 0 ? engine.RegisterObjectMethod("Entity", "int get_ScriptCounter() const", asMETHOD(game::Entity, GetScriptCounter), asCALL_THISCALL) : result;
         result = result >= 0

@@ -39,6 +39,27 @@ namespace fable::game::creature::look
         return provider != nullptr && Route(target, provider, context);
     }
 
+    bool CreatureLookService::RouteReplicatedNativeMovement(
+        void* nativeTarget,
+        ReplicatedMovementProvider provider,
+        void* context)
+    {
+        if (provider == nullptr || nativeTarget == nullptr ||
+            !::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(gameModule_, nativeTarget))
+        {
+            return false;
+        }
+        void* const navigator = entity::native::ThingComponentAccess::Find(
+            nativeTarget,
+            entity::native::ThingComponentType::PhysicsNavigator);
+        return navigator != nullptr && facingRouterHook_.Bind(
+            nativeTarget,
+            navigator,
+            provider,
+            context);
+    }
+
     bool CreatureLookService::Route(
         Entity* target,
         ReplicatedMovementProvider provider,
@@ -158,6 +179,11 @@ namespace fable::game::creature::look
         retainedTargets_.erase(existing);
     }
 
+    void CreatureLookService::StopRoutingNative(void* nativeTarget) noexcept
+    {
+        facingRouterHook_.Unbind(nativeTarget);
+    }
+
     bool CreatureLookService::DriveReplicatedMovement(Entity* target)
     {
         const auto existing = std::find_if(
@@ -171,8 +197,26 @@ namespace fable::game::creature::look
             facingRouterHook_.Drive(existing->nativeThing);
     }
 
+    bool CreatureLookService::DriveReplicatedNativeMovement(
+        void* nativeTarget)
+    {
+        return facingRouterHook_.Drive(nativeTarget);
+    }
+
+    void CreatureLookService::SetCreatureFrameObserver(
+        CreatureFrameObserver observer,
+        void* context) noexcept
+    {
+        facingRouterHook_.SetFrameObserver(observer, context);
+    }
+
     unsigned int CreatureLookService::RoutedMovementFacingCount() const noexcept
     {
         return facingRouterHook_.RoutedFacingCount();
+    }
+
+    HMODULE CreatureLookService::GameModule() const noexcept
+    {
+        return gameModule_;
     }
 }

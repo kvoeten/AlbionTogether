@@ -27,6 +27,11 @@ namespace fable::game::creature::look
     class CreatureLookService;
 }
 
+namespace fable::game::creature::combat
+{
+    class CreatureCombatService;
+}
+
 namespace fable::multiplayer::presentation
 {
     // Owns one map-scoped remote player's native actor and appearance. The
@@ -39,6 +44,7 @@ namespace fable::multiplayer::presentation
             game::NpcService& npcs,
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
+            game::creature::combat::CreatureCombatService& combat,
             const core::Diagnostics& diagnostics,
             game::hero_pawn::appearance::hooks::
                 RemoteHeroPresentationFactoryHook& presentationFactory);
@@ -50,6 +56,10 @@ namespace fable::multiplayer::presentation
         void BeginWorldTransition() noexcept;
         void CompleteWorldTransition() noexcept;
         void DriveMovement();
+        bool ApplyHealth(
+            float currentHealth,
+            float maximumHealth,
+            std::uint32_t revision);
         void Shutdown() noexcept;
         [[nodiscard]] bool IsActive() const;
 
@@ -77,6 +87,7 @@ namespace fable::multiplayer::presentation
         game::EntityService* entities_ = nullptr;
         game::NpcService* npcs_ = nullptr;
         game::creature::look::CreatureLookService* look_ = nullptr;
+        game::creature::combat::CreatureCombatService* combat_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         game::hero_pawn::appearance::hooks::RemoteHeroPresentationFactoryHook*
             presentationFactory_ = nullptr;
@@ -99,6 +110,7 @@ namespace fable::multiplayer::presentation
         std::vector<game::Entity*> quarantinedAvatars_;
         std::string playerId_;
         std::string appearanceDefinition_;
+        std::uint64_t actorId_ = 0;
         game::hero_pawn::appearance::HeroMorphState appliedMorph_ = {};
         game::hero_pawn::appearance::HeroClothingState appliedClothing_ = {};
         game::hero_pawn::appearance::HeroBoneScaleState appliedBoneScales_ = {};
@@ -109,5 +121,7 @@ namespace fable::multiplayer::presentation
         bool graphicRuntimeReported_ = false;
         bool avatarSuspended_ = false;
         bool separationReported_ = false;
+        void* healthCreature_ = nullptr;
+        std::uint32_t appliedHealthRevision_ = 0;
     };
 }
