@@ -3,6 +3,7 @@
 #include "Game/HeroPawn/Appearance/HeroAppearanceState.h"
 #include "Game/HeroPawn/Appearance/HeroClothingState.h"
 #include "Game/HeroPawn/Appearance/HeroMorphState.h"
+#include "Game/HeroPawn/Equipment/HeroEquipmentState.h"
 #include "Game/Math/Vector3.h"
 
 #include <cstdint>
@@ -23,8 +24,9 @@ namespace fable::multiplayer
         inline constexpr std::uint32_t Appearance = 1u << 2;
         inline constexpr std::uint32_t Movement = 1u << 3;
         inline constexpr std::uint32_t Retired = 1u << 4;
+        inline constexpr std::uint32_t Equipment = 1u << 5;
         inline constexpr std::uint32_t All =
-            Identity | Map | Appearance | Movement | Retired;
+            Identity | Map | Appearance | Movement | Retired | Equipment;
     }
 
     struct PlayerState final
@@ -51,5 +53,6 @@ namespace fable::multiplayer
         game::hero_pawn::appearance::HeroBoneScaleState heroBoneScales = {};
         game::hero_pawn::appearance::HeroAppearanceModifierState
             heroAppearanceModifiers = {};
+        game::hero_pawn::equipment::HeroEquipmentState heroEquipment = {};
     };
 }

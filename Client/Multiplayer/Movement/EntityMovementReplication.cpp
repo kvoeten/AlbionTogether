@@ -358,7 +358,9 @@ namespace fable::multiplayer::movement
                     message.ownerActorId,
                     message.mapEpoch))
             {
-                RetirePlayback(iterator->first);
+                const std::uint64_t entityUid = iterator->first;
+                RetirePlayback(entityUid);
+                acceptedMovingEntities_.erase(entityUid);
                 iterator = currentSamples_.erase(iterator);
                 continue;
             }
@@ -529,6 +531,7 @@ namespace fable::multiplayer::movement
         for (const std::uint64_t entityUid : stale)
         {
             localStates_.erase(entityUid);
+            publishedMovingEntities_.erase(entityUid);
         }
         return true;
     }
@@ -749,6 +752,7 @@ namespace fable::multiplayer::movement
         }
         playback->second->movement.Detach();
         playbacks_.erase(playback);
+        acceptedMovingEntities_.erase(entityUid);
     }
 
     ReplicatedMovementSample EntityMovementReplication::ToSample(

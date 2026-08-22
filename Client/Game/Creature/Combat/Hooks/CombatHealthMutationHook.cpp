@@ -130,6 +130,69 @@ namespace fable::game::creature::combat
         eventSink_.store(sink, std::memory_order_release);
     }
 
+    bool CombatHealthMutationHook::SetReplicaProtected(
+        void* creature,
+        bool protectedReplica) noexcept
+    {
+        if (creature == nullptr)
+        {
+            return false;
+        }
+        if (protectedReplica)
+        {
+            for (const auto& slot : protectedReplicas_)
+            {
+                if (slot.load(std::memory_order_acquire) == creature)
+                {
+                    return true;
+                }
+            }
+            for (auto& slot : protectedReplicas_)
+            {
+                void* empty = nullptr;
+                if (slot.compare_exchange_strong(
+                        empty,
+                        creature,
+                        std::memory_order_acq_rel,
+                        std::memory_order_acquire))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (auto& slot : protectedReplicas_)
+        {
+            void* expected = creature;
+            if (slot.compare_exchange_strong(
+                    expected,
+                    nullptr,
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
+            {
+                return true;
+            }
+        }
+        return true;
+    }
+
+    bool CombatHealthMutationHook::IsReplicaProtected(
+        void* creature) const noexcept
+    {
+        if (creature == nullptr)
+        {
+            return false;
+        }
+        for (const auto& slot : protectedReplicas_)
+        {
+            if (slot.load(std::memory_order_acquire) == creature)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool CombatHealthMutationHook::Read(
         void* creature,
         float& currentHealth,
@@ -233,9 +296,48 @@ namespace fable::game::creature::combat
         float previous = -1.0f;
         float previousMaximum = -1.0f;
         hook->Read(creature, previous, previousMaximum);
+        const bool protectedReplica = hook->IsReplicaProtected(creature);
         hook->original_(creature, delta, combatFlag);
         float current = -1.0f;
         float maximum = -1.0f;
+        if (protectedReplica && std::isfinite(previous) &&
+            std::isfinite(previousMaximum) && previousMaximum > 0.0f)
+        {
+            __try
+            {
+                auto* const bytes = static_cast<std::uint8_t*>(creature);
+                *reinterpret_cast<float*>(bytes + kMaximumHealthOffset) =
+                    previousMaximum;
+                *reinterpret_cast<float*>(bytes + kHealthOffset) = previous;
+                current = previous;
+                maximum = previousMaximum;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                current = -1.0f;
+                maximum = -1.0f;
+            }
+            const unsigned int rejected =
+                hook->rejectedReplicaMutationCount_.fetch_add(
+                    1, std::memory_order_acq_rel) + 1;
+            if (rejected <= 16)
+            {
+                char detail[320] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "ordinal=%u thing_uid=%016llX creature=%p retained=%.3f requested_delta=%.3f flag=%s authority=remote-owner",
+                    rejected,
+                    static_cast<unsigned long long>(ReadThingUid(creature)),
+                    creature,
+                    previous,
+                    delta,
+                    combatFlag ? "true" : "false");
+                hook->diagnostics_.Event(
+                    "CombatReplicaHealthMutationRejected", detail);
+            }
+            return;
+        }
         if (!hook->Read(creature, current, maximum) ||
             (std::fabs(current - previous) < 0.0001f &&
                 std::fabs(maximum - previousMaximum) < 0.0001f))

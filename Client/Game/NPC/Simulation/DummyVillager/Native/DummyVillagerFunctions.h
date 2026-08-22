@@ -14,8 +14,8 @@ namespace fable::game::npc::simulation::native
         using UpdatePointer = void(__thiscall*)(void* component);
         using SerializePointer = bool(__thiscall*)(
             void* component,
-            void* context,
-            void* serializer);
+            void* serializer,
+            void* context);
 
         static constexpr std::uintptr_t VtableRva = 0x02AF428C;
         static constexpr std::size_t MaterializeVtableSlot = 7;

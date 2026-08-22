@@ -6,7 +6,7 @@
 namespace
 {
     constexpr std::uint32_t kProtocolMagic = 0x504D5446;
-    constexpr std::uint16_t kProtocolVersion = 26;
+    constexpr std::uint16_t kProtocolVersion = 33;
 
 #pragma pack(push, 1)
     struct WirePacketHeader final
@@ -30,7 +30,7 @@ namespace
     {
         using fable::multiplayer::protocol::PacketType;
         return type >= PacketType::PlayerState &&
-            type <= PacketType::EntityLowSimulation;
+            type <= PacketType::PlayerAction;
     }
 }
 

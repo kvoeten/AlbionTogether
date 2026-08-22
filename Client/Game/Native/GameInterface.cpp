@@ -40,12 +40,16 @@ namespace fable::game::native
                     reinterpret_cast<void*>(base + rva::GetHero) ||
                 gameInterface->vtable[game_interface_slot::GetThingWithScriptName] !=
                     reinterpret_cast<void*>(base + rva::GetThingWithScriptName) ||
+                gameInterface->vtable[game_interface_slot::GetThingWithUid] !=
+                    reinterpret_cast<void*>(base + rva::GetThingWithUid) ||
                 gameInterface->vtable[game_interface_slot::CreateCreature] !=
                     reinterpret_cast<void*>(base + rva::CreateCreature) ||
                 gameInterface->vtable[game_interface_slot::StartScriptingEntity] !=
                     reinterpret_cast<void*>(base + rva::StartScriptingEntity) ||
                 gameInterface->vtable[game_interface_slot::TeleportThing] !=
                     reinterpret_cast<void*>(base + rva::TeleportThing) ||
+                gameInterface->vtable[game_interface_slot::OpenDoor] !=
+                    reinterpret_cast<void*>(base + rva::OpenDoor) ||
                 gameInterface->vtable[game_interface_slot::SetAttackImmediately] !=
                     reinterpret_cast<void*>(base + rva::SetAttackImmediately) ||
                 gameInterface->vtable[game_interface_slot::AddScreenMessage] !=

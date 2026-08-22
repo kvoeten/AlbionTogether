@@ -1,13 +1,16 @@
 #include "ScriptHost.h"
 
 #include "Automation/LocalInstance/MapTransitionAcceptanceDriver.h"
+#include "Automation/Multiplayer/Abilities/HeroWillAbilityAcceptanceDriver.h"
 #include "Automation/Multiplayer/Combat/CombatTargetAcceptanceDriver.h"
+#include "Automation/Multiplayer/Combat/CombatVisualExchangeDriver.h"
 #include "Automation/Multiplayer/Transition/NpcTransferAcceptanceDriver.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Capabilities/CapabilityRegistry.h"
 #include "Game/Creature/CreatureService.h"
 #include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
+#include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/Creature/Look/CreatureLookService.h"
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
 #include "Game/Entity/EntityService.h"
@@ -139,6 +142,9 @@ namespace fable::scripting
               std::make_unique<game::creature::look::CreatureLookService>()),
           creatureCombatService_(
               std::make_unique<game::creature::combat::CreatureCombatService>()),
+          heroWillAbilityService_(
+              std::make_unique<
+                  game::hero_pawn::abilities::HeroWillAbilityService>()),
           creatureAnimationService_(
               std::make_unique<game::creature::animation::CreatureAnimationService>()),
           playerService_(std::make_unique<game::PlayerService>()),
@@ -162,6 +168,12 @@ namespace fable::scripting
           combatTargetAcceptanceDriver_(std::make_unique<
               automation::multiplayer::combat::
                   CombatTargetAcceptanceDriver>()),
+          combatVisualExchangeDriver_(std::make_unique<
+              automation::multiplayer::combat::
+                  CombatVisualExchangeDriver>()),
+          heroWillAbilityAcceptanceDriver_(std::make_unique<
+              automation::multiplayer::abilities::
+                  HeroWillAbilityAcceptanceDriver>()),
           npcTransferAcceptanceDriver_(std::make_unique<
               automation::multiplayer::transition::
                   NpcTransferAcceptanceDriver>()),
@@ -199,6 +211,7 @@ namespace fable::scripting
             !creatureLocomotionService_->Initialize(*entityService_, diagnostics_) ||
             !creatureLookService_->Initialize(*entityService_, diagnostics_) ||
             !creatureCombatService_->Initialize(*entityService_, diagnostics_) ||
+            !heroWillAbilityService_->Initialize(*entityService_, diagnostics_) ||
             !creatureAnimationService_->Initialize(*entityService_, diagnostics_) ||
             !villageMembershipService_->Initialize(gameModule, diagnostics_) ||
             !dummyVillagerService_->Initialize(gameModule, diagnostics_) ||
@@ -223,7 +236,7 @@ namespace fable::scripting
                 *creatureLocomotionService_,
                 *creatureLookService_,
                 *creatureCombatService_,
-                *creatureAnimationService_,
+                *heroWillAbilityService_,
                 *villageMembershipService_,
                 *dummyVillagerService_,
                 diagnostics_))
@@ -242,14 +255,43 @@ namespace fable::scripting
             *entityService_,
             *creatureLocomotionService_,
             diagnostics_);
+        const bool hostCombatAcceptance =
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_combat");
+        const bool guestCombatAcceptance =
+            runtimeConfiguration.ScenarioIs(L"multiplayer_guest_combat");
+        const bool hostHeroWillAcceptance =
+            runtimeConfiguration.ScenarioIs(L"multiplayer_host_hero_will");
+        const bool guestHeroWillAcceptance =
+            runtimeConfiguration.ScenarioIs(L"multiplayer_guest_hero_will");
+        const bool combatAcceptance =
+            hostCombatAcceptance || guestCombatAcceptance;
+        heroWillFocusedAcceptance_ =
+            hostHeroWillAcceptance || guestHeroWillAcceptance;
+        const bool anyHeroWillAcceptance =
+            combatAcceptance || heroWillFocusedAcceptance_;
+        const bool acceptanceHost =
+            hostCombatAcceptance || hostHeroWillAcceptance;
         combatTargetAcceptanceDriver_->Initialize(
-            runtimeConfiguration.ScenarioIs(L"multiplayer_host_combat") ||
-                runtimeConfiguration.ScenarioIs(
-                    L"multiplayer_guest_combat"),
-            runtimeConfiguration.ScenarioIs(L"multiplayer_host_combat"),
+            anyHeroWillAcceptance,
+            acceptanceHost,
+            heroWillFocusedAcceptance_,
             *entityService_,
             *creatureService_,
+            *creatureCombatService_,
             *npcService_,
+            diagnostics_);
+        combatVisualExchangeDriver_->Initialize(
+            combatAcceptance,
+            hostCombatAcceptance,
+            *entityService_,
+            *creatureCombatService_,
+            diagnostics_);
+        heroWillAbilityAcceptanceDriver_->Initialize(
+            anyHeroWillAcceptance,
+            acceptanceHost,
+            heroWillFocusedAcceptance_,
+            *entityService_,
+            *heroWillAbilityService_,
             diagnostics_);
         npcTransferAcceptanceDriver_->Initialize(
             runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition"),
@@ -376,7 +418,8 @@ namespace fable::scripting
     bool ScriptHost::AttachCreatureActionObserver(
         game::creature::actions::CreatureActionLifecycleObserver& observer)
     {
-        return multiplayerSession_->AttachCreatureActionObserver(observer);
+        return heroWillAbilityService_->AttachActionLifecycleObserver(observer) &&
+            multiplayerSession_->AttachCreatureActionObserver(observer);
     }
 
     bool ScriptHost::AttachAiBrainUpdateObserver(
@@ -637,6 +680,13 @@ namespace fable::scripting
             multiplayerSession_->HasActiveRemotePresentation());
         combatTargetAcceptanceDriver_->Tick(
             multiplayerSession_->HasActiveRemotePresentation());
+        combatVisualExchangeDriver_->Tick(
+            multiplayerSession_->HasActiveRemotePresentation());
+        heroWillAbilityAcceptanceDriver_->Tick(
+            multiplayerSession_->HasActiveRemotePresentation(),
+            heroWillFocusedAcceptance_
+                ? combatTargetAcceptanceDriver_->IsTargetReady()
+                : combatVisualExchangeDriver_->IsComplete());
 
         for (const auto& module : modules_)
         {
@@ -760,6 +810,8 @@ namespace fable::scripting
     void ScriptHost::Shutdown()
     {
         npcTransferAcceptanceDriver_->Shutdown();
+        heroWillAbilityAcceptanceDriver_->Shutdown();
+        combatVisualExchangeDriver_->Shutdown();
         combatTargetAcceptanceDriver_->Shutdown();
         transitionAcceptanceDriver_->Shutdown();
         multiplayerSession_->Shutdown();
@@ -788,6 +840,7 @@ namespace fable::scripting
         diagnostics_ = {};
         g_diagnostics = {};
         scriptsRoot_.clear();
+        heroWillFocusedAcceptance_ = false;
     }
 
     bool ScriptHost::IsLoaded() const noexcept

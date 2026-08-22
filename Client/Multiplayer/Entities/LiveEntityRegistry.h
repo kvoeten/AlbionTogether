@@ -26,6 +26,8 @@ namespace fable::multiplayer::entities
         bool creature = false;
         bool hasHeroMorph = false;
         bool hasVillageMembership = false;
+        bool summonedCreature = false;
+        bool abilityOwnedTransient = false;
         void* thing = nullptr;
         void* mapwhoComponent = nullptr;
     };

@@ -1,8 +1,12 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Game/Creature/Equipment/Hooks/CreatureCarryingMutationObserver.h"
+#include "Game/HeroPawn/Appearance/Hooks/HeroAppearanceMutationObserver.h"
+#include "Game/HeroPawn/Equipment/Hooks/HeroEquipmentMutationObserver.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -23,6 +27,11 @@ namespace fable::multiplayer
     class UdpPeer;
 }
 
+namespace fable::multiplayer::combat
+{
+    class PlayerCombatantDirectory;
+}
+
 namespace fable::multiplayer::replication
 {
     class LocalPlayerChannel;
@@ -37,6 +46,7 @@ namespace fable::multiplayer::replication
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             LocalPlayerChannel& channel,
             UdpPeer& transport,
+            combat::PlayerCombatantDirectory& combatants,
             const core::Diagnostics& diagnostics,
             PeerRole role,
             std::uint64_t actorId,
@@ -46,6 +56,7 @@ namespace fable::multiplayer::replication
         bool OnWorldReady();
         bool TryBind();
         void CaptureAppearance(std::uint64_t now);
+        void CaptureEquipment(std::uint64_t now);
         [[nodiscard]] bool WorldIsCurrent() const;
         void BeginWorldTransition() noexcept;
         [[nodiscard]] bool ConsumeCompletedWorldTransition() noexcept;
@@ -61,7 +72,23 @@ namespace fable::multiplayer::replication
 
     private:
         static void ObservePlayerFrame(void* context, void* playerCreature);
+        static void ObserveAppearanceMutation(
+            void* context,
+            const game::hero_pawn::appearance::hooks::
+                HeroAppearanceMutationEvent& event);
+        static void ObserveEquipmentMutation(void* context, void* component);
+        static void ObserveCarryingMutation(
+            void* context,
+            const game::creature::equipment::hooks::
+                CreatureCarryingMutationEvent& event);
         void OnPlayerFrame(void* playerCreature);
+        void OnAppearanceMutation(
+            const game::hero_pawn::appearance::hooks::
+                HeroAppearanceMutationEvent& event) noexcept;
+        void OnEquipmentMutation(void* component) noexcept;
+        void OnCarryingMutation(
+            const game::creature::equipment::hooks::
+                CreatureCarryingMutationEvent& event) noexcept;
         void CaptureMovement(std::uint64_t now);
         [[nodiscard]] float ReadHeroFacing() const noexcept;
         void ReleaseHero() noexcept;
@@ -71,7 +98,16 @@ namespace fable::multiplayer::replication
             nullptr;
         LocalPlayerChannel* channel_ = nullptr;
         UdpPeer* transport_ = nullptr;
+        combat::PlayerCombatantDirectory* combatants_ = nullptr;
         core::Diagnostics diagnostics_ = {};
+        game::hero_pawn::appearance::hooks::HeroAppearanceMutationObserver
+            appearanceObserver_;
+        game::hero_pawn::equipment::hooks::HeroEquipmentMutationObserver
+            equipmentObserver_;
+        game::creature::equipment::hooks::CreatureCarryingMutationObserver
+            carryingObserver_;
+        std::atomic_bool appearanceDirty_{false};
+        std::atomic_bool equipmentDirty_{false};
         std::mutex ownerStateMutex_;
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t actorId_ = 0;
@@ -82,13 +118,16 @@ namespace fable::multiplayer::replication
         std::string departingMapName_;
         game::Entity* hero_ = nullptr;
         void* nativeHero_ = nullptr;
+        std::atomic<void*> nativeHeroForMutation_{nullptr};
         void* departingNativeHero_ = nullptr;
         std::uint64_t nextBindDiagnosticAt_ = 0;
         std::uint64_t nextAppearanceCaptureAt_ = 0;
+        std::uint64_t nextEquipmentCaptureAt_ = 0;
         bool initialized_ = false;
         bool worldReady_ = false;
         bool entryPending_ = false;
         bool appearanceReady_ = false;
+        bool equipmentReady_ = false;
         bool morphSelfTest_ = false;
         bool graphicRuntimeReported_ = false;
         bool transitionActive_ = false;

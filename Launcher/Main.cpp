@@ -36,6 +36,8 @@ namespace
     constexpr wchar_t kMultiplayerPlayerIdEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_PLAYER_ID";
     constexpr wchar_t kMultiplayerAppearanceEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_APPEARANCE";
     constexpr wchar_t kGameDefinitionsEnvironment[] = L"FABLETOGETHER_GAME_DEFINITIONS";
+    constexpr wchar_t kHeroWillPillarOnlyEnvironment[] =
+        L"FABLE_TOGETHER_HERO_WILL_PILLAR_ONLY";
     // The deployed definitions sidecar patches this ordinary creature with
     // the Hero graphic and presentation stack. Retaining its creature
     // lifecycle avoids constructing a second world-unique CREATURE_HERO.
@@ -45,6 +47,12 @@ namespace
     constexpr wchar_t kDevelopmentGameRoot[] = L"D:\\SteamLibrary\\steamapps\\common\\Fable Anniversary";
     constexpr wchar_t kFableSteamAppId[] = L"288470";
     constexpr DWORD kInjectionTimeoutMilliseconds = 15'000;
+    // Keep two local acceptance peers visible on a 1700px-wide desktop. The
+    // game still renders its 1280x720 fixture internally; only the test window
+    // frame is compacted after creation.
+    constexpr int kLocalTestWindowWidth = 830;
+    constexpr int kLocalTestWindowHeight = 620;
+    constexpr int kLocalTestWindowPitch = 850;
 
     class UniqueHandle
     {
@@ -283,6 +291,7 @@ namespace
         bool multiplayerTransitionTest = false;
         bool multiplayerAuthorityTest = false;
         bool multiplayerCombatTest = false;
+        bool multiplayerHeroWillTest = false;
         bool multiplayerPlaytest = false;
         bool dryRun = false;
         bool showHelp = false;
@@ -468,6 +477,11 @@ namespace
             if (argument == L"--multiplayer-combat-test")
             {
                 options.multiplayerCombatTest = true;
+                continue;
+            }
+            if (argument == L"--multiplayer-hero-will-test")
+            {
+                options.multiplayerHeroWillTest = true;
                 continue;
             }
             if (argument == L"--multiplayer-playtest")
@@ -713,6 +727,7 @@ namespace
                 options.multiplayerTransitionTest ||
                 options.multiplayerAuthorityTest ||
                 options.multiplayerCombatTest ||
+                options.multiplayerHeroWillTest ||
                 options.multiplayerPlaytest) &&
             (options.dualInstanceTest || !options.multiplayerRole.empty() ||
                 !options.automationScenario.empty() || options.transformationProbe ||
@@ -726,6 +741,7 @@ namespace
                 (options.multiplayerTransitionTest ? 1 : 0) +
                 (options.multiplayerAuthorityTest ? 1 : 0) +
                 (options.multiplayerCombatTest ? 1 : 0) +
+                (options.multiplayerHeroWillTest ? 1 : 0) +
                 (options.multiplayerPlaytest ? 1 : 0) > 1)
         {
             error = L"Choose one multiplayer test or playtest mode";
@@ -848,7 +864,7 @@ namespace
             << L"  --character-snapshot <json>  Optional server-character state to apply after fixture load\n"
             << L"  --automation <id>  Run observe_frontend, observe_save_list, bootstrap_fixture_probe, load_fixture, or appearance_cycle\n"
             << L"  --timeout <sec>     Automation timeout from 10 to 600 seconds (default: 120)\n"
-            << L"  --local-instance <id>  Start one isolated 1280x720 local development instance\n"
+            << L"  --local-instance <id>  Start one isolated compact local development instance\n"
             << L"  --local-session <id>  Reuse a local development session identifier\n"
             << L"  --dual-instance-test  Prove isolated host and guest title windows coexist\n"
             << L"  --host              Host a multiplayer UDP session\n"
@@ -861,6 +877,7 @@ namespace
             << L"  --multiplayer-transition-test  Transition both peers and prove destination replication\n"
             << L"  --multiplayer-authority-test  Move only the host away and prove guest NPC ownership handoff\n"
             << L"  --multiplayer-combat-test  Attack from the guest and prove per-NPC authority handoff\n"
+            << L"  --multiplayer-hero-will-test  Run only the Chamber Hero Will capture/replay sequence\n"
             << L"  --multiplayer-playtest  Load two connected adult-town peers and leave them running\n"
             << L"  --hold <sec>        Dual-instance stability interval from 5 to 300 seconds (default: 10)\n"
             << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
@@ -959,6 +976,7 @@ namespace
         DWORD processId = 0;
         HWND bestWindow = nullptr;
         unsigned long long bestArea = 0;
+        bool bestVisible = false;
     };
 
     BOOL CALLBACK FindProcessWindow(HWND window, LPARAM parameter)
@@ -966,7 +984,7 @@ namespace
         auto& search = *reinterpret_cast<ProcessWindowSearch*>(parameter);
         DWORD processId = 0;
         GetWindowThreadProcessId(window, &processId);
-        if (processId != search.processId || !IsWindowVisible(window))
+        if (processId != search.processId)
         {
             return TRUE;
         }
@@ -988,10 +1006,13 @@ namespace
         const auto area = width > 0 && height > 0
             ? static_cast<unsigned long long>(width) * static_cast<unsigned long long>(height)
             : 0;
-        if (area > search.bestArea)
+        const bool visible = IsWindowVisible(window) != FALSE;
+        if ((visible && !search.bestVisible) ||
+            (visible == search.bestVisible && area > search.bestArea))
         {
             search.bestArea = area;
             search.bestWindow = window;
+            search.bestVisible = visible;
         }
         return TRUE;
     }
@@ -1622,20 +1643,31 @@ namespace
             return false;
         }
 
-        constexpr int windowWidth = 1280;
-        constexpr int windowHeight = 720;
         std::wstring title = L"Fable Anniversary - FableTogether local ";
         title.append(instance != nullptr ? instance : L"instance");
         SetWindowTextW(window, title.c_str());
 
-        return SetWindowPos(
+        // The launcher itself is DPI-unaware, so SetWindowPos would otherwise
+        // virtualize 830x620 to 1245x930 at the development desktop's 150%
+        // scale. Temporarily use a DPI-aware caller context: these constants
+        // then mean actual screen pixels and two clients really fit side by
+        // side.
+        const DPI_AWARENESS_CONTEXT previousDpiContext =
+            SetThreadDpiAwarenessContext(
+                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        const bool positioned = SetWindowPos(
             window,
             HWND_TOP,
             x,
             y,
-            windowWidth,
-            windowHeight,
-            SWP_SHOWWINDOW | SWP_FRAMECHANGED) != FALSE;
+            kLocalTestWindowWidth,
+            kLocalTestWindowHeight,
+            SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOACTIVATE) != FALSE;
+        if (previousDpiContext != nullptr)
+        {
+            SetThreadDpiAwarenessContext(previousDpiContext);
+        }
+        return positioned;
     }
 
     bool WindowIsResponsive(HWND window)
@@ -1706,6 +1738,34 @@ namespace
                 return false;
             }
         }
+    }
+
+    bool RepositionLocalInstanceWindow(
+        LaunchedGame& game,
+        const wchar_t* instance,
+        int x,
+        unsigned int timeoutMilliseconds = 5'000)
+    {
+        const ULONGLONG deadline = GetTickCount64() + timeoutMilliseconds;
+        do
+        {
+            const HWND currentWindow = FindMainWindow(game.processId);
+            if (currentWindow != nullptr)
+            {
+                game.window = currentWindow;
+            }
+            if (game.window != nullptr && IsWindow(game.window) &&
+                PositionLocalWindow(game.window, instance, x, 0))
+            {
+                return true;
+            }
+            if (!game.process.valid() ||
+                WaitForSingleObject(game.process.get(), 100) == WAIT_OBJECT_0)
+            {
+                return false;
+            }
+        } while (GetTickCount64() < deadline);
+        return false;
     }
 
     bool AnyFableProcessIsRunning()
@@ -1987,13 +2047,18 @@ namespace
     bool MoveMultiplayerPeer(
         LaunchedGame& game,
         const wchar_t* instance,
-        unsigned int durationMilliseconds = 1'250)
+        unsigned int durationMilliseconds = 1'250,
+        bool moveLaterally = true)
     {
-        game.window = FindMainWindow(game.processId);
-        if (game.window == nullptr || !WindowIsResponsive(game.window))
+        const HWND currentWindow = FindMainWindow(game.processId);
+        if (currentWindow != nullptr)
+        {
+            game.window = currentWindow;
+        }
+        if (game.window == nullptr || !IsWindow(game.window))
         {
             std::wcerr << L"Multiplayer " << instance
-                       << L" has no responsive game window for movement.\n";
+                       << L" has no game window for movement.\n";
             return false;
         }
         const auto activate = [](HWND window)
@@ -2059,21 +2124,21 @@ namespace
         // the map boundary.
         ScopedSyntheticKey forward('W');
         ScopedSyntheticKey lateral('D');
-        if (!forward.Press() || !lateral.Press())
+        if (!forward.Press() || (moveLaterally && !lateral.Press()))
         {
             forward.Release();
             lateral.Release();
-            std::wcerr << L"Could not press W+D in multiplayer " << instance << L".\n";
+            std::wcerr << L"Could not press movement input in multiplayer " << instance << L".\n";
             return false;
         }
         std::wcout << L"Multiplayer test: moving " << instance
                    << L" through Fable's normal player input.\n";
         Sleep(durationMilliseconds);
         const bool forwardReleased = forward.Release();
-        const bool lateralReleased = lateral.Release();
+        const bool lateralReleased = !moveLaterally || lateral.Release();
         if (!forwardReleased || !lateralReleased)
         {
-            std::wcerr << L"Could not release W+D in multiplayer " << instance << L".\n";
+            std::wcerr << L"Could not release movement input in multiplayer " << instance << L".\n";
             return false;
         }
         return true;
@@ -2083,11 +2148,15 @@ namespace
         LaunchedGame& game,
         const wchar_t* instance)
     {
-        game.window = FindMainWindow(game.processId);
-        if (game.window == nullptr || !WindowIsResponsive(game.window))
+        const HWND currentWindow = FindMainWindow(game.processId);
+        if (currentWindow != nullptr)
+        {
+            game.window = currentWindow;
+        }
+        if (game.window == nullptr || !IsWindow(game.window))
         {
             std::wcerr << L"Multiplayer " << instance
-                       << L" has no responsive game window to activate.\n";
+                       << L" has no game window to activate.\n";
             return false;
         }
         MSG message = {};
@@ -2181,6 +2250,7 @@ namespace
         bool transitionTest,
         bool authorityTest,
         bool combatTest,
+        bool heroWillTest,
         const std::vector<std::wstring>& originalArguments)
     {
         const std::vector<std::wstring> arguments =
@@ -2271,7 +2341,9 @@ namespace
         std::wcout << L"Multiplayer test: starting host.\n";
         if (!spawnRole(
                 L"host",
-                combatTest
+                heroWillTest
+                    ? L"multiplayer_host_hero_will"
+                : combatTest
                     ? L"multiplayer_host_combat"
                 : authorityTest
                     ? L"multiplayer_host_authority"
@@ -2313,10 +2385,11 @@ namespace
         }
         std::wcout
             << L"Multiplayer test: host selected-save Hero is in-world; starting guest.\n";
-
         if (!spawnRole(
                 L"guest",
-                combatTest
+                heroWillTest
+                    ? L"multiplayer_guest_hero_will"
+                : combatTest
                     ? L"multiplayer_guest_combat"
                 : authorityTest
                     ? L"multiplayer_guest_authority"
@@ -2332,7 +2405,7 @@ namespace
                 guest,
                 roleRoot(L"guest") / L"events.jsonl",
                 L"guest",
-                1280,
+                kLocalTestWindowPitch,
                 timeoutSeconds))
         {
             stop(guest);
@@ -2344,11 +2417,11 @@ namespace
         const bool localHeroesReady = WaitForMultiplayerEvent(
                 guest, guestEvents, L"guest", "MultiplayerLocalHeroReady", timeoutSeconds);
         bool worldsReady = localHeroesReady &&
-            (transitionTest || authorityTest ||
+            (interactive || transitionTest || authorityTest || combatTest || heroWillTest ||
                 FocusMultiplayerPeer(host, L"host")) &&
             WaitForMultiplayerEvent(
                 host, hostEvents, L"host", "MultiplayerRemoteDefinitionCreated", timeoutSeconds) &&
-            (transitionTest || authorityTest ||
+            (interactive || transitionTest || authorityTest || combatTest || heroWillTest ||
                 FocusMultiplayerPeer(guest, L"guest")) &&
             WaitForMultiplayerEvent(
                 guest, guestEvents, L"guest", "MultiplayerRemoteDefinitionCreated", timeoutSeconds);
@@ -2369,7 +2442,7 @@ namespace
                     guest2,
                     guest2Events,
                     L"guest2",
-                    2560,
+                    kLocalTestWindowPitch * 2,
                     timeoutSeconds) &&
                 WaitForMultiplayerEvent(
                     guest2,
@@ -2413,14 +2486,72 @@ namespace
             return 1;
         }
 
+        // UE3 reapplies its configured client size while the selected save is
+        // replacing the front-end world. Reassert the compact development
+        // layout only after every gameplay window exists so both perspectives
+        // remain visible side-by-side for the entire test.
+        bool windowsPositioned =
+            RepositionLocalInstanceWindow(host, L"host", 0) &&
+            RepositionLocalInstanceWindow(
+                guest, L"guest", kLocalTestWindowPitch);
+        if (rosterTest)
+        {
+            windowsPositioned = windowsPositioned &&
+                RepositionLocalInstanceWindow(
+                    guest2,
+                    L"guest2",
+                    kLocalTestWindowPitch * 2);
+        }
+        if (!windowsPositioned)
+        {
+            std::wcerr
+                << L"Could not reapply the compact side-by-side layout after world load; continuing with the layout established at startup.\n";
+        }
+
+        // The combat fixture loads both Heroes from the same Chamber save.
+        // Wait until both selected-save Heroes and their remote presentations
+        // are live, then separate only the host through normal player input.
+        if (combatTest && !MoveMultiplayerPeer(host, L"host", 1'000, false))
+        {
+            stopAll();
+            return 1;
+        }
+
         std::wcout << (rosterTest
             ? L"Multiplayer roster test: every process created a native presentation for each other player actor.\n"
             : L"Multiplayer test: both remote definitions were created from the safe game dispatch context at distinct native transforms.\n");
-        if (combatTest)
+        if (combatTest || heroWillTest)
         {
+            // The isolated fixture already starts both peers in the Chamber of
+            // Fate; stage them around that saved floor position before combat.
+            const bool combatPeersStaged =
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatPeerStaged",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatPeerStaged",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatArenaConverged",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatArenaConverged",
+                    timeoutSeconds);
             const std::string combatTargetScript =
                 "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
-            const bool targetReady =
+            const bool targetReady = combatPeersStaged &&
                 WaitForMultiplayerEvent(
                     host,
                     hostEvents,
@@ -2445,14 +2576,13 @@ namespace
             const std::string guestActor = std::to_string(guestActorId);
             const std::string guestCombatOwner =
                 "kind=5 authority_actor_id=" +
-                guestActor + " map=BowerstonePosh";
-            const std::string guestMovementOwner =
-                "owner_actor_id=" + guestActor +
-                " map=BowerstonePosh epoch=1";
+                guestActor + " map=FrescoDome";
             const std::string guestVitalsOwner = "owner=" + guestActor;
             const std::string guestPlayerVitals =
                 "subject=player actor=" + guestActor;
             const std::string guestRemoteVitals = "actor=" + guestActor;
+            const std::string guestRemoteCompanion =
+                "actor_id=" + guestActor;
             const std::size_t guestPlayerVitalsBeforeAttack =
                 EventDetailCount(
                     ReadEventFile(guestEvents),
@@ -2463,14 +2593,131 @@ namespace
                     ReadEventFile(hostEvents),
                     "MultiplayerRemotePlayerVitalsApplied",
                     guestRemoteVitals.c_str());
-            const bool attackSubmitted = targetReady &&
-                AttackWithMultiplayerPeer(guest, L"guest", 8);
-            const bool handoffCompleted = attackSubmitted &&
+            const bool attackSubmitted = heroWillTest
+                ? targetReady
+                : targetReady &&
                 WaitForMultiplayerEvent(
                     guest,
                     guestEvents,
                     L"guest",
-                    "CreaturePlayerAttackTargetObserved",
+                    "MultiplayerCombatNativeUntargetedAttackSubmitted",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerLocalPlayerActionCaptured",
+                    "native_action=CCreatureAction_Interruptable",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteNativeUntargetedAttackSubmitted",
+                    "source_action=CCreatureAction_Interruptable",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatNativeAttackSubmitted",
+                    timeoutSeconds);
+            const bool handoffCompleted = heroWillTest
+                ? targetReady
+                : attackSubmitted &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatNativeMeleeReady",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerLocalPlayerActionCaptured",
+                    "native_action=CCreatureAction_Interruptable",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemotePlayerAbilitySubmitted",
+                    "ability_id=1101",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteNativeAttackSubmitted",
+                    "route=retail-ai-immediate-attack submitted=true",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatNativeSustainedAttackSubmitted",
+                    "ordinal=6/6",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteNativeUntargetedAttackSubmitted",
+                    "submitted=true",
+                    7,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemotePlayerAbilitySubmitted",
+                    "ability_id=1101",
+                    8,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatNativeMeleeStowed",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatNativeMeleeRedrawReady",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerLocalWeaponTransitionCaptured",
+                    "native_action=CCreatureAction_",
+                    3,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteWeaponTransitionSubmitted",
+                    "animation_id=",
+                    3,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteWeaponTransitionAnimationStarted",
+                    "native_action=CCreatureAction_",
+                    3,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteWeaponTransitionApplied",
+                    "attempts=",
+                    3,
                     timeoutSeconds) &&
                 WaitForMultiplayerEvent(
                     guest,
@@ -2497,28 +2744,14 @@ namespace
                     hostEvents,
                     L"host",
                     "MultiplayerEntitySimulationCoverage",
-                    "local_simulation=22 fenced=1",
+                    "fenced=1",
                     timeoutSeconds) &&
                 WaitForMultiplayerEventDetail(
                     guest,
                     guestEvents,
                     L"guest",
                     "MultiplayerEntitySimulationCoverage",
-                    "local_simulation=1 fenced=22",
-                    timeoutSeconds) &&
-                WaitForMultiplayerEventDetail(
-                    guest,
-                    guestEvents,
-                    L"guest",
-                    "MultiplayerEntityMovementPublishedMoving",
-                    guestMovementOwner,
-                    timeoutSeconds) &&
-                WaitForMultiplayerEventDetail(
-                    host,
-                    hostEvents,
-                    L"host",
-                    "MultiplayerEntityMovementAcceptedMoving",
-                    guestMovementOwner,
+                    "local_simulation=1",
                     timeoutSeconds) &&
                 WaitForMultiplayerEventDetail(
                     host,
@@ -2531,8 +2764,8 @@ namespace
                     host,
                     hostEvents,
                     L"host",
-                    "MultiplayerEntityAnimationApplied",
-                    guestVitalsOwner,
+                    "MultiplayerRemoteCompanionRegistered",
+                    guestRemoteCompanion,
                     timeoutSeconds) &&
                 WaitForMultiplayerEventDetailCount(
                     guest,
@@ -2556,7 +2789,7 @@ namespace
                     L"host",
                     "MultiplayerEntityVitalsApplied",
                     guestVitalsOwner,
-                    2,
+                    1,
                     timeoutSeconds) &&
                 WaitForMultiplayerEventDetailCount(
                     guest,
@@ -2595,21 +2828,185 @@ namespace
                     "MultiplayerEntityActionEnded",
                     "PlayerAttackEngagement",
                     timeoutSeconds);
-            if (handoffCompleted)
+            const std::uint64_t hostActorId =
+                StablePlayerActorId(L"host", L"Host");
+            const std::string hostActor = std::to_string(hostActorId);
+            const bool visualExchangeCompleted = handoffCompleted &&
+                (heroWillTest
+                    ? WaitForMultiplayerEvent(
+                        host,
+                        hostEvents,
+                        L"host",
+                        "MultiplayerHeroWillSequenceArmed",
+                        timeoutSeconds) &&
+                      WaitForMultiplayerEvent(
+                        guest,
+                        guestEvents,
+                        L"guest",
+                        "MultiplayerHeroWillSequenceArmed",
+                        timeoutSeconds)
+                    :
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatHeroAttackSubmitted",
+                    "source=host-local-hero target=enemy ordinal=2",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatHeroAttackSubmitted",
+                    "source=guest-local-hero target=enemy ordinal=2",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatEnemyCounterattackSubmitted",
+                    "target=host-local-hero",
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatEnemyCounterattackSubmitted",
+                    "target=guest-remote-hero",
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityNativeActionSubmitted",
+                    ("target_player=" + hostActor).c_str(),
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerEntityNativeActionSubmitted",
+                    ("target_player=" + guestActor).c_str(),
+                    2,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerLocalPlayerActionCaptured",
+                    ("target_player=" + guestActor).c_str(),
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerLocalPlayerActionCaptured",
+                    ("target_player=" + hostActor).c_str(),
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerRemotePlayerAbilitySubmitted",
+                    ("actor_id=" + hostActor).c_str(),
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemotePlayerAbilitySubmitted",
+                    ("actor_id=" + guestActor).c_str(),
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatVisualExchangeComplete",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatVisualExchangeComplete",
+                    timeoutSeconds));
+            wchar_t pillarOnlyValue[8] = {};
+            const DWORD pillarOnlyLength = GetEnvironmentVariableW(
+                kHeroWillPillarOnlyEnvironment,
+                pillarOnlyValue,
+                static_cast<DWORD>(std::size(pillarOnlyValue)));
+            const bool pillarOnly = heroWillTest && pillarOnlyLength != 0 &&
+                pillarOnlyLength < std::size(pillarOnlyValue) &&
+                pillarOnlyValue[0] == L'1';
+            const char* const heroWillCompletion = pillarOnly
+                ? "accepted=2 expected_unsupported=0 total=2"
+                : "accepted=17 expected_unsupported=2 total=19";
+            const std::size_t expectedHeroWillUses = pillarOnly ? 2 : 17;
+            const bool heroWillSequenceCompleted = visualExchangeCompleted &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerHeroWillSequenceComplete",
+                    heroWillCompletion,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerHeroWillSequenceComplete",
+                    heroWillCompletion,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerLocalHeroAbilityCaptured",
+                    "command=1",
+                    expectedHeroWillUses,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerLocalHeroAbilityCaptured",
+                    "command=1",
+                    expectedHeroWillUses,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerRemoteHeroAbilityReplayed",
+                    "command=1",
+                    expectedHeroWillUses,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetailCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerRemoteHeroAbilityReplayed",
+                    "command=1",
+                    expectedHeroWillUses,
+                    timeoutSeconds);
+            if (heroWillSequenceCompleted)
             {
                 Sleep(2'000);
             }
             const std::string hostEventContent = ReadEventFile(hostEvents);
             const std::string guestEventContent = ReadEventFile(guestEvents);
-            const bool authorityReturned = handoffCompleted &&
-                LastEventDetailContains(
-                    hostEventContent,
-                    "MultiplayerEntitySimulationCoverage",
-                    "local_simulation=23 fenced=0") &&
-                LastEventDetailContains(
-                    guestEventContent,
-                    "MultiplayerEntitySimulationCoverage",
-                    "local_simulation=0 fenced=23");
+            const bool authorityReturned = heroWillSequenceCompleted &&
+                (heroWillTest ||
+                    (LastEventDetailContains(
+                        hostEventContent,
+                        "MultiplayerEntitySimulationCoverage",
+                        "fenced=0") &&
+                     LastEventDetailContains(
+                        guestEventContent,
+                        "MultiplayerEntitySimulationCoverage",
+                        "local_simulation=0")));
             host.window = FindMainWindow(host.processId);
             guest.window = FindMainWindow(guest.processId);
             const bool peersSurvived = authorityReturned &&
@@ -2627,11 +3024,15 @@ namespace
             if (!peersSurvived || !guestStopped || !hostStopped)
             {
                 std::wcerr
-                    << L"Multiplayer combat authority acceptance failed during the primary-attacker lease handoff.\n";
+                    << (heroWillTest
+                        ? L"Multiplayer Hero Will acceptance failed before both peers completed the supported spell sequence.\n"
+                        : L"Multiplayer combat authority acceptance failed during the primary-attacker lease handoff.\n");
                 return 1;
             }
             std::wcout
-                << L"Multiplayer combat authority acceptance passed: Fable's mapped ATTACK selected a native enemy, the host granted only that enemy to the guest attacker, its AI, movement, and animations moved to the guest, native enemy and guest-Hero health changes converged through host revisions, and idle release restored map-owner control.\n"
+                << (heroWillTest
+                    ? L"Multiplayer Hero Will acceptance passed in the Chamber of Fate: both Heroes submitted and replayed the complete supported retail Will ability sequence.\n"
+                    : L"Multiplayer combat acceptance passed in the Chamber of Fate: both Heroes attacked the replicated enemy, exchanged PvP attacks, kept weapon transitions ordered, converged health, and replayed the complete retail Will ability sequence.\n")
                 << L"State root: " << sessionRoot.wstring() << L"\n";
             return 0;
         }
@@ -3221,7 +3622,7 @@ namespace
                 guest,
                 roleRoot(L"guest") / L"events.jsonl",
                 L"guest",
-                1280,
+                kLocalTestWindowPitch,
                 timeoutSeconds))
         {
             stop(guest);
@@ -3237,7 +3638,7 @@ namespace
             return 1;
         }
 
-        std::wcout << L"Dual test: both 1280x720 title windows are responsive; observing "
+        std::wcout << L"Dual test: both compact side-by-side title windows are responsive; observing "
                    << holdSeconds << L" seconds of coexistence.\n";
         const ULONGLONG holdDeadline = GetTickCount64() +
             static_cast<ULONGLONG>(holdSeconds) * 1'000;
@@ -3267,7 +3668,8 @@ namespace
 
         const bool finalGeometry =
             PositionLocalWindow(host.window, L"host", 0, 0) &&
-            PositionLocalWindow(guest.window, L"guest", 1280, 0);
+            PositionLocalWindow(
+                guest.window, L"guest", kLocalTestWindowPitch, 0);
         const bool guestStopped = CloseCreatedProcess(
             guest.process.get(),
             guest.processId,
@@ -3282,7 +3684,7 @@ namespace
             return 1;
         }
 
-        std::wcout << L"Dual-instance acceptance passed: distinct responsive host and guest PIDs/HWNDs coexisted in isolated 1280x720 windows.\n"
+        std::wcout << L"Dual-instance acceptance passed: distinct responsive host and guest PIDs/HWNDs coexisted in isolated compact side-by-side windows.\n"
                    << L"State root: " << sessionRoot.wstring() << L"\n";
         return 0;
     }
@@ -3345,7 +3747,9 @@ namespace
         }
         if (!localInstance.empty())
         {
-            const int x = localInstance == L"host" ? 0 : 1280;
+            const int x = localInstance == L"host"
+                ? 0
+                : kLocalTestWindowPitch;
             if (!WaitForLocalInstanceReady(
                     launched,
                     eventPath,
@@ -3360,7 +3764,7 @@ namespace
                 return 1;
             }
             std::wcout << L"Local " << localInstance
-                       << L" is ready in a 1280x720 window; launcher is leaving PID "
+                       << L" is ready in a compact test window; launcher is leaving PID "
                        << launched.processId << L" running.\n";
         }
         return 0;
@@ -3413,13 +3817,17 @@ int wmain(int argc, wchar_t** argv)
         options.multiplayerTest || options.multiplayerRosterTest ||
         options.multiplayerTransitionTest ||
         options.multiplayerAuthorityTest ||
-        options.multiplayerCombatTest ||
+        options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
         options.multiplayerPlaytest;
     const fs::path fixtureDocumentsSource = loadFixtureScenario
         ? options.fixtureDocuments.empty()
             ? ResolveDeploymentAsset(
                 launcherDirectory,
-                fs::path(L"fixtures") / L"adult-town" / L"Documents",
+                fs::path(L"fixtures") /
+                    ((options.multiplayerCombatTest || options.multiplayerHeroWillTest)
+                        ? L"combat-chamber-hero3"
+                        : L"adult-town") /
+                    L"Documents",
                 true)
             : AbsolutePath(options.fixtureDocuments)
         : fs::path();
@@ -3458,7 +3866,7 @@ int wmain(int argc, wchar_t** argv)
         !options.multiplayerRosterTest &&
         !options.multiplayerTransitionTest &&
         !options.multiplayerAuthorityTest &&
-        !options.multiplayerCombatTest &&
+        !options.multiplayerCombatTest && !options.multiplayerHeroWillTest &&
         !options.multiplayerPlaytest)
     {
         std::wcout << L"Log:    " << clientLog.wstring() << L'\n'
@@ -3490,12 +3898,14 @@ int wmain(int argc, wchar_t** argv)
     if (options.multiplayerTest || options.multiplayerRosterTest ||
         options.multiplayerTransitionTest ||
         options.multiplayerAuthorityTest ||
-        options.multiplayerCombatTest ||
+        options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
         options.multiplayerPlaytest)
     {
         std::wcout << L"Test:   "
                    << (options.multiplayerPlaytest
                        ? L"multiplayer_adult_town_manual"
+                       : options.multiplayerHeroWillTest
+                           ? L"multiplayer_hero_will"
                        : options.multiplayerCombatTest
                            ? L"multiplayer_combat_authority_handoff"
                        : options.multiplayerAuthorityTest
@@ -3556,11 +3966,13 @@ int wmain(int argc, wchar_t** argv)
         }
 
         const fs::path saveRoot = fixtureDocumentsSource /
-            L"My Games" / L"FableHD" / L"Saves" / L"Hero1";
+            L"My Games" / L"FableHD" / L"Saves" /
+            ((options.multiplayerCombatTest || options.multiplayerHeroWillTest)
+                ? L"Hero3" : L"Hero1");
         if (!IsFile(saveRoot / L"Profile.bin") ||
             !IsFile(saveRoot / L"AutoSave"))
         {
-            std::wcerr << L"The fixture must contain isolated Hero1 Profile.bin and AutoSave files.\n";
+            std::wcerr << L"The fixture must contain an isolated Profile.bin and AutoSave pair.\n";
             return 1;
         }
     }
@@ -3584,7 +3996,7 @@ int wmain(int argc, wchar_t** argv)
     if (options.multiplayerTest || options.multiplayerRosterTest ||
         options.multiplayerTransitionTest ||
         options.multiplayerAuthorityTest ||
-        options.multiplayerCombatTest ||
+        options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
         options.multiplayerPlaytest)
     {
         return RunMultiplayerTest(
@@ -3600,6 +4012,7 @@ int wmain(int argc, wchar_t** argv)
             options.multiplayerTransitionTest,
             options.multiplayerAuthorityTest,
             options.multiplayerCombatTest,
+            options.multiplayerHeroWillTest,
             options.gameArguments);
     }
 

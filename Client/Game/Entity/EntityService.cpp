@@ -3,6 +3,7 @@
 #include "Entity.h"
 #include "Game/Creature/Control/ScriptControl.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
+#include "Game/Entity/Native/ScriptedUseActionFunctions.h"
 #include "../Native/Addresses.h"
 
 #include <cstring>
@@ -17,6 +18,8 @@ namespace
     using CharStringDestructor = void(__thiscall*)(CharString*);
     using FindThing = ScriptThing* (__thiscall*)(
         GameScriptInterface*, ScriptThing*, const CharString*);
+    using FindThingByUid = ScriptThing* (__thiscall*)(
+        GameScriptInterface*, ScriptThing*, std::uint64_t);
     using CreateCreatureFunction = ScriptThing* (__thiscall*)(
         GameScriptInterface*,
         ScriptThing*,
@@ -40,6 +43,8 @@ namespace
     using SetFlagFunction = void(__thiscall*)(GameScriptInterface*, const ScriptThing*, bool);
     using TeleportFunction = void(__thiscall*)(
         GameScriptInterface*, const ScriptThing*, const Vector3*, float, bool, int);
+    using OpenDoorFunction = void(__thiscall*)(
+        GameScriptInterface*, const ScriptThing*);
     using AttackFunction = void(__thiscall*)(
         GameScriptInterface*, const ScriptThing*, const ScriptThing*, bool, bool);
     using StartControlFunction = bool(__thiscall*)(
@@ -227,6 +232,16 @@ namespace fable::game
         return FindByScriptNameNative(scriptName.c_str());
     }
 
+    Entity* EntityService::FindByUid(std::uint64_t uid)
+    {
+        native::ScriptThing result;
+        if (!FindByUidHandleNative(uid, result))
+        {
+            return nullptr;
+        }
+        return new Entity(*this, result);
+    }
+
     Entity* EntityService::FindByScriptNameNative(const char* scriptName)
     {
         native::ScriptThing result;
@@ -278,6 +293,37 @@ namespace fable::game
             {
                 valid = false;
             }
+        }
+        if (!valid)
+        {
+            ReleaseHandle(result);
+            return false;
+        }
+        return true;
+    }
+
+    bool EntityService::FindByUidHandleNative(
+        std::uint64_t uid,
+        native::ScriptThing& result)
+    {
+        result = {};
+        native::GameScriptInterface* gameInterface = ResolveInterface();
+        if (gameInterface == nullptr || uid == 0)
+        {
+            return false;
+        }
+
+        const auto findThing = reinterpret_cast<FindThingByUid>(
+            gameInterface->vtable[native::game_interface_slot::GetThingWithUid]);
+        bool valid = false;
+        __try
+        {
+            valid = findThing(gameInterface, &result, uid) == &result &&
+                IsValid(result);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            valid = false;
         }
         if (!valid)
         {
@@ -917,6 +963,46 @@ namespace fable::game
             applied = false;
         }
         return applied;
+    }
+
+    bool EntityService::OpenDoor(const native::ScriptThing& handle)
+    {
+        native::GameScriptInterface* gameInterface = ResolveInterface();
+        if (gameInterface == nullptr || !IsValid(handle))
+        {
+            return false;
+        }
+        bool applied = false;
+        __try
+        {
+            const auto function = reinterpret_cast<OpenDoorFunction>(
+                gameInterface->vtable[native::game_interface_slot::OpenDoor]);
+            function(gameInterface, &handle);
+            applied = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            applied = false;
+        }
+        return applied;
+    }
+
+    bool EntityService::UseScriptedAction(
+        const native::ScriptThing& handle,
+        bool requireRegionEntrance,
+        const char** failure)
+    {
+        const char* nativeFailure = nullptr;
+        const bool used = entity::native::ScriptedUseActionFunctions::Execute(
+            ResolveNative(handle),
+            gameModule_,
+            requireRegionEntrance,
+            nativeFailure);
+        if (failure != nullptr)
+        {
+            *failure = nativeFailure;
+        }
+        return used;
     }
 
     bool EntityService::SetFlag(

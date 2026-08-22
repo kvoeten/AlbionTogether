@@ -2,6 +2,11 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroPresentationFactoryHook.h"
+#include "Game/HeroPawn/Appearance/RemoteHeroAppearanceController.h"
+#include "Game/Creature/Equipment/CreatureWeaponFamily.h"
+#include "Game/HeroPawn/Equipment/RemoteHeroEquipmentController.h"
+#include "Game/HeroPawn/Combat/RemoteHeroCombatController.h"
+#include "Game/HeroPawn/Abilities/RemoteHeroAbilityController.h"
 #include "Multiplayer/Movement/ReplicatedActorMovement.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 
@@ -32,11 +37,25 @@ namespace fable::game::creature::combat
     class CreatureCombatService;
 }
 
-namespace fable::multiplayer::presentation
+namespace fable::game::hero_pawn::abilities
 {
-    // Owns one map-scoped remote player's native actor and appearance. The
-    // actor-generic movement consumer is composed here, not implemented here.
-    class RemotePlayerPresentation final
+    class HeroWillAbilityService;
+}
+
+namespace fable::multiplayer::combat
+{
+    class PlayerCombatantDirectory;
+}
+
+namespace fable::game::hero_pawn::remote
+{
+    using multiplayer::PlayerState;
+    namespace movement = multiplayer::movement;
+
+    // Actor-scoped aggregate for one remote Hero. Networking owns only its
+    // actor-ID registry; Hero behavior is composed from Hero-domain
+    // appearance, equipment, combat, and actor-generic movement controllers.
+    class RemoteHeroActor final
     {
     public:
         bool Initialize(
@@ -45,6 +64,8 @@ namespace fable::multiplayer::presentation
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
             game::creature::combat::CreatureCombatService& combat,
+            game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+            multiplayer::combat::PlayerCombatantDirectory& combatants,
             const core::Diagnostics& diagnostics,
             game::hero_pawn::appearance::hooks::
                 RemoteHeroPresentationFactoryHook& presentationFactory);
@@ -60,6 +81,30 @@ namespace fable::multiplayer::presentation
             float currentHealth,
             float maximumHealth,
             std::uint32_t revision);
+        bool PerformAbility(
+            game::creature::equipment::CreatureWeaponFamily weaponFamily,
+            const game::hero_pawn::equipment::HeroWeaponDefinitions&
+                requiredWeapons,
+            std::uint32_t meleeAttachmentSlot,
+            std::uint32_t rangedAttachmentSlot,
+            std::uint32_t abilityId,
+            float charge,
+            void* targetCreature,
+            const std::string& resolvedActionType,
+            std::uint32_t resolvedAnimationId);
+        bool PerformWeaponTransition(
+            game::creature::equipment::CreatureWeaponFamily weaponFamily,
+            const game::hero_pawn::equipment::HeroWeaponDefinitions&
+                requiredWeapons,
+            std::uint32_t meleeAttachmentSlot,
+            std::uint32_t rangedAttachmentSlot,
+            const std::string& resolvedActionType,
+            std::uint32_t resolvedAnimationId);
+        bool PerformHeroAbility(
+            game::hero_pawn::abilities::HeroAbility ability,
+            game::hero_pawn::abilities::HeroAbilityCommand command,
+            std::int32_t progressionState,
+            void* targetCreature);
         void Shutdown() noexcept;
         [[nodiscard]] bool IsActive() const;
 
@@ -67,6 +112,7 @@ namespace fable::multiplayer::presentation
         bool Spawn(
             const PlayerState& state,
             const std::string& localMap,
+            game::Entity* localHero,
             std::uint64_t receivedAt);
         void Suspend(
             const PlayerState& state,
@@ -74,8 +120,10 @@ namespace fable::multiplayer::presentation
         bool Resume(
             const PlayerState& state,
             const std::string& localMap,
+            game::Entity* localHero,
             std::uint64_t receivedAt);
         void Retire(bool worldUnloading = false) noexcept;
+        void ReapQuarantinedAvatars() noexcept;
         static bool ReadMovement(
             void* context,
             void* creature,
@@ -87,15 +135,21 @@ namespace fable::multiplayer::presentation
         game::EntityService* entities_ = nullptr;
         game::NpcService* npcs_ = nullptr;
         game::creature::look::CreatureLookService* look_ = nullptr;
-        game::creature::combat::CreatureCombatService* combat_ = nullptr;
+        multiplayer::combat::PlayerCombatantDirectory* combatants_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         game::hero_pawn::appearance::hooks::RemoteHeroPresentationFactoryHook*
             presentationFactory_ = nullptr;
         movement::ReplicatedActorMovement movement_;
+        game::hero_pawn::appearance::RemoteHeroAppearanceController
+            appearance_;
+        game::hero_pawn::equipment::RemoteHeroEquipmentController equipment_;
+        game::hero_pawn::combat::RemoteHeroCombatController combat_;
+        game::hero_pawn::abilities::RemoteHeroAbilityController abilities_;
         game::hero_pawn::appearance::hooks::
             RemoteHeroPresentationFactoryHook::ArmToken factoryArmToken_ = 0;
         game::Entity* avatar_ = nullptr;
         void* nativeAvatar_ = nullptr;
+        void* nativeCompanionHero_ = nullptr;
         game::ScriptControl* control_ = nullptr;
         struct DeferredWorldPresentation final
         {
@@ -103,25 +157,18 @@ namespace fable::multiplayer::presentation
             void* nativeAvatar = nullptr;
             game::ScriptControl* control = nullptr;
         } deferred_;
-        // Promoted AHeroPawn presentations cannot safely be destroyed while
-        // Fable's asynchronous graphics jobs may still reference their Hero
-        // components. They are hidden and quarantined when their source world
-        // unloads; a fresh map-scoped actor is created in the destination.
+        // Keep only the immediately previous world generation alive while
+        // Fable's asynchronous graphics jobs drain. The next completed world
+        // transition explicitly destroys that bounded generation.
         std::vector<game::Entity*> quarantinedAvatars_;
         std::string playerId_;
         std::string appearanceDefinition_;
         std::uint64_t actorId_ = 0;
-        game::hero_pawn::appearance::HeroMorphState appliedMorph_ = {};
-        game::hero_pawn::appearance::HeroClothingState appliedClothing_ = {};
-        game::hero_pawn::appearance::HeroBoneScaleState appliedBoneScales_ = {};
-        game::hero_pawn::appearance::HeroAppearanceModifierState
-            appliedModifiers_ = {};
         std::uint64_t nextSpawnAttemptAt_ = 0;
         bool initialized_ = false;
-        bool graphicRuntimeReported_ = false;
+        bool presentationStateReported_ = false;
         bool avatarSuspended_ = false;
         bool separationReported_ = false;
-        void* healthCreature_ = nullptr;
-        std::uint32_t appliedHealthRevision_ = 0;
+        bool companionRegistered_ = false;
     };
 }

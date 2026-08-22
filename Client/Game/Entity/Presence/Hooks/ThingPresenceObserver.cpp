@@ -1,5 +1,7 @@
 #include "ThingPresenceObserver.h"
 
+#include "Game/Entity/Presence/TransientEntityCreationScope.h"
+
 #include "Game/Creature/Locomotion/Native/PhysicsNavigatorFunctions.h"
 #include "Game/Creature/Look/Native/CreatureLookFunctions.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
@@ -445,12 +447,18 @@ namespace fable::game::entity::presence
         event.creature = context.creature;
         event.hasHeroMorph = context.hasHeroMorph;
         event.hasVillageMembership = context.hasVillageMembership;
+        event.summonedCreature = context.summonedCreature;
+        event.abilityOwnedTransient =
+            TransientEntityCreationScope::IsActive();
         event.destroyed = destroyed;
         event.thing = context.thing;
         event.component = component;
         Notify(event);
 
-        if (ordinal > DiagnosticEventLimit)
+        const bool networkIdentityBearing = context.creature ||
+            context.gamePersistent || context.levelPersistent ||
+            context.hasVillageMembership || context.scriptName[0] != '\0';
+        if (!networkIdentityBearing || ordinal > DiagnosticEventLimit)
         {
             return;
         }
@@ -458,7 +466,7 @@ namespace fable::game::entity::presence
         std::snprintf(
             detail,
             std::size(detail),
-            "phase=%s ordinal=%u thing_uid=%016llX village_uid=%016llX map_id=%u definition_index=%u script_name=%s game_persistent=%s level_persistent=%s creature=%s hero_presentation=%s destroyed=%s thing=%p component=%p context_readable=%s thread=%lu",
+            "phase=%s ordinal=%u thing_uid=%016llX village_uid=%016llX map_id=%u definition_index=%u script_name=%s game_persistent=%s level_persistent=%s creature=%s hero_presentation=%s summoned=%s ability_transient=%s destroyed=%s thing=%p component=%p context_readable=%s thread=%lu",
             phase == ThingPresencePhase::Registered
                 ? "registered"
                 : "unregistered",
@@ -472,6 +480,8 @@ namespace fable::game::entity::presence
             context.levelPersistent ? "true" : "false",
             context.creature ? "true" : "false",
             context.hasHeroMorph ? "true" : "false",
+            context.summonedCreature ? "true" : "false",
+            event.abilityOwnedTransient ? "true" : "false",
             destroyed ? "true" : "false",
             context.thing,
             component,
@@ -535,6 +545,9 @@ namespace fable::game::entity::presence
                             context.thing,
                             game::entity::native::ThingComponentType::
                                 CreatureNavigation);
+                    context.summonedCreature =
+                        game::entity::native::ThingComponentAccess::
+                            IsActiveSummonedCreature(context.thing);
                     void* const navigator =
                         game::entity::native::ThingComponentAccess::Find(
                             context.thing,

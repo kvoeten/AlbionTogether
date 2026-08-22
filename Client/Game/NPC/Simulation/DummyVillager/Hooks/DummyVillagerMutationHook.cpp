@@ -286,8 +286,8 @@ namespace fable::game::npc::simulation
     bool __fastcall DummyVillagerMutationHook::SerializeIntercept(
         void* component,
         void*,
-        void* context,
-        void* serializer)
+        void* serializer,
+        void* context)
     {
         DummyVillagerMutationHook* const hook = active_;
         if (hook == nullptr || hook->originalSerialize_ == nullptr)
@@ -332,7 +332,7 @@ namespace fable::game::npc::simulation
             }
         }
         const bool result = hook->originalSerialize_(
-            component, context, serializer);
+            component, serializer, context);
         if (projectionApplied)
         {
             native::DummyVillagerFunctions::WriteComponent(component, before);

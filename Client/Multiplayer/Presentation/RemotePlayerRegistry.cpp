@@ -1,11 +1,11 @@
 #include "RemotePlayerRegistry.h"
 
 #include "Game/Entity/EntityService.h"
-#include "Multiplayer/Presentation/RemotePlayerPresentation.h"
+#include "Game/HeroPawn/Remote/RemoteHeroActor.h"
+#include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 
 #include <algorithm>
 #include <cstdio>
-#include <unordered_set>
 
 namespace fable::multiplayer::presentation
 {
@@ -15,6 +15,8 @@ namespace fable::multiplayer::presentation
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
         game::creature::combat::CreatureCombatService& combat,
+        game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+        multiplayer::combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics,
         std::uint64_t localActorId)
     {
@@ -24,6 +26,8 @@ namespace fable::multiplayer::presentation
         locomotion_ = &locomotion;
         look_ = &look;
         combat_ = &combat;
+        abilities_ = &abilities;
+        combatants_ = &combatants;
         diagnostics_ = diagnostics;
         localActorId_ = localActorId;
         if (!presentationFactory_.Install(entities.GameModule(), diagnostics))
@@ -41,12 +45,15 @@ namespace fable::multiplayer::presentation
         return true;
     }
 
-    std::unique_ptr<RemotePlayerPresentation>
+    std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>
         RemotePlayerRegistry::CreatePresentation()
     {
-        auto presentation = std::make_unique<RemotePlayerPresentation>();
+        auto presentation = std::make_unique<
+            game::hero_pawn::remote::RemoteHeroActor>();
         if (!presentation->Initialize(
-                *entities_, *npcs_, *locomotion_, *look_, *combat_, diagnostics_,
+                *entities_, *npcs_, *locomotion_, *look_, *combat_,
+                *abilities_,
+                *combatants_, diagnostics_,
                 presentationFactory_))
         {
             return nullptr;
@@ -63,8 +70,6 @@ namespace fable::multiplayer::presentation
         {
             return;
         }
-        std::unordered_set<std::uint64_t> liveActors;
-        liveActors.reserve(snapshots.size());
         for (const replication::RemotePlayerSnapshot& snapshot : snapshots)
         {
             const PlayerState& state = snapshot.state;
@@ -72,7 +77,6 @@ namespace fable::multiplayer::presentation
             {
                 continue;
             }
-            liveActors.insert(state.actorId);
             auto iterator = presentations_.find(state.actorId);
             if (iterator == presentations_.end())
             {
@@ -101,10 +105,8 @@ namespace fable::multiplayer::presentation
             iterator->second->Reconcile(
                 state, localMap, localHero, snapshot.receivedAt);
         }
-
         // Channel removal is explicit (disconnect/authority retirement). A
         // player on another map remains live but its presentation is dormant.
-        (void)liveActors;
     }
 
     void RemotePlayerRegistry::Remove(std::uint64_t actorId) noexcept
@@ -158,6 +160,68 @@ namespace fable::multiplayer::presentation
                 currentHealth, maximumHealth, revision);
     }
 
+    bool RemotePlayerRegistry::PerformAbility(
+        std::uint64_t actorId,
+        game::creature::equipment::CreatureWeaponFamily weaponFamily,
+        const game::hero_pawn::equipment::HeroWeaponDefinitions&
+            requiredWeapons,
+        std::uint32_t meleeAttachmentSlot,
+        std::uint32_t rangedAttachmentSlot,
+        std::uint32_t abilityId,
+        float charge,
+        void* targetCreature,
+        const std::string& resolvedActionType,
+        std::uint32_t resolvedAnimationId)
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->PerformAbility(
+                weaponFamily,
+                requiredWeapons,
+                meleeAttachmentSlot,
+                rangedAttachmentSlot,
+                abilityId,
+                charge,
+                targetCreature, resolvedActionType, resolvedAnimationId);
+    }
+
+    bool RemotePlayerRegistry::PerformWeaponTransition(
+        std::uint64_t actorId,
+        game::creature::equipment::CreatureWeaponFamily weaponFamily,
+        const game::hero_pawn::equipment::HeroWeaponDefinitions&
+            requiredWeapons,
+        std::uint32_t meleeAttachmentSlot,
+        std::uint32_t rangedAttachmentSlot,
+        const std::string& resolvedActionType,
+        std::uint32_t resolvedAnimationId)
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->PerformWeaponTransition(
+                weaponFamily,
+                requiredWeapons,
+                meleeAttachmentSlot,
+                rangedAttachmentSlot,
+                resolvedActionType,
+                resolvedAnimationId);
+    }
+
+    bool RemotePlayerRegistry::PerformHeroAbility(
+        std::uint64_t actorId,
+        game::hero_pawn::abilities::HeroAbility ability,
+        game::hero_pawn::abilities::HeroAbilityCommand command,
+        std::int32_t progressionState,
+        void* targetCreature)
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->PerformHeroAbility(
+                ability, command, progressionState, targetCreature);
+    }
+
     void RemotePlayerRegistry::Shutdown() noexcept
     {
         for (auto& [actorId, presentation] : presentations_)
@@ -172,6 +236,8 @@ namespace fable::multiplayer::presentation
         locomotion_ = nullptr;
         look_ = nullptr;
         combat_ = nullptr;
+        abilities_ = nullptr;
+        combatants_ = nullptr;
         diagnostics_ = {};
         localActorId_ = 0;
         initialized_ = false;

@@ -24,6 +24,7 @@ namespace fable::game
 
         Entity* GetHero();
         Entity* FindByScriptName(const std::string& scriptName);
+        Entity* FindByUid(std::uint64_t uid);
         Entity* CreateCreature(
             const std::string& definition,
             const Vector3& position,
@@ -71,6 +72,11 @@ namespace fable::game
             const Vector3& position,
             float facing,
             bool effect);
+        bool OpenDoor(const native::ScriptThing& handle);
+        bool UseScriptedAction(
+            const native::ScriptThing& handle,
+            bool requireRegionEntrance = false,
+            const char** failure = nullptr);
         bool SetAttackable(const native::ScriptThing& handle, bool enabled);
         bool SetDamageable(const native::ScriptThing& handle, bool enabled);
         bool SetCollidable(const native::ScriptThing& handle, bool enabled);
@@ -101,6 +107,9 @@ namespace fable::game
         Entity* FindByScriptNameNative(const char* scriptName);
         bool FindByScriptNameHandleNative(
             const char* scriptName,
+            native::ScriptThing& result);
+        bool FindByUidHandleNative(
+            std::uint64_t uid,
             native::ScriptThing& result);
         Entity* CreateCreatureNative(
             const char* definition,

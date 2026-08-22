@@ -92,9 +92,16 @@ namespace fable::multiplayer::entities
             {
                 continue;
             }
-            if (LiveEntityRegistry::IsReplicable(change.record))
+            const bool replicable =
+                LiveEntityRegistry::IsReplicable(change.record);
+            if (replicable)
             {
                 TrackChange(change);
+            }
+            else
+            {
+                ++filteredTransientCount_;
+                continue;
             }
 
             ++diagnosticChangeCount_;
@@ -133,12 +140,26 @@ namespace fable::multiplayer::entities
                     : "false",
                 change.record.creature ? "true" : "false",
                 change.record.hasHeroMorph ? "true" : "false",
-                LiveEntityRegistry::IsReplicable(change.record)
-                    ? "true"
-                    : "false",
+                "true",
                 liveEntities_.Size());
             diagnostics_.Event("MultiplayerLiveEntityChanged", detail);
 
+        }
+
+        if (filteredTransientCount_ != reportedFilteredTransientCount_ &&
+            (reportedFilteredTransientCount_ == 0 ||
+                filteredTransientCount_ - reportedFilteredTransientCount_ >=
+                    256))
+        {
+            reportedFilteredTransientCount_ = filteredTransientCount_;
+            char detail[192] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "filtered_total=%u reason=transient-non-creature-without-persistent-or-script-identity",
+                filteredTransientCount_);
+            diagnostics_.Event(
+                "MultiplayerTransientEntityFiltered", detail);
         }
 
         const unsigned int dropped =
@@ -245,6 +266,8 @@ namespace fable::multiplayer::entities
         droppedEvents_.store(0, std::memory_order_release);
         reportedDroppedEvents_ = 0;
         diagnosticChangeCount_ = 0;
+        filteredTransientCount_ = 0;
+        reportedFilteredTransientCount_ = 0;
         identityCollisionCount_ = 0;
         baselineRequired_ = true;
         initialized_ = false;

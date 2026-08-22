@@ -2,7 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 
-namespace fable::multiplayer::presentation
+namespace fable::game::hero_pawn::appearance
 {
     bool ReportHeroSkeletalPresentation(
         const char* label,

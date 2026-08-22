@@ -42,6 +42,9 @@
   <Target Name="DeployAutomationFixture" AfterTargets="Build">
     <Copy SourceFiles="$(SolutionDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\Profile.bin" DestinationFiles="$(OutDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\Profile.bin" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(SolutionDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\AutoSave" DestinationFiles="$(OutDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\AutoSave" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Fable Anniversary" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Fable Anniversary" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Hero3\Profile.bin" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Hero3\Profile.bin" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Hero3\AutoSave" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Hero3\AutoSave" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(SolutionDir)config\server-character.fixture.json" DestinationFiles="$(OutDir)config\server-character.fixture.json" SkipUnchangedFiles="true" />
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -10,7 +10,8 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
-#include <vector>
+#include <memory>
+#include <unordered_map>
 
 namespace fable::game::creature::locomotion
 {
@@ -53,12 +54,21 @@ namespace fable::game::creature::locomotion
 
         struct ReplicatedAnimationMotion final
         {
-            void* owner = nullptr;
+            SRWLOCK valueLock = SRWLOCK_INIT;
             Vector3 linearVelocity = {};
             float angularVelocity = 0.0f;
-            std::uint64_t updatedAt = 0;
-            std::uint64_t evaluatedAt = 0;
+            std::atomic_uint64_t updatedAt{0};
+            std::atomic_uint64_t evaluatedAt{0};
         };
+
+        [[nodiscard]] std::shared_ptr<ReplicatedAnimationMotion>
+            FindReplicatedAnimationMotion(void* owner) const noexcept;
+        [[nodiscard]] bool ReadReplicatedAnimationMotion(
+            void* owner,
+            std::uint64_t now,
+            Vector3& linearVelocity,
+            float& angularVelocity,
+            float& evaluationSeconds) const noexcept;
 
         static bool __fastcall ObserveAddSource(
             void* manager,
@@ -115,7 +125,10 @@ namespace fable::game::creature::locomotion
         std::atomic<void*> animationMotionSource_{nullptr};
         std::atomic<void*> animationMotionTarget_{nullptr};
         std::atomic_uint mirroredAnimationMotionCount_{0};
-        SRWLOCK replicatedAnimationMotionLock_ = SRWLOCK_INIT;
-        std::vector<ReplicatedAnimationMotion> replicatedAnimationMotions_;
+        mutable SRWLOCK replicatedAnimationMotionLock_ = SRWLOCK_INIT;
+        std::unordered_map<
+            void*,
+            std::shared_ptr<ReplicatedAnimationMotion>>
+                replicatedAnimationMotions_;
     };
 }

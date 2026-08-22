@@ -229,10 +229,12 @@ namespace fable::automation::runtime
             ScenarioIs(L"appearance_cycle") ||
             ScenarioIs(L"multiplayer_host") ||
             ScenarioIs(L"multiplayer_host_combat") ||
+            ScenarioIs(L"multiplayer_host_hero_will") ||
             ScenarioIs(L"multiplayer_host_authority") ||
             ScenarioIs(L"multiplayer_host_transition") ||
             ScenarioIs(L"multiplayer_guest") ||
             ScenarioIs(L"multiplayer_guest_combat") ||
+            ScenarioIs(L"multiplayer_guest_hero_will") ||
             ScenarioIs(L"multiplayer_guest_authority") ||
             ScenarioIs(L"multiplayer_guest_transition");
     }
@@ -243,10 +245,12 @@ namespace fable::automation::runtime
             ScenarioIs(L"appearance_cycle") ||
             ScenarioIs(L"multiplayer_host") ||
             ScenarioIs(L"multiplayer_host_combat") ||
+            ScenarioIs(L"multiplayer_host_hero_will") ||
             ScenarioIs(L"multiplayer_host_authority") ||
             ScenarioIs(L"multiplayer_host_transition") ||
             ScenarioIs(L"multiplayer_guest") ||
             ScenarioIs(L"multiplayer_guest_combat") ||
+            ScenarioIs(L"multiplayer_guest_hero_will") ||
             ScenarioIs(L"multiplayer_guest_authority") ||
             ScenarioIs(L"multiplayer_guest_transition");
     }

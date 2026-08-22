@@ -1,6 +1,6 @@
-#include "RemotePlayerPresentation.h"
+#include "RemoteHeroActor.h"
 
-#include "Game/Creature/Combat/CreatureCombatService.h"
+#include "Game/Creature/Companion/Native/CompanionFunctions.h"
 #include "Game/Creature/Control/ScriptControl.h"
 #include "Game/Creature/Look/CreatureLookService.h"
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
@@ -8,11 +8,10 @@
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
-#include "Game/HeroPawn/Appearance/Native/HeroAttachableAppearanceComponent.h"
-#include "Game/HeroPawn/Appearance/Native/HeroClothingComponent.h"
 #include "Game/HeroPawn/Appearance/Native/HeroMorphComponent.h"
+#include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/NPC/NpcService.h"
-#include "Multiplayer/Presentation/HeroPresentationDiagnostics.h"
+#include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 
 #include <Windows.h>
 
@@ -21,16 +20,22 @@
 namespace
 {
     constexpr float kMinimumVisiblePlayerSeparation = 1.25f;
+
 }
 
-namespace fable::multiplayer::presentation
+namespace fable::game::hero_pawn::remote
 {
-    bool RemotePlayerPresentation::Initialize(
+    using multiplayer::PlayerState;
+    namespace movement = multiplayer::movement;
+
+    bool RemoteHeroActor::Initialize(
         game::EntityService& entities,
         game::NpcService& npcs,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
         game::creature::combat::CreatureCombatService& combat,
+        game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+        multiplayer::combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics,
         game::hero_pawn::appearance::hooks::
             RemoteHeroPresentationFactoryHook& presentationFactory)
@@ -39,51 +44,86 @@ namespace fable::multiplayer::presentation
         entities_ = &entities;
         npcs_ = &npcs;
         look_ = &look;
-        combat_ = &combat;
+        combatants_ = &combatants;
         diagnostics_ = diagnostics;
         presentationFactory_ = &presentationFactory;
         movement_.Initialize(locomotion, diagnostics);
+        appearance_.Initialize(diagnostics);
+        equipment_.Initialize(entities, diagnostics);
+        combat_.Initialize(entities, combat, equipment_, diagnostics);
+        abilities_.Initialize(entities, abilities, diagnostics);
         initialized_ = true;
         return true;
     }
 
-    bool RemotePlayerPresentation::ApplyHealth(
+    bool RemoteHeroActor::ApplyHealth(
         float currentHealth,
         float maximumHealth,
         std::uint32_t revision)
     {
-        if (!initialized_ || combat_ == nullptr || nativeAvatar_ == nullptr ||
-            revision == 0)
-        {
-            return false;
-        }
-        if (healthCreature_ == nativeAvatar_ &&
-            appliedHealthRevision_ == revision)
-        {
-            return true;
-        }
-        if (!combat_->ApplyAuthoritativeCombatHealth(
-                nativeAvatar_, currentHealth, maximumHealth))
-        {
-            return false;
-        }
-        healthCreature_ = nativeAvatar_;
-        appliedHealthRevision_ = revision;
-        char detail[256] = {};
-        std::snprintf(
-            detail,
-            sizeof(detail),
-            "actor=%llu revision=%u health=%.3f maximum=%.3f",
-            static_cast<unsigned long long>(actorId_),
-            revision,
-            currentHealth,
-            maximumHealth);
-        diagnostics_.Event("MultiplayerRemotePlayerVitalsApplied", detail);
-        return true;
+        return initialized_ && !avatarSuspended_ &&
+            combat_.ApplyHealth(currentHealth, maximumHealth, revision);
+    }
+
+    bool RemoteHeroActor::PerformAbility(
+        game::creature::equipment::CreatureWeaponFamily weaponFamily,
+        const game::hero_pawn::equipment::HeroWeaponDefinitions&
+            requiredWeapons,
+        std::uint32_t meleeAttachmentSlot,
+        std::uint32_t rangedAttachmentSlot,
+        std::uint32_t abilityId,
+        float charge,
+        void* targetCreature,
+        const std::string& resolvedActionType,
+        std::uint32_t resolvedAnimationId)
+    {
+        return initialized_ && !avatarSuspended_ &&
+            combat_.PerformAbility(
+                weaponFamily,
+                requiredWeapons,
+                meleeAttachmentSlot,
+                rangedAttachmentSlot,
+                abilityId,
+                charge,
+                targetCreature, resolvedActionType, resolvedAnimationId);
+    }
+
+    bool RemoteHeroActor::PerformWeaponTransition(
+        game::creature::equipment::CreatureWeaponFamily weaponFamily,
+        const game::hero_pawn::equipment::HeroWeaponDefinitions&
+            requiredWeapons,
+        std::uint32_t meleeAttachmentSlot,
+        std::uint32_t rangedAttachmentSlot,
+        const std::string& resolvedActionType,
+        std::uint32_t resolvedAnimationId)
+    {
+        game::hero_pawn::equipment::HeroEquipmentState equipment;
+        equipment.valid = true;
+        equipment.meleeDefinitionIndex =
+            requiredWeapons.meleeDefinitionIndex;
+        equipment.rangedDefinitionIndex =
+            requiredWeapons.rangedDefinitionIndex;
+        equipment.meleeAttachmentSlot = meleeAttachmentSlot;
+        equipment.rangedAttachmentSlot = rangedAttachmentSlot;
+        equipment.activeFamily = weaponFamily;
+        return initialized_ && !avatarSuspended_ &&
+            equipment_.PerformTransition(
+                equipment, resolvedActionType, resolvedAnimationId);
+    }
+
+    bool RemoteHeroActor::PerformHeroAbility(
+        game::hero_pawn::abilities::HeroAbility ability,
+        game::hero_pawn::abilities::HeroAbilityCommand command,
+        std::int32_t progressionState,
+        void* targetCreature)
+    {
+        return initialized_ && !avatarSuspended_ &&
+            abilities_.Perform(
+                ability, command, progressionState, targetCreature);
     }
 
     movement::ReplicatedMovementSample
-        RemotePlayerPresentation::MovementSample(
+        RemoteHeroActor::MovementSample(
             const PlayerState& state,
             std::uint64_t receivedAt)
     {
@@ -101,7 +141,7 @@ namespace fable::multiplayer::presentation
         return sample;
     }
 
-    void RemotePlayerPresentation::Reconcile(
+    void RemoteHeroActor::Reconcile(
         const PlayerState& state,
         const std::string& localMap,
         game::Entity* localHero,
@@ -119,7 +159,8 @@ namespace fable::multiplayer::presentation
             Suspend(state, localMap);
             return;
         }
-        if (avatarSuspended_ && !Resume(state, localMap, receivedAt))
+        if (avatarSuspended_ &&
+            !Resume(state, localMap, localHero, receivedAt))
         {
             Retire();
         }
@@ -132,7 +173,7 @@ namespace fable::multiplayer::presentation
             playerId_ != state.playerId ||
             appearanceDefinition_ != state.appearanceDefinition)
         {
-            if (!Spawn(state, localMap, receivedAt))
+            if (!Spawn(state, localMap, localHero, receivedAt))
             {
                 return;
             }
@@ -142,94 +183,48 @@ namespace fable::multiplayer::presentation
             state.heroClothing.IsSane() &&
             state.heroBoneScales.IsSane() &&
             state.heroAppearanceModifiers.IsSane();
-        game::hero_pawn::appearance::native::HeroMorphResolutionState
-            resolution;
-        if (appearanceReady &&
-            !game::hero_pawn::appearance::native::HeroMorphComponent::
-                InspectResolution(nativeAvatar_, resolution))
+        if (!presentationStateReported_ &&
+            (appearanceReady || state.heroEquipment.IsSane()))
+        {
+            presentationStateReported_ = true;
+            char detail[224] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "actor_id=%llu appearance=%s equipment=%s melee=%d ranged=%d",
+                static_cast<unsigned long long>(actorId_),
+                appearanceReady ? "ready" : "pending",
+                state.heroEquipment.IsSane() ? "ready" : "pending",
+                state.heroEquipment.meleeDefinitionIndex,
+                state.heroEquipment.rangedDefinitionIndex);
+            diagnostics_.Event(
+                "MultiplayerRemotePresentationStateReceived", detail);
+        }
+
+        const bool presentationRequired =
+            appearanceReady || state.heroEquipment.IsSane();
+        const game::hero_pawn::appearance::RemoteHeroAppearanceResult
+            appearanceResult = appearance_.Reconcile(
+                state.heroMorph,
+                state.heroClothing,
+                state.heroBoneScales,
+                state.heroAppearanceModifiers,
+                presentationRequired);
+        if (appearanceResult == game::hero_pawn::appearance::
+                RemoteHeroAppearanceResult::Pending)
         {
             return;
         }
-        if (!graphicRuntimeReported_)
+        if (appearanceResult == game::hero_pawn::appearance::
+                RemoteHeroAppearanceResult::Failed)
         {
-            graphicRuntimeReported_ = ReportHeroSkeletalPresentation(
-                "remote", nativeAvatar_, diagnostics_);
-        }
-        if (appearanceReady && !appliedClothing_.Equals(state.heroClothing))
-        {
-            std::uint32_t inserted = 0;
-            if (!game::hero_pawn::appearance::native::HeroClothingComponent::Apply(
-                    nativeAvatar_, state.heroClothing, &inserted))
-            {
-                return;
-            }
-            appliedClothing_ = state.heroClothing;
-            char detail[224] = {};
-            std::snprintf(
-                detail, sizeof(detail),
-                "selected=(%d,%d,%d,%d,%d,%d) inserted=%u operation=native-wear-rebuild",
-                state.heroClothing.definitionIndices[0],
-                state.heroClothing.definitionIndices[1],
-                state.heroClothing.definitionIndices[2],
-                state.heroClothing.definitionIndices[3],
-                state.heroClothing.definitionIndices[4],
-                state.heroClothing.definitionIndices[5], inserted);
-            diagnostics_.Event("MultiplayerRemoteClothingApplied", detail);
-        }
-        if (appearanceReady &&
-            !appliedModifiers_.Equals(state.heroAppearanceModifiers))
-        {
-            std::uint32_t removed = 0;
-            std::uint32_t added = 0;
-            if (!game::hero_pawn::appearance::native::
-                    HeroAttachableAppearanceComponent::Apply(
-                        nativeAvatar_, state.heroAppearanceModifiers,
-                        &removed, &added))
-            {
-                return;
-            }
-            appliedModifiers_ = state.heroAppearanceModifiers;
-            char detail[192] = {};
-            std::snprintf(
-                detail, sizeof(detail),
-                "source=%u removed=%u added=%u operation=component-refresh",
-                state.heroAppearanceModifiers.count, removed, added);
             diagnostics_.Event(
-                "MultiplayerRemoteAppearanceModifiersApplied", detail);
+                "ClientFailed", "multiplayer-remote-appearance-refresh");
+            Retire();
+            return;
         }
-        if (appearanceReady && !appliedMorph_.Equals(state.heroMorph))
-        {
-            if (!game::hero_pawn::appearance::native::HeroMorphComponent::
-                    ApplyValues(nativeAvatar_, state.heroMorph))
-            {
-                diagnostics_.Event(
-                    "ClientFailed", "multiplayer-remote-morph-refresh");
-                Retire();
-                return;
-            }
-            appliedMorph_ = state.heroMorph;
-        }
-        if (appearanceReady &&
-            !appliedBoneScales_.Equals(state.heroBoneScales))
-        {
-            std::uint32_t matched = 0;
-            if (!game::hero_pawn::appearance::native::HeroMorphComponent::
-                    ApplyBoneScaleState(
-                        nativeAvatar_, state.heroBoneScales, &matched))
-            {
-                diagnostics_.Event(
-                    "ClientFailed", "multiplayer-remote-bone-scale-refresh");
-                Retire();
-                return;
-            }
-            appliedBoneScales_ = state.heroBoneScales;
-            char detail[160] = {};
-            std::snprintf(
-                detail, sizeof(detail),
-                "matched=%u source=%u operation=refresh",
-                matched, state.heroBoneScales.count);
-            diagnostics_.Event("MultiplayerRemoteBoneScalesApplied", detail);
-        }
+
+        equipment_.Reconcile(state.heroEquipment, now);
         if (!separationReported_ && localHero != nullptr &&
             localHero->IsValid())
         {
@@ -253,9 +248,10 @@ namespace fable::multiplayer::presentation
         }
     }
 
-    bool RemotePlayerPresentation::Spawn(
+    bool RemoteHeroActor::Spawn(
         const PlayerState& state,
         const std::string& localMap,
+        game::Entity* localHero,
         std::uint64_t receivedAt)
     {
         Retire();
@@ -273,6 +269,32 @@ namespace fable::multiplayer::presentation
             return false;
         }
         nativeAvatar_ = entities_->ResolveNative(avatar_->NativeHandle());
+        if (!game::creature::native::CreatureFrameFunctions::ValidateCreature(
+                entities_->GameModule(), nativeAvatar_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-native-type");
+            Retire();
+            return false;
+        }
+        // Complete the promoted Hero's native component graph before binding
+        // or staging any appearance resources. Adding an inventory component
+        // can rebuild the Hero graphic; doing so afterward invalidates the
+        // staged morph target and creates a presentation respawn loop.
+        if (!equipment_.Bind(*avatar_, nativeAvatar_, actorId_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-hero-equipment-bind");
+            Retire();
+            return false;
+        }
+        if (!abilities_.Bind(nativeAvatar_, actorId_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-hero-ability-bind");
+            Retire();
+            return false;
+        }
         game::hero_pawn::appearance::native::HeroMorphResolutionState pending;
         const bool presentationAlreadyReady =
             game::hero_pawn::appearance::native::HeroMorphComponent::
@@ -283,14 +305,7 @@ namespace fable::multiplayer::presentation
             presentationFactory_->TargetGraphic(
                 factoryArmToken_, pending.graphic);
         }
-        if (!game::creature::native::CreatureFrameFunctions::ValidateCreature(
-                entities_->GameModule(), nativeAvatar_))
-        {
-            diagnostics_.Event(
-                "ClientFailed", "multiplayer-remote-native-type");
-            Retire();
-            return false;
-        }
+        appearance_.Bind(nativeAvatar_, actorId_);
         if (game::entity::native::ThingComponentAccess::Has(
                 nativeAvatar_,
                 game::entity::native::ThingComponentType::HeroMorph) &&
@@ -306,27 +321,12 @@ namespace fable::multiplayer::presentation
             state.heroClothing.IsSane() &&
             state.heroBoneScales.IsSane() &&
             state.heroAppearanceModifiers.IsSane();
-        if (appearanceReady &&
-            !game::hero_pawn::appearance::native::HeroMorphComponent::
-                ApplyValues(nativeAvatar_, state.heroMorph))
+        if (!appearance_.StageInitial(state.heroMorph, appearanceReady))
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-morph-values");
             Retire();
             return false;
-        }
-        if (appearanceReady)
-        {
-            appliedMorph_ = state.heroMorph;
-            diagnostics_.Event(
-                "MultiplayerRemoteAppearancePending",
-                "remote Hero-compatible creature scalar appearance staged; waiting for its UE3 skeletal presentation and MassBoneScaling control");
-        }
-        else
-        {
-            diagnostics_.Event(
-                "MultiplayerRemoteAppearancePending",
-                "remote Hero-compatible creature constructed with default presentation while morph translation is pending");
         }
         playerId_ = state.playerId;
         appearanceDefinition_ = state.appearanceDefinition;
@@ -336,9 +336,9 @@ namespace fable::multiplayer::presentation
         // through teardown. It is quarantined after unload; the destination
         // receives a fresh map-scoped presentation.
         if (!avatar_->SetKillOnLevelUnload(false) ||
-            !avatar_->SetAttackable(false) ||
-            !avatar_->SetDamageable(false) ||
-            !avatar_->SetFriendsWithEverything(true) ||
+            !avatar_->SetAttackable(true) ||
+            !avatar_->SetDamageable(true) ||
+            !avatar_->SetFriendsWithEverything(false) ||
             !avatar_->SetCollidable(true) || !avatar_->SetDrawable(true))
         {
             diagnostics_.Event(
@@ -346,6 +346,56 @@ namespace fable::multiplayer::presentation
             Retire();
             return false;
         }
+        if (!combat_.Bind(*avatar_, nativeAvatar_, actorId_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-health-authority-fence");
+            Retire();
+            return false;
+        }
+        nativeCompanionHero_ = localHero != nullptr && localHero->IsValid()
+            ? entities_->ResolveNative(localHero->NativeHandle())
+            : nullptr;
+        game::creature::companion::native::CompanionRegistration companion;
+        if (nativeCompanionHero_ == nullptr ||
+            !game::creature::companion::native::CompanionFunctions::
+                RegisterWithHero(
+                    entities_->GameModule(),
+                    nativeAvatar_,
+                    nativeCompanionHero_,
+                    companion))
+        {
+            char detail[256] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "actor_id=%llu avatar=%p hero=%p enemy=%p region_follower=%p",
+                static_cast<unsigned long long>(actorId_),
+                nativeAvatar_,
+                nativeCompanionHero_,
+                companion.followerEnemy,
+                companion.heroRegionFollower);
+            diagnostics_.Event(
+                "MultiplayerRemoteCompanionRegistrationFailed", detail);
+            Retire();
+            return false;
+        }
+        companionRegistered_ = true;
+        char companionDetail[320] = {};
+        std::snprintf(
+            companionDetail,
+            sizeof(companionDetail),
+            "actor_id=%llu avatar=%p hero=%p enemy=%p region_follower=%p count_before=%u count_after=%u existing=%s locomotion=replicated",
+            static_cast<unsigned long long>(actorId_),
+            nativeAvatar_,
+            nativeCompanionHero_,
+            companion.followerEnemy,
+            companion.heroRegionFollower,
+            companion.followerCountBefore,
+            companion.followerCountAfter,
+            companion.alreadyRegistered ? "true" : "false");
+        diagnostics_.Event(
+            "MultiplayerRemoteCompanionRegistered", companionDetail);
         control_ = npcs_->TakeControl(avatar_, game::AiPriority::Highest);
         if (control_ == nullptr || !control_->ClearCommands())
         {
@@ -358,7 +408,7 @@ namespace fable::multiplayer::presentation
             *avatar_, nativeAvatar_, MovementSample(state, receivedAt),
             localMap);
         if (!look_->RouteReplicatedMovement(
-                avatar_, &RemotePlayerPresentation::ReadMovement, this))
+                avatar_, &RemoteHeroActor::ReadMovement, this))
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-movement-routing");
@@ -379,22 +429,29 @@ namespace fable::multiplayer::presentation
         diagnostics_.Event(
             "MultiplayerPresentationChannelOpened",
             "remote native creature presentation is scoped to the shared map lifecycle");
+        if (!combatants_->Bind(actorId_, nativeAvatar_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-combatant-binding");
+            Retire();
+            return false;
+        }
         nextSpawnAttemptAt_ = 0;
         return true;
     }
 
-    bool RemotePlayerPresentation::ReadMovement(
+    bool RemoteHeroActor::ReadMovement(
         void* context,
         void* creature,
         movement::ReplicatedActorMovement::NativeInput& input)
     {
         auto* const presentation =
-            static_cast<RemotePlayerPresentation*>(context);
+            static_cast<RemoteHeroActor*>(context);
         return presentation != nullptr &&
             presentation->movement_.Provide(creature, input);
     }
 
-    void RemotePlayerPresentation::Suspend(
+    void RemoteHeroActor::Suspend(
         const PlayerState& state,
         const std::string& localMap) noexcept
     {
@@ -402,12 +459,18 @@ namespace fable::multiplayer::presentation
         {
             return;
         }
+        if (combatants_ != nullptr)
+        {
+            combatants_->Unbind(actorId_, nativeAvatar_);
+        }
         if (control_ != nullptr)
         {
+            // Keep the highest-priority control lease while the network player
+            // is in another map. Region-follower membership remains live for
+            // the party HUD, but this hidden proxy must not begin autonomous
+            // follow or combat behavior in the local map.
             control_->ClearAllActions(true);
-            control_->ReleaseControl();
-            control_->Release();
-            control_ = nullptr;
+            control_->ClearCommands();
         }
         movement_.Detach();
         if (look_ != nullptr)
@@ -418,6 +481,8 @@ namespace fable::multiplayer::presentation
         bool drawable = false;
         if (avatar_->IsValid())
         {
+            avatar_->SetAttackable(false);
+            avatar_->SetDamageable(false);
             collidable = avatar_->SetCollidable(false);
             drawable = avatar_->SetDrawable(false);
         }
@@ -432,9 +497,10 @@ namespace fable::multiplayer::presentation
         diagnostics_.Event("MultiplayerRemoteAvatarSuspended", detail);
     }
 
-    bool RemotePlayerPresentation::Resume(
+    bool RemoteHeroActor::Resume(
         const PlayerState& state,
         const std::string& localMap,
+        game::Entity* localHero,
         std::uint64_t receivedAt)
     {
         if (avatar_ == nullptr || !avatarSuspended_ || !avatar_->IsValid() ||
@@ -442,9 +508,36 @@ namespace fable::multiplayer::presentation
         {
             return false;
         }
-        control_ = npcs_->TakeControl(avatar_, game::AiPriority::Highest);
+        if (control_ == nullptr)
+        {
+            control_ = npcs_->TakeControl(
+                avatar_, game::AiPriority::Highest);
+        }
+        void* const currentHero =
+            localHero != nullptr && localHero->IsValid()
+                ? entities_->ResolveNative(localHero->NativeHandle())
+                : nullptr;
+        if (!companionRegistered_ || currentHero != nativeCompanionHero_)
+        {
+            game::creature::companion::native::CompanionRegistration
+                companion;
+            if (currentHero == nullptr ||
+                !game::creature::companion::native::CompanionFunctions::
+                    RegisterWithHero(
+                        entities_->GameModule(),
+                        nativeAvatar_,
+                        currentHero,
+                        companion))
+            {
+                return false;
+            }
+            nativeCompanionHero_ = currentHero;
+            companionRegistered_ = true;
+        }
         if (control_ == nullptr || !control_->ClearCommands() ||
             !avatar_->Teleport(state.position, state.facing, false) ||
+            !avatar_->SetAttackable(true) ||
+            !avatar_->SetDamageable(true) ||
             !avatar_->SetCollidable(true) || !avatar_->SetDrawable(true))
         {
             return false;
@@ -453,11 +546,16 @@ namespace fable::multiplayer::presentation
             *avatar_, nativeAvatar_, MovementSample(state, receivedAt),
             localMap);
         if (!look_->RouteReplicatedMovement(
-                avatar_, &RemotePlayerPresentation::ReadMovement, this))
+                avatar_, &RemoteHeroActor::ReadMovement, this))
         {
             return false;
         }
         avatarSuspended_ = false;
+        if (combatants_ == nullptr ||
+            !combatants_->Bind(actorId_, nativeAvatar_))
+        {
+            return false;
+        }
         char detail[256] = {};
         std::snprintf(
             detail, sizeof(detail), "player=%s map=%s action=resumed",
@@ -466,12 +564,12 @@ namespace fable::multiplayer::presentation
         return true;
     }
 
-    void RemotePlayerPresentation::BeginWorldTransition() noexcept
+    void RemoteHeroActor::BeginWorldTransition() noexcept
     {
         Retire(true);
     }
 
-    void RemotePlayerPresentation::DriveMovement()
+    void RemoteHeroActor::DriveMovement()
     {
         if (initialized_ && !avatarSuspended_ && avatar_ != nullptr &&
             avatar_->IsValid() && look_ != nullptr)
@@ -480,13 +578,16 @@ namespace fable::multiplayer::presentation
         }
     }
 
-    bool RemotePlayerPresentation::IsActive() const
+    bool RemoteHeroActor::IsActive() const
     {
         return avatar_ != nullptr && !avatarSuspended_ && avatar_->IsValid();
     }
 
-    void RemotePlayerPresentation::CompleteWorldTransition() noexcept
+    void RemoteHeroActor::CompleteWorldTransition() noexcept
     {
+        // Anything already quarantined has survived a complete world
+        // generation. Retire it before retaining this transition's actor.
+        ReapQuarantinedAvatars();
         if (deferred_.control != nullptr)
         {
             deferred_.control->Release();
@@ -512,25 +613,67 @@ namespace fable::multiplayer::presentation
         }
         deferred_.avatar = nullptr;
         deferred_.nativeAvatar = nullptr;
+        nativeCompanionHero_ = nullptr;
+        companionRegistered_ = false;
         playerId_.clear();
         appearanceDefinition_.clear();
-        appliedMorph_ = {};
-        appliedClothing_ = {};
-        appliedBoneScales_ = {};
-        appliedModifiers_ = {};
-        graphicRuntimeReported_ = false;
+        presentationStateReported_ = false;
         separationReported_ = false;
         avatarSuspended_ = false;
         nextSpawnAttemptAt_ = 0;
     }
 
-    void RemotePlayerPresentation::Retire(bool worldUnloading) noexcept
+    void RemoteHeroActor::ReapQuarantinedAvatars() noexcept
     {
+        for (game::Entity* avatar : quarantinedAvatars_)
+        {
+            if (avatar == nullptr)
+            {
+                continue;
+            }
+            if (avatar->IsValid())
+            {
+                avatar->RequestDestroy(false);
+            }
+            avatar->Release();
+        }
+        quarantinedAvatars_.clear();
+    }
+
+    void RemoteHeroActor::Retire(bool worldUnloading) noexcept
+    {
+        abilities_.Unbind();
+        combat_.Unbind();
+        equipment_.Unbind();
+        appearance_.Unbind();
+        if (combatants_ != nullptr && nativeAvatar_ != nullptr)
+        {
+            combatants_->Unbind(actorId_, nativeAvatar_);
+        }
         if (presentationFactory_ != nullptr)
         {
             presentationFactory_->Cancel(factoryArmToken_);
         }
         factoryArmToken_ = 0;
+        if (companionRegistered_ && entities_ != nullptr &&
+            nativeAvatar_ != nullptr && nativeCompanionHero_ != nullptr)
+        {
+            const bool detached =
+                game::creature::companion::native::CompanionFunctions::
+                    UnregisterFromHero(
+                        entities_->GameModule(),
+                        nativeAvatar_,
+                        nativeCompanionHero_);
+            diagnostics_.Event(
+                detached
+                    ? "MultiplayerRemoteCompanionUnregistered"
+                    : "MultiplayerRemoteCompanionUnregisterFailed",
+                worldUnloading
+                    ? "reason=world-transition"
+                    : "reason=presentation-retired");
+        }
+        companionRegistered_ = false;
+        nativeCompanionHero_ = nullptr;
         movement_.Detach();
         if (look_ != nullptr && avatar_ != nullptr)
         {
@@ -568,39 +711,30 @@ namespace fable::multiplayer::presentation
             avatar_ = nullptr;
         }
         nativeAvatar_ = nullptr;
-        healthCreature_ = nullptr;
-        appliedHealthRevision_ = 0;
         if (!worldUnloading)
         {
             playerId_.clear();
             appearanceDefinition_.clear();
-            appliedMorph_ = {};
-            appliedClothing_ = {};
-            appliedBoneScales_ = {};
-            appliedModifiers_ = {};
-            graphicRuntimeReported_ = false;
+            presentationStateReported_ = false;
             avatarSuspended_ = false;
             separationReported_ = false;
         }
     }
 
-    void RemotePlayerPresentation::Shutdown() noexcept
+    void RemoteHeroActor::Shutdown() noexcept
     {
         Retire();
         CompleteWorldTransition();
-        for (game::Entity* avatar : quarantinedAvatars_)
-        {
-            if (avatar != nullptr)
-            {
-                avatar->Release();
-            }
-        }
-        quarantinedAvatars_.clear();
+        ReapQuarantinedAvatars();
         movement_.Detach();
+        abilities_.Shutdown();
+        combat_.Shutdown();
+        equipment_.Shutdown();
+        appearance_.Shutdown();
         entities_ = nullptr;
         npcs_ = nullptr;
         look_ = nullptr;
-        combat_ = nullptr;
+        combatants_ = nullptr;
         presentationFactory_ = nullptr;
         diagnostics_ = {};
         nextSpawnAttemptAt_ = 0;

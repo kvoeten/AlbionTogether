@@ -1,5 +1,6 @@
 #include "EntityActionMessage.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace
@@ -20,8 +21,8 @@ namespace
         std::uint64_t ownerActorId = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t actionEpoch = 0;
-        std::uint32_t animationId = 0;
-        std::uint32_t animationFlags = 0;
+        std::uint32_t abilityId = 0;
+        float abilityCharge = 0.0f;
         char mapName[96] = {};
         char semanticName[96] = {};
         char parameter[160] = {};
@@ -51,8 +52,15 @@ namespace
             message.mapName.size() >= 96 || message.semanticName.empty() ||
             message.semanticName.size() >= 96 ||
             message.parameter.size() >= 160 ||
-            message.animationId > 0xFFFF ||
-            (message.animationFlags & ~0x07u) != 0)
+            message.abilityId >= 1'000'000 ||
+            !std::isfinite(message.abilityCharge) ||
+            message.abilityCharge < -100.0f ||
+            message.abilityCharge > 100.0f)
+        {
+            return false;
+        }
+        const bool abilityAction = message.semanticName == "CreatureAbility";
+        if (abilityAction != (message.abilityId != 0))
         {
             return false;
         }
@@ -110,8 +118,8 @@ namespace fable::multiplayer::protocol
         wire.ownerActorId = message.ownerActorId;
         wire.mapEpoch = message.mapEpoch;
         wire.actionEpoch = message.actionEpoch;
-        wire.animationId = message.animationId;
-        wire.animationFlags = message.animationFlags;
+        wire.abilityId = message.abilityId;
+        wire.abilityCharge = message.abilityCharge;
         strncpy_s(wire.mapName, message.mapName.c_str(), _TRUNCATE);
         strncpy_s(wire.semanticName, message.semanticName.c_str(), _TRUNCATE);
         strncpy_s(wire.parameter, message.parameter.c_str(), _TRUNCATE);
@@ -151,8 +159,8 @@ namespace fable::multiplayer::protocol
         message.ownerActorId = wire.ownerActorId;
         message.mapEpoch = wire.mapEpoch;
         message.actionEpoch = wire.actionEpoch;
-        message.animationId = wire.animationId;
-        message.animationFlags = wire.animationFlags;
+        message.abilityId = wire.abilityId;
+        message.abilityCharge = wire.abilityCharge;
         message.mapName = wire.mapName;
         message.semanticName = wire.semanticName;
         message.parameter = wire.parameter;

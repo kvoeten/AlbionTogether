@@ -29,6 +29,7 @@ namespace
     constexpr ULONGLONG kReliableResendMilliseconds = 100;
     constexpr std::size_t kReliableQueueLimit = 512;
     constexpr std::size_t kUnreliableQueueLimit = 4096;
+    constexpr std::size_t kPlayerStateInboxLimit = 256;
 
     bool IsNewerSequence(std::uint32_t candidate, std::uint32_t previous)
     {
@@ -83,6 +84,7 @@ namespace
             type == PacketType::EntityAction ||
             type == PacketType::EntityVitals ||
             type == PacketType::EntityLowSimulation ||
+            type == PacketType::PlayerAction ||
             type == PacketType::PopulationState ||
             type == PacketType::SavedEntityMapBaseline;
     }
@@ -303,6 +305,10 @@ namespace fable::multiplayer
                 current.heroAppearanceModifiers =
                     update.heroAppearanceModifiers;
             }
+            if ((update.changedProperties & player_property::Equipment) != 0)
+            {
+                current.heroEquipment = update.heroEquipment;
+            }
             if ((update.changedProperties & player_property::Movement) != 0)
             {
                 current.position = update.position;
@@ -315,6 +321,35 @@ namespace fable::multiplayer
             current.changedProperties = update.changedProperties;
             record.retired =
                 (update.changedProperties & player_property::Retired) != 0;
+        }
+
+        // PlayerState is current actor state, not an event log. Coalesce all
+        // pending deltas for an actor into one bounded latest-state snapshot.
+        void QueueInbound(const PlayerState& state)
+        {
+            for (auto iterator = inbound.begin(); iterator != inbound.end();)
+            {
+                if (iterator->actorId != state.actorId)
+                {
+                    ++iterator;
+                    continue;
+                }
+                if (iterator->authorityEpoch == state.authorityEpoch)
+                {
+                    const std::uint32_t changed =
+                        iterator->changedProperties |
+                        state.changedProperties;
+                    *iterator = state;
+                    iterator->changedProperties = changed;
+                    return;
+                }
+                iterator = inbound.erase(iterator);
+            }
+            if (inbound.size() >= kPlayerStateInboxLimit)
+            {
+                inbound.pop_front();
+            }
+            inbound.push_back(state);
         }
 
         bool IsHostEndpoint(const sockaddr_in& sender) const noexcept
@@ -352,7 +387,7 @@ namespace fable::multiplayer
                     ++actor->second.state.sequence;
                     actor->second.state.changedProperties =
                         player_property::Retired;
-                    inbound.push_back(actor->second.state);
+                    QueueInbound(actor->second.state);
                 }
                 peers.erase(endpointPeer);
                 peerSetChanged = true;
@@ -965,7 +1000,7 @@ namespace fable::multiplayer
                     if (role == PeerRole::Host ||
                         update.actorId != outbound.actorId)
                     {
-                        inbound.push_back(update);
+                        QueueInbound(actor.state);
                     }
                 }
                 if (!peerEventReported)
@@ -1053,6 +1088,16 @@ namespace fable::multiplayer
                 return false;
             }
             lastSentAt = now;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                if (hasOutbound && outbound.actorId == state.actorId &&
+                    outbound.authorityEpoch == state.authorityEpoch &&
+                    outbound.sequence == state.sequence)
+                {
+                    outbound.changedProperties &=
+                        ~state.changedProperties;
+                }
+            }
             if (!sendEventReported)
             {
                 sendEventReported = true;
@@ -1132,7 +1177,7 @@ namespace fable::multiplayer
                             ++actor->second.state.sequence;
                             actor->second.state.changedProperties =
                                 player_property::Retired;
-                            inbound.push_back(actor->second.state);
+                            QueueInbound(actor->second.state);
                         }
                         peerIterator = peers.erase(peerIterator);
                         peerSetChanged = true;
@@ -1178,6 +1223,9 @@ namespace fable::multiplayer
                                         relay.heroBoneScales.IsSane() &&
                                         relay.heroAppearanceModifiers.IsSane()
                                     ? player_property::Appearance
+                                    : 0u) |
+                                (relay.heroEquipment.IsSane()
+                                    ? player_property::Equipment
                                     : 0u);
                         datagrams.push_back({relay, connected.endpoint});
                         connected.lastSentSequence[actorId] =
@@ -1415,7 +1463,9 @@ namespace fable::multiplayer
                 (!localUpdate.heroMorph.IsSane() ||
                     !localUpdate.heroClothing.IsSane() ||
                     !localUpdate.heroBoneScales.IsSane() ||
-                    !localUpdate.heroAppearanceModifiers.IsSane())))
+                    !localUpdate.heroAppearanceModifiers.IsSane())) ||
+            (((localUpdate.changedProperties & player_property::Equipment) != 0) &&
+                !localUpdate.heroEquipment.IsSane()))
         {
             return false;
         }

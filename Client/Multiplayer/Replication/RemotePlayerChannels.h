@@ -21,6 +21,8 @@ namespace fable::multiplayer::replication
     public:
         bool Apply(const PlayerState& update, std::uint64_t receivedAt);
         [[nodiscard]] std::vector<RemotePlayerSnapshot> Snapshots() const;
+        [[nodiscard]] const PlayerState* Find(
+            std::uint64_t actorId) const noexcept;
         void Remove(std::uint64_t actorId) noexcept;
         void Clear() noexcept;
         [[nodiscard]] std::size_t Size() const noexcept;

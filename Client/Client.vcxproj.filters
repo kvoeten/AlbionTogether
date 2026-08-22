@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Automation\Multiplayer\Abilities"><UniqueIdentifier>{6357F32F-AB43-45AA-8C8D-075C9C7FA88C}</UniqueIdentifier></Filter>
     <Filter Include="Automation"><UniqueIdentifier>{2B101883-4812-449E-B961-083ABEF8D7AB}</UniqueIdentifier></Filter>
     <Filter Include="Automation\AppearanceCycle"><UniqueIdentifier>{A528C059-F0F9-4450-9DD0-A68C699E6C56}</UniqueIdentifier></Filter>
     <Filter Include="Automation\CharacterSnapshot"><UniqueIdentifier>{B5F1AA34-F8A6-449F-9EB6-D0F7E08A9A5A}</UniqueIdentifier></Filter>
@@ -34,6 +35,11 @@
     <Filter Include="Game\Creature\Combat\Bindings"><UniqueIdentifier>{85892042-953B-4A8F-8C0A-01BF439259F7}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Combat\Hooks"><UniqueIdentifier>{B838AB1B-37FD-4957-9F7C-72F3CB5E96BB}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Combat\Native"><UniqueIdentifier>{46590546-E321-4C84-87B6-61905D742635}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Creature\Companion"><UniqueIdentifier>{FB58DB01-FEBD-41E6-8D01-22A23F479B7C}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Creature\Companion\Native"><UniqueIdentifier>{6240504E-144D-4587-BD56-CF84E26C8CFC}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Creature\Equipment"><UniqueIdentifier>{7E412D45-4EC7-47AF-8617-F1E7E44023D3}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Creature\Equipment\Hooks"><UniqueIdentifier>{7E5FDE89-F88E-4A9F-B2D8-CFD462841A41}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Creature\Equipment\Native"><UniqueIdentifier>{2585AA61-BFD1-4D40-B06F-1F37CE6C5081}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Bindings"><UniqueIdentifier>{EFE8054A-33DF-48DB-9DAB-6A7384DF20AE}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Control"><UniqueIdentifier>{8BF8A1AB-C4BB-4798-9CB3-28B9CDD640F4}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Hooks"><UniqueIdentifier>{4C05AF3C-5ED3-4537-BDD1-F4707584A97B}</UniqueIdentifier></Filter>
@@ -59,9 +65,19 @@
     <Filter Include="Game\Entity\Persistence\Hooks"><UniqueIdentifier>{533CF25C-1C1E-4C17-A12F-CB6EAC159A98}</UniqueIdentifier></Filter>
     <Filter Include="Game\Entity\Persistence\Native"><UniqueIdentifier>{214A2F3C-1EC2-49A8-BC51-E2A090BE145B}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn"><UniqueIdentifier>{D22F844A-F056-4D71-A78C-571064DC5292}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Abilities"><UniqueIdentifier>{3F8D7E8B-42B2-47C7-94E4-5F91419B1CF0}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Abilities\Hooks"><UniqueIdentifier>{C49EEA58-B2EB-4655-8754-994C9DBA7F9E}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Abilities\Native"><UniqueIdentifier>{71FF56ED-3A9E-4789-9016-1581580377E0}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\Appearance"><UniqueIdentifier>{8C524DD2-31D4-42F0-90BB-AE2D00A22FF8}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\Appearance\Hooks"><UniqueIdentifier>{C9B84D9B-2FC5-4AA0-BBD8-545B20C11A75}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\Appearance\Native"><UniqueIdentifier>{3CD33B44-7FF3-450C-AD5A-FC6828A7C9A7}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Appearance\Diagnostics"><UniqueIdentifier>{6102E4D8-43F0-4D4B-9B98-A39F2C7670A4}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Remote"><UniqueIdentifier>{EABF6238-5FD2-4D3F-A3D2-CA896084F97B}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Equipment"><UniqueIdentifier>{AF63074D-4A47-4CF7-A326-C2E00679CDF5}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Combat"><UniqueIdentifier>{ACD4D87A-CE0A-4F8A-A351-4A04BA918CD9}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Equipment\Hooks"><UniqueIdentifier>{B6C32430-2280-457F-979D-5F47649D9633}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Equipment\Native"><UniqueIdentifier>{6C061920-6A0F-43BF-A989-49DDCB92054F}</UniqueIdentifier></Filter>
+    <Filter Include="Game\HeroPawn\Equipment\Transitions"><UniqueIdentifier>{E96B97BD-EA7C-4D22-8D6E-D9AF57956A16}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\Bindings"><UniqueIdentifier>{BAB8EDBF-D019-4CF2-B47E-6080E739C987}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\TransformProbe"><UniqueIdentifier>{8B7B9EB7-C13B-4B66-B28B-F95A8A38B27B}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\TransformProbe\Hooks"><UniqueIdentifier>{2C9BEE88-A491-47EA-87F2-A6E99DF47587}</UniqueIdentifier></Filter>
@@ -97,6 +113,7 @@
     <Filter Include="Game\World\Travel\Native"><UniqueIdentifier>{7D6D6CD0-47B4-4BD3-9F8A-6B5DDF3F324E}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer"><UniqueIdentifier>{387C1A15-DBB8-4074-B1F3-B3DFF7DE1262}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Authority"><UniqueIdentifier>{7806B9BA-3831-4556-9DBB-E92B7341E1AA}</UniqueIdentifier></Filter>
+    <Filter Include="Multiplayer\Combat"><UniqueIdentifier>{2D27A5D1-A935-4A11-B78D-38E63B91C5C9}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Entities"><UniqueIdentifier>{6A830877-B9EE-4558-94C1-CBD15A9153DF}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Movement"><UniqueIdentifier>{09A1289E-74E5-4FB8-A076-D5657389E438}</UniqueIdentifier></Filter>
     <Filter Include="Multiplayer\Persistence"><UniqueIdentifier>{75F81F72-60E3-4B2E-A854-C4DBA3E65388}</UniqueIdentifier></Filter>
@@ -127,6 +144,7 @@
     <Filter Include="UI\MainWindow"><UniqueIdentifier>{5B994E2F-6F57-4798-9BF3-64431D499A3E}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Abilities</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Authority\AuthorityReplication.cpp"><Filter>Multiplayer\Authority</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Authority\ActionAuthorityCoordinator.cpp"><Filter>Multiplayer\Authority</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Authority\EntitySimulationAuthority.cpp"><Filter>Multiplayer\Authority</Filter></ClCompile>
@@ -141,6 +159,7 @@
     <ClCompile Include="Automation\LocalInstance\Native\ForegroundWindowImport.cpp"><Filter>Automation\LocalInstance\Native</Filter></ClCompile>
     <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp"><Filter>Automation\LocalInstance\Native</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Combat\CombatTargetAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Combat</Filter></ClCompile>
+    <ClCompile Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.cpp"><Filter>Automation\Multiplayer\Combat</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Transition</Filter></ClCompile>
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp"><Filter>Core\Capabilities</Filter></ClCompile>
@@ -156,12 +175,16 @@
     <ClCompile Include="Game\Creature\Animation\Native\AnimationPlaybackFunctions.cpp"><Filter>Game\Creature\Animation\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Bindings\CreatureCombatBindings.cpp"><Filter>Game\Creature\Combat\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\CreatureCombatService.cpp"><Filter>Game\Creature\Combat</Filter></ClCompile>
+    <ClCompile Include="Game\Creature\Equipment\Native\CreatureWeaponFunctions.cpp"><Filter>Game\Creature\Equipment\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Creature\Equipment\Hooks\CreatureCarryingMutationObserver.cpp"><Filter>Game\Creature\Equipment\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Hooks\CombatHealthMutationHook.cpp"><Filter>Game\Creature\Combat\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Hooks\PlayerAttackAbilityHook.cpp"><Filter>Game\Creature\Combat\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Native\CombatHealthMutationFunction.cpp"><Filter>Game\Creature\Combat\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Native\CreatureCombatFunctions.cpp"><Filter>Game\Creature\Combat\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Native\CreatureAbilitySubmissionFunction.cpp"><Filter>Game\Creature\Combat\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Creature\Combat\Native\AiTargetingComponent.cpp"><Filter>Game\Creature\Combat\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Native\HeroTargetingComponent.cpp"><Filter>Game\Creature\Combat\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Creature\Companion\Native\CompanionFunctions.cpp"><Filter>Game\Creature\Companion\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Bindings\CreatureBindings.cpp"><Filter>Game\Creature\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Bindings\CreatureServiceBindings.cpp"><Filter>Game\Creature\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Control\ScriptControl.cpp"><Filter>Game\Creature\Control</Filter></ClCompile>
@@ -191,18 +214,36 @@
     <ClCompile Include="Game\Entity\EntityService.cpp"><Filter>Game\Entity</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Bindings\EntityBindings.cpp"><Filter>Game\Entity\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Native\ThingComponentAccess.cpp"><Filter>Game\Entity\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Native\ThingComponentProvisioner.cpp"><Filter>Game\Entity\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Native\ScriptedUseActionFunctions.cpp"><Filter>Game\Entity\Native</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Presence\Hooks\ThingPresenceObserver.cpp"><Filter>Game\Entity\Presence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Presence\Native\MapwhoFunctions.cpp"><Filter>Game\Entity\Presence\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Presence\TransientEntityCreationScope.cpp"><Filter>Game\Entity\Presence</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Hooks\SavedEntityMapBlobObserver.cpp"><Filter>Game\Entity\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Hooks\ThingSaveProjectionHook.cpp"><Filter>Game\Entity\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Native\SavedEntityMapRecordInstaller.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Native\SavedEntitiesFunctions.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Native\ThingSaveFunctions.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\HeroPawnService.cpp"><Filter>Game\HeroPawn</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Abilities\HeroWillAbilityService.cpp"><Filter>Game\HeroPawn\Abilities</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Abilities\Hooks\HeroWillAbilityHook.cpp"><Filter>Game\HeroPawn\Abilities\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Abilities\Hooks\PillarAbilityLifecycleHook.cpp"><Filter>Game\HeroPawn\Abilities\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Abilities\Native\HeroWillAbilityFunctions.cpp"><Filter>Game\HeroPawn\Abilities\Native</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Abilities\Native\HeroWillComponentProvisioner.cpp"><Filter>Game\HeroPawn\Abilities\Native</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Abilities\RemoteHeroAbilityController.cpp"><Filter>Game\HeroPawn\Abilities</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroPresentationFactoryHook.cpp"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Appearance\Hooks\HeroAppearanceMutationObserver.cpp"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Appearance\Diagnostics\HeroPresentationDiagnostics.cpp"><Filter>Game\HeroPawn\Appearance\Diagnostics</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroAttachableAppearanceComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroClothingComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.cpp"><Filter>Game\HeroPawn\Appearance</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroCombatController.cpp"><Filter>Game\HeroPawn\Combat</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Equipment\Hooks\HeroEquipmentMutationObserver.cpp"><Filter>Game\HeroPawn\Equipment\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponent.cpp"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponentProvisioner.cpp"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Equipment\RemoteHeroEquipmentController.cpp"><Filter>Game\HeroPawn\Equipment</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Equipment\Transitions\RemoteHeroWeaponTransitionController.cpp"><Filter>Game\HeroPawn\Equipment\Transitions</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Bindings\HeroPawnBindings.cpp"><Filter>Game\HeroPawn\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\TransformProbe\Hooks\HeroTransformCompatibilityHooks.cpp"><Filter>Game\HeroPawn\TransformProbe\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\TransformProbe\Native\HeroTransformCompatibilityFunctions.cpp"><Filter>Game\HeroPawn\TransformProbe\Native</Filter></ClCompile>
@@ -242,8 +283,10 @@
     <ClCompile Include="Multiplayer\Persistence\SavedEntityConstructionGate.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBlobDirectory.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Population\PopulationSimulationAuthority.cpp"><Filter>Multiplayer\Population</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Combat\PlayerCombatantDirectory.cpp"><Filter>Multiplayer\Combat</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\AuthorityMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityActionMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Protocol\PlayerActionMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityLifecycleMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityMovementMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityVitalsMessageCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
@@ -252,11 +295,11 @@
     <ClCompile Include="Multiplayer\Protocol\PlayerStateCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
-    <ClCompile Include="Multiplayer\Presentation\HeroPresentationDiagnostics.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
-    <ClCompile Include="Multiplayer\Presentation\RemotePlayerPresentation.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp"><Filter>Game\HeroPawn\Remote</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityVitalsReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityLowSimulationReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalPlayerChannel.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
@@ -287,6 +330,7 @@
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.h"><Filter>Automation\Multiplayer\Abilities</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Authority\AuthorityReplication.h"><Filter>Multiplayer\Authority</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Authority\ActionAuthorityCoordinator.h"><Filter>Multiplayer\Authority</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Authority\EntitySimulationAuthority.h"><Filter>Multiplayer\Authority</Filter></ClInclude>
@@ -302,6 +346,7 @@
     <ClInclude Include="Automation\LocalInstance\Native\ForegroundWindowImport.h"><Filter>Automation\LocalInstance\Native</Filter></ClInclude>
     <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h"><Filter>Automation\LocalInstance\Native</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Combat\CombatTargetAcceptanceDriver.h"><Filter>Automation\Multiplayer\Combat</Filter></ClInclude>
+    <ClInclude Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.h"><Filter>Automation\Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h"><Filter>Automation\Runtime</Filter></ClInclude>
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h"><Filter>Core\Capabilities</Filter></ClInclude>
@@ -319,14 +364,19 @@
     <ClInclude Include="Game\Creature\Animation\Native\AnimationPlaybackFunctions.h"><Filter>Game\Creature\Animation\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Bindings\CreatureCombatBindings.h"><Filter>Game\Creature\Combat\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\CreatureCombatService.h"><Filter>Game\Creature\Combat</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Equipment\CreatureWeaponFamily.h"><Filter>Game\Creature\Equipment</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Equipment\Hooks\CreatureCarryingMutationObserver.h"><Filter>Game\Creature\Equipment\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Equipment\Native\CreatureWeaponFunctions.h"><Filter>Game\Creature\Equipment\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\CombatHealthMutationEvent.h"><Filter>Game\Creature\Combat</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Hooks\CombatHealthMutationHook.h"><Filter>Game\Creature\Combat\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Hooks\PlayerAttackAbilityHook.h"><Filter>Game\Creature\Combat\Hooks</Filter></ClInclude>
-    <ClInclude Include="Game\Creature\Combat\PlayerAttackEvent.h"><Filter>Game\Creature\Combat</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Combat\CreatureAbilityEvent.h"><Filter>Game\Creature\Combat</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Native\CreatureCombatFunctions.h"><Filter>Game\Creature\Combat\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Native\CombatHealthMutationFunction.h"><Filter>Game\Creature\Combat\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Native\CreatureAbilitySubmissionFunction.h"><Filter>Game\Creature\Combat\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Combat\Native\AiTargetingComponent.h"><Filter>Game\Creature\Combat\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\Native\HeroTargetingComponent.h"><Filter>Game\Creature\Combat\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Companion\Native\CompanionFunctions.h"><Filter>Game\Creature\Companion\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Bindings\CreatureBindings.h"><Filter>Game\Creature\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Bindings\CreatureServiceBindings.h"><Filter>Game\Creature\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Control\ScriptControl.h"><Filter>Game\Creature\Control</Filter></ClInclude>
@@ -356,8 +406,11 @@
     <ClInclude Include="Game\Entity\EntityService.h"><Filter>Game\Entity</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Bindings\EntityBindings.h"><Filter>Game\Entity\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Native\ThingComponentAccess.h"><Filter>Game\Entity\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Native\ThingComponentProvisioner.h"><Filter>Game\Entity\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Native\ScriptedUseActionFunctions.h"><Filter>Game\Entity\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Presence\Hooks\ThingPresenceObserver.h"><Filter>Game\Entity\Presence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Presence\Native\MapwhoFunctions.h"><Filter>Game\Entity\Presence\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Presence\TransientEntityCreationScope.h"><Filter>Game\Entity\Presence</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Hooks\SavedEntityMapBlobObserver.h"><Filter>Game\Entity\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Hooks\ThingSaveProjectionHook.h"><Filter>Game\Entity\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Native\SavedEntityMapRecordInstaller.h"><Filter>Game\Entity\Persistence\Native</Filter></ClInclude>
@@ -366,13 +419,31 @@
     <ClInclude Include="Game\Entity\Persistence\SavedEntityMapBlobSnapshot.h"><Filter>Game\Entity\Persistence</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Presence\ThingPresenceEvent.h"><Filter>Game\Entity\Presence</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\HeroPawnService.h"><Filter>Game\HeroPawn</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\HeroAbility.h"><Filter>Game\HeroPawn\Abilities</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\HeroAbilityEvent.h"><Filter>Game\HeroPawn\Abilities</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\HeroWillAbilityService.h"><Filter>Game\HeroPawn\Abilities</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\Hooks\HeroWillAbilityHook.h"><Filter>Game\HeroPawn\Abilities\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\Hooks\PillarAbilityLifecycleHook.h"><Filter>Game\HeroPawn\Abilities\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\Native\HeroWillAbilityFunctions.h"><Filter>Game\HeroPawn\Abilities\Native</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\Native\HeroWillComponentProvisioner.h"><Filter>Game\HeroPawn\Abilities\Native</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Abilities\RemoteHeroAbilityController.h"><Filter>Game\HeroPawn\Abilities</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\HeroAppearanceState.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\HeroClothingState.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\HeroMorphState.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Appearance\Diagnostics\HeroPresentationDiagnostics.h"><Filter>Game\HeroPawn\Appearance\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroPresentationFactoryHook.h"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Appearance\Hooks\HeroAppearanceMutationObserver.h"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroAttachableAppearanceComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroClothingComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroCombatController.h"><Filter>Game\HeroPawn\Combat</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\HeroEquipmentState.h"><Filter>Game\HeroPawn\Equipment</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\Hooks\HeroEquipmentMutationObserver.h"><Filter>Game\HeroPawn\Equipment\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponent.h"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponentProvisioner.h"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\RemoteHeroEquipmentController.h"><Filter>Game\HeroPawn\Equipment</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\Transitions\RemoteHeroWeaponTransitionController.h"><Filter>Game\HeroPawn\Equipment\Transitions</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Bindings\HeroPawnBindings.h"><Filter>Game\HeroPawn\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\TransformProbe\Hooks\HeroTransformCompatibilityHooks.h"><Filter>Game\HeroPawn\TransformProbe\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\TransformProbe\Native\HeroTransformCompatibilityFunctions.h"><Filter>Game\HeroPawn\TransformProbe\Native</Filter></ClInclude>
@@ -419,12 +490,13 @@
     <ClInclude Include="Multiplayer\Persistence\SavedEntityConstructionGate.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBlobDirectory.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Population\PopulationSimulationAuthority.h"><Filter>Multiplayer\Population</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Combat\PlayerCombatantDirectory.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
-    <ClInclude Include="Multiplayer\Presentation\HeroPresentationDiagnostics.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
-    <ClInclude Include="Multiplayer\Presentation\RemotePlayerPresentation.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\AuthorityMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityActionMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\PlayerActionMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityLifecycleMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityMovementMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityVitalsMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
@@ -438,6 +510,7 @@
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityVitalsReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityLowSimulationReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalPlayerChannel.h"><Filter>Multiplayer\Replication</Filter></ClInclude>

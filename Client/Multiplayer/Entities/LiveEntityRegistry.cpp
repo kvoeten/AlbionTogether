@@ -35,6 +35,12 @@ namespace fable::multiplayer::entities
                 existing->second.hasHeroMorph = event.hasHeroMorph;
                 existing->second.hasVillageMembership =
                     event.hasVillageMembership;
+                existing->second.summonedCreature =
+                    existing->second.summonedCreature ||
+                    event.summonedCreature;
+                existing->second.abilityOwnedTransient =
+                    existing->second.abilityOwnedTransient ||
+                    event.abilityOwnedTransient;
                 existing->second.mapwhoComponent = event.component;
                 change.kind = LiveEntityChangeKind::Rebound;
                 change.record = existing->second;
@@ -56,6 +62,8 @@ namespace fable::multiplayer::entities
             record.creature = event.creature;
             record.hasHeroMorph = event.hasHeroMorph;
             record.hasVillageMembership = event.hasVillageMembership;
+            record.summonedCreature = event.summonedCreature;
+            record.abilityOwnedTransient = event.abilityOwnedTransient;
             record.thing = event.thing;
             record.mapwhoComponent = event.component;
             records_[event.thingUid] = record;
@@ -93,6 +101,11 @@ namespace fable::multiplayer::entities
         existing->second.creature = event.creature;
         existing->second.hasHeroMorph = event.hasHeroMorph;
         existing->second.hasVillageMembership = event.hasVillageMembership;
+        existing->second.summonedCreature =
+            existing->second.summonedCreature || event.summonedCreature;
+        existing->second.abilityOwnedTransient =
+            existing->second.abilityOwnedTransient ||
+            event.abilityOwnedTransient;
         existing->second.mapwhoComponent = event.component;
         change.kind = LiveEntityChangeKind::Unregistered;
         change.record = existing->second;
@@ -156,7 +169,14 @@ namespace fable::multiplayer::entities
     bool LiveEntityRegistry::IsReplicable(
         const LiveEntityRecord& record) noexcept
     {
+        const bool networkIdentityBearing = record.creature ||
+            record.gamePersistent || record.levelPersistent ||
+            record.hasVillageMembership || !record.scriptName.empty();
         return record.thingUid != 0 && record.thing != nullptr &&
+            networkIdentityBearing && !record.summonedCreature &&
+            !record.abilityOwnedTransient &&
+            record.scriptName != "HeroSummonnedCreature" &&
+            record.scriptName != "HeroSummonedCreature" &&
             !IsPlayerPresentation(record);
     }
 

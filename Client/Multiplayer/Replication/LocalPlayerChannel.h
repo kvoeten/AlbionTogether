@@ -23,6 +23,8 @@ namespace fable::multiplayer::replication
             const game::hero_pawn::appearance::HeroBoneScaleState& heroBoneScales,
             const game::hero_pawn::appearance::HeroAppearanceModifierState&
                 heroAppearanceModifiers,
+            const game::hero_pawn::equipment::HeroEquipmentState&
+                heroEquipment,
             const std::string& mapName,
             std::uint16_t mapId,
             const game::Vector3& position,
@@ -40,6 +42,8 @@ namespace fable::multiplayer::replication
             const game::hero_pawn::appearance::HeroBoneScaleState& heroBoneScales,
             const game::hero_pawn::appearance::HeroAppearanceModifierState&
                 heroAppearanceModifiers);
+        bool CaptureEquipment(
+            const game::hero_pawn::equipment::HeroEquipmentState& equipment);
         bool TakeDirtyUpdate(PlayerState& update);
         void Close() noexcept;
         [[nodiscard]] bool IsOpen() const noexcept;

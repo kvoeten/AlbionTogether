@@ -97,6 +97,15 @@ namespace
             std::memcmp(address, signature.data(), Size) == 0;
     }
 
+    template <std::size_t Size>
+    bool HasSignatureOrDetour(
+        const std::uint8_t* address,
+        const std::array<std::uint8_t, Size>& signature) noexcept
+    {
+        return HasSignature(address, signature) ||
+            (IsReadableRange(address, 1) && address[0] == 0xE9);
+    }
+
     void* FindComponent(void* nativeThing) noexcept
     {
         return fable::game::entity::native::ThingComponentAccess::Find(
@@ -291,7 +300,7 @@ namespace fable::game::hero_pawn::appearance::native
             ? nullptr
             : module + kRebuildAppearanceRva;
         if (!HasSignature(wearAddress, kWearSignature) ||
-            !HasSignature(rebuildAddress, kRebuildSignature))
+            !HasSignatureOrDetour(rebuildAddress, kRebuildSignature))
         {
             return false;
         }

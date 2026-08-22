@@ -34,6 +34,12 @@ namespace fable::game::entity::presence
         // adult NPCs can carry it as part of their appearance stack too.
         bool hasHeroMorph = false;
         bool hasVillageMembership = false;
+        // Native CTCSummonedCreature live-state marker. This is available at
+        // registration time, before the Summon action assigns a script name.
+        bool summonedCreature = false;
+        // The entity was created inside a native action that owns its own
+        // replicated lifecycle (for example Summon or Ghost Sword).
+        bool abilityOwnedTransient = false;
         // True only for the terminal CTCMapwho owner destruction path. A
         // normal unregister can be followed by registration of the same
         // native Thing and must not discard its canonical network alias.

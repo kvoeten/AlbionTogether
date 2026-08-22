@@ -61,6 +61,8 @@ namespace fable::multiplayer::entities
         std::atomic_uint droppedEvents_{0};
         unsigned int reportedDroppedEvents_ = 0;
         unsigned int diagnosticChangeCount_ = 0;
+        unsigned int filteredTransientCount_ = 0;
+        unsigned int reportedFilteredTransientCount_ = 0;
         unsigned int identityCollisionCount_ = 0;
         bool baselineRequired_ = true;
         bool initialized_ = false;
