@@ -4,17 +4,16 @@
 
 #include <cstdio>
 
-namespace fable::multiplayer::presentation
+namespace fable::game::hero_pawn::appearance
 {
     bool ReportHeroSkeletalPresentation(
         const char* label,
         void* nativeThing,
         const core::Diagnostics& diagnostics)
     {
-        game::hero_pawn::appearance::native::HeroMorphResolutionState state;
+        native::HeroMorphResolutionState state;
         const bool resolved =
-            game::hero_pawn::appearance::native::HeroMorphComponent::
-                InspectResolution(nativeThing, state);
+            native::HeroMorphComponent::InspectResolution(nativeThing, state);
         char detail[640] = {};
         std::snprintf(
             detail,

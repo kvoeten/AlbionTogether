@@ -62,6 +62,7 @@ namespace fable::multiplayer::replication
         const game::hero_pawn::appearance::HeroClothingState& heroClothing,
         const game::hero_pawn::appearance::HeroBoneScaleState& heroBoneScales,
         const game::hero_pawn::appearance::HeroAppearanceModifierState& modifiers,
+        const game::hero_pawn::equipment::HeroEquipmentState& heroEquipment,
         const std::string& mapName,
         std::uint16_t mapId,
         const game::Vector3& position,
@@ -99,9 +100,15 @@ namespace fable::multiplayer::replication
             state_.heroBoneScales = heroBoneScales;
             state_.heroAppearanceModifiers = modifiers;
         }
+        const bool equipmentReady = heroEquipment.IsSane();
+        if (equipmentReady)
+        {
+            state_.heroEquipment = heroEquipment;
+        }
         dirtyProperties_ = player_property::Identity | player_property::Map |
             player_property::Movement |
-            (appearanceReady ? player_property::Appearance : 0u);
+            (appearanceReady ? player_property::Appearance : 0u) |
+            (equipmentReady ? player_property::Equipment : 0u);
         lastCaptureAt_ = capturedAtMilliseconds;
         open_ = true;
     }
@@ -206,6 +213,23 @@ namespace fable::multiplayer::replication
         ++state_.sequence;
         dirtyProperties_ |= player_property::Appearance |
             (definitionChanged ? player_property::Identity : 0u);
+        return true;
+    }
+
+    bool LocalPlayerChannel::CaptureEquipment(
+        const game::hero_pawn::equipment::HeroEquipmentState& equipment)
+    {
+        if (!open_ || !equipment.IsSane())
+        {
+            return false;
+        }
+        if (state_.heroEquipment.Equals(equipment))
+        {
+            return true;
+        }
+        state_.heroEquipment = equipment;
+        ++state_.sequence;
+        dirtyProperties_ |= player_property::Equipment;
         return true;
     }
 

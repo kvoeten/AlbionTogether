@@ -608,6 +608,45 @@ namespace
                 context->Ebp,
                 context->Esp,
                 context->Eip);
+
+            // The retail build does not consistently preserve EBP, so a
+            // conventional frame walk is unreliable. Preserve the first
+            // stack words instead: for leaf helpers this includes the direct
+            // return address and gives us the owning native lifecycle path.
+            DWORD stackWords[12] = {};
+            bool stackReadable = false;
+            __try
+            {
+                const auto* const stack = reinterpret_cast<const DWORD*>(
+                    context->Esp);
+                for (std::size_t index = 0; index < std::size(stackWords);
+                     ++index)
+                {
+                    stackWords[index] = stack[index];
+                }
+                stackReadable = true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                stackReadable = false;
+            }
+            if (stackReadable)
+            {
+                LogFormat(
+                    "Process exception stack: +00=%08lX +04=%08lX +08=%08lX +0C=%08lX +10=%08lX +14=%08lX +18=%08lX +1C=%08lX +20=%08lX +24=%08lX +28=%08lX +2C=%08lX.",
+                    stackWords[0],
+                    stackWords[1],
+                    stackWords[2],
+                    stackWords[3],
+                    stackWords[4],
+                    stackWords[5],
+                    stackWords[6],
+                    stackWords[7],
+                    stackWords[8],
+                    stackWords[9],
+                    stackWords[10],
+                    stackWords[11]);
+            }
         }
 #endif
 

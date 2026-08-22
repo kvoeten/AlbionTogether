@@ -58,10 +58,11 @@ namespace fable::multiplayer::protocol
         std::uint64_t ownerActorId = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t actionEpoch = 0;
-        // Stable CTCAnimationComplex resource ID from the supported retail
-        // data set. Native request/object memory is never serialized.
-        std::uint32_t animationId = 0;
-        std::uint32_t animationFlags = 0;
+        // Stable DefinitionManager ability index and scalar request input.
+        // These reconstruct the retail action graph on the observer's native
+        // creature; they are not animation or object-memory snapshots.
+        std::uint32_t abilityId = 0;
+        float abilityCharge = 0.0f;
         std::string mapName;
         // Stable semantic/native action identifier. Concrete action codecs
         // interpret parameters; native object memory is never serialized.

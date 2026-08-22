@@ -3,6 +3,7 @@
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Authority/EntitySimulationAuthority.h"
+#include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Entities/EntityPresenceReplication.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityMaterializationService.h"
@@ -16,6 +17,7 @@
 #include "Multiplayer/Replication/LocalHeroReplication.h"
 #include "Multiplayer/Replication/LocalPlayerChannel.h"
 #include "Multiplayer/Replication/EntityActionReplication.h"
+#include "Multiplayer/Replication/PlayerActionReplication.h"
 #include "Multiplayer/Replication/EntityVitalsReplication.h"
 #include "Multiplayer/Replication/EntityLowSimulationReplication.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
@@ -53,9 +55,9 @@ namespace fable::game::creature::combat
     class CreatureCombatService;
 }
 
-namespace fable::game::creature::animation
+namespace fable::game::hero_pawn::abilities
 {
-    class CreatureAnimationService;
+    class HeroWillAbilityService;
 }
 
 namespace fable::game::entity::presence
@@ -119,7 +121,7 @@ namespace fable::multiplayer
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
             game::creature::combat::CreatureCombatService& combat,
-            game::creature::animation::CreatureAnimationService& animation,
+            game::hero_pawn::abilities::HeroWillAbilityService& abilities,
             game::npc::village::VillageMembershipService& villages,
             game::npc::simulation::DummyVillagerService& dummyVillagers,
             const core::Diagnostics& diagnostics);
@@ -163,6 +165,7 @@ namespace fable::multiplayer
         UdpPeer transport_;
         replication::LocalPlayerChannel localPlayerChannel_;
         replication::RemotePlayerChannels remotePlayerChannels_;
+        combat::PlayerCombatantDirectory playerCombatants_;
         replication::LocalHeroReplication localHero_;
         presentation::RemotePlayerRegistry remotePlayers_;
         entities::EntityPresenceReplication entityPresence_;
@@ -175,6 +178,7 @@ namespace fable::multiplayer
         population::PopulationSimulationAuthority populationSimulation_;
         movement::EntityMovementReplication entityMovement_;
         replication::EntityActionReplication entityActions_;
+        replication::PlayerActionReplication playerActions_;
         replication::EntityVitalsReplication entityVitals_;
         replication::EntityLowSimulationReplication entityLowSimulation_;
         replication::VillageMembershipReplication villageMembership_;

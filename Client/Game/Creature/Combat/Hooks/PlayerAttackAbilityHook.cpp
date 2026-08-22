@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <cmath>
 
 namespace fable::game::creature::combat
 {
@@ -156,6 +157,32 @@ namespace fable::game::creature::combat
         return interceptedAttackCount_.load(std::memory_order_acquire);
     }
 
+    bool PlayerAttackAbilityHook::SubmitReplicatedAbility(
+        void* creature,
+        unsigned int abilityId,
+        float charge) noexcept
+    {
+        if (!IsInstalled() || creature == nullptr || abilityId == 0 ||
+            abilityId >= 1'000'000 || !std::isfinite(charge) ||
+            charge < -100.0f || charge > 100.0f)
+        {
+            return false;
+        }
+        bool submitted = false;
+        __try
+        {
+            // Use the trampoline so observer-side playback does not re-enter
+            // the capture hook and publish the replicated action again.
+            original_(creature, abilityId, charge);
+            submitted = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            submitted = false;
+        }
+        return submitted;
+    }
+
     void __fastcall PlayerAttackAbilityHook::Intercept(
         void* creature,
         void*,
@@ -178,15 +205,17 @@ namespace fable::game::creature::combat
                 creature,
                 routedCreature);
 
+        if (hook->service_ != nullptr)
+        {
+            hook->service_->ObservePlayerAbility(
+                creature,
+                abilityId,
+                charge,
+                playerAttackCommand);
+        }
+
         if (playerAttackCommand)
         {
-            if (hook->service_ != nullptr)
-            {
-                hook->service_->ObservePlayerAttack(
-                    creature,
-                    abilityId,
-                    charge);
-            }
             const unsigned int ordinal =
                 hook->interceptedAttackCount_.fetch_add(
                     1,

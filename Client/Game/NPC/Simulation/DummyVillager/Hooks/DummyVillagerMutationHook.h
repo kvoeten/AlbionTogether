@@ -52,8 +52,8 @@ namespace fable::game::npc::simulation
         static bool __fastcall SerializeIntercept(
             void* component,
             void* unused,
-            void* context,
-            void* serializer);
+            void* serializer,
+            void* context);
         static void ObserveAfter(
             DummyVillagerMutationHook& hook,
             void* component,

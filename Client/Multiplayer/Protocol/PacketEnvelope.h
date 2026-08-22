@@ -23,6 +23,7 @@ namespace fable::multiplayer::protocol
         PeerHello = 9,
         EntityVitals = 10,
         EntityLowSimulation = 11,
+        PlayerAction = 12,
     };
 
     namespace packet_flag

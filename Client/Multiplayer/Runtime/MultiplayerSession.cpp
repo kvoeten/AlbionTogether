@@ -4,6 +4,7 @@
 #include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/Creature/AI/Hooks/AiBrainUpdateObserver.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
+#include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/Entity/EntityService.h"
 #include "Game/NPC/Village/VillageMembershipService.h"
 #include "Game/NPC/Simulation/DummyVillager/DummyVillagerService.h"
@@ -68,7 +69,7 @@ namespace fable::multiplayer
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
         game::creature::combat::CreatureCombatService& combat,
-        game::creature::animation::CreatureAnimationService& animation,
+        game::hero_pawn::abilities::HeroWillAbilityService& abilities,
         game::npc::village::VillageMembershipService& villages,
         game::npc::simulation::DummyVillagerService& dummyVillagers,
         const core::Diagnostics& diagnostics)
@@ -90,7 +91,9 @@ namespace fable::multiplayer
         const std::uint64_t localActorId = StablePlayerActorId(role, playerId);
 
         if (!remotePlayers_.Initialize(
-                entities, npcs, locomotion, look, combat, diagnostics_,
+                entities, npcs, locomotion, look, combat, abilities,
+                playerCombatants_,
+                diagnostics_,
                 localActorId))
         {
             Shutdown();
@@ -109,8 +112,9 @@ namespace fable::multiplayer
             return false;
         }
         localHero_.Initialize(
-            entities, locomotion, localPlayerChannel_, transport_, diagnostics_,
-            role, localActorId, playerId, appearanceDefinition,
+            entities, locomotion, localPlayerChannel_, transport_,
+            playerCombatants_, diagnostics_, role, localActorId, playerId,
+            appearanceDefinition,
             configuration.MorphSelfTest());
         authority_.Initialize(
             role, localActorId, transport_, diagnostics_);
@@ -167,8 +171,21 @@ namespace fable::multiplayer
             entityLifecycle_,
             entityIdentities_,
             entityPresence_,
-            animation,
+            playerCombatants_,
             combat,
+            diagnostics_);
+        playerActions_.Initialize(
+            role,
+            localActorId,
+            transport_,
+            localHero_,
+            remotePlayerChannels_,
+            remotePlayers_,
+            entityIdentities_,
+            entityPresence_,
+            playerCombatants_,
+            combat,
+            abilities,
             diagnostics_);
         entityVitals_.Initialize(
             role,
@@ -235,6 +252,15 @@ namespace fable::multiplayer
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-entity-action-dispatch");
+            Shutdown();
+            return false;
+        }
+        if (!reliableMessages_.Register(
+                protocol::PacketType::PlayerAction,
+                playerActions_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-player-action-dispatch");
             Shutdown();
             return false;
         }
@@ -320,6 +346,7 @@ namespace fable::multiplayer
     {
         return !enabled_ ||
             (entityActions_.Attach(observer) &&
+                playerActions_.AttachActionObserver(observer) &&
                 entitySimulation_.AttachActionObserver(observer));
     }
 
@@ -498,6 +525,7 @@ namespace fable::multiplayer
 
         const std::uint64_t now = GetTickCount64();
         localHero_.CaptureAppearance(now);
+        localHero_.CaptureEquipment(now);
         PlayerState inbound;
         while (transport_.TryConsume(inbound))
         {
@@ -594,6 +622,11 @@ namespace fable::multiplayer
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-entity-action-replication");
+        }
+        if (!playerActions_.ProcessPending())
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-player-action-replication");
         }
         if (!entityVitals_.Process(
                 localHero_,
@@ -699,9 +732,11 @@ namespace fable::multiplayer
         villageMembership_.Shutdown();
         entityLowSimulation_.Shutdown();
         entityVitals_.Shutdown();
+        playerActions_.Shutdown();
         entityActions_.Shutdown();
         localHero_.Shutdown();
         remotePlayers_.Shutdown();
+        playerCombatants_.Clear();
         entitySimulation_.Shutdown();
         entityMovement_.Shutdown();
         entityMaterialization_.Shutdown();
@@ -757,4 +792,5 @@ namespace fable::multiplayer
     {
         return enabled_ && remotePlayers_.ActiveCount() != 0;
     }
+
 }

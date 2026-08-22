@@ -97,6 +97,10 @@ namespace fable::multiplayer::replication
             state.heroBoneScales = update.heroBoneScales;
             state.heroAppearanceModifiers = update.heroAppearanceModifiers;
         }
+        if ((changed & player_property::Equipment) != 0)
+        {
+            state.heroEquipment = update.heroEquipment;
+        }
         if ((changed & player_property::Movement) != 0)
         {
             state.position = update.position;
@@ -123,6 +127,15 @@ namespace fable::multiplayer::replication
             result.push_back(snapshot);
         }
         return result;
+    }
+
+    const PlayerState* RemotePlayerChannels::Find(
+        std::uint64_t actorId) const noexcept
+    {
+        const auto iterator = channels_.find(actorId);
+        return iterator != channels_.end()
+            ? &iterator->second.state
+            : nullptr;
     }
 
     void RemotePlayerChannels::Remove(std::uint64_t actorId) noexcept

@@ -2,7 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
-#include "Game/Creature/Combat/PlayerAttackEvent.h"
+#include "Game/Creature/Combat/CreatureAbilityEvent.h"
 #include "Multiplayer/Protocol/EntityActionMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
@@ -32,9 +32,9 @@ namespace fable::multiplayer::entities
     class EntityPresenceReplication;
 }
 
-namespace fable::game::creature::animation
+namespace fable::multiplayer::combat
 {
-    class CreatureAnimationService;
+    class PlayerCombatantDirectory;
 }
 
 namespace fable::game::creature::combat
@@ -58,7 +58,7 @@ namespace fable::multiplayer::replication
             entities::EntityLifecycleReplication& lifecycle,
             entities::EntityNetworkIdentityRegistry& identities,
             entities::EntityPresenceReplication& presence,
-            game::creature::animation::CreatureAnimationService& animation,
+            combat::PlayerCombatantDirectory& combatants,
             game::creature::combat::CreatureCombatService& combat,
             const core::Diagnostics& diagnostics);
         bool Attach(
@@ -85,10 +85,13 @@ namespace fable::multiplayer::replication
             std::uint32_t entityGeneration = 0;
             std::uint64_t actionId = 0;
             std::uint64_t ownerActorId = 0;
+            std::uint64_t targetEntityUid = 0;
+            std::uint32_t targetEntityGeneration = 0;
+            std::uint64_t targetPlayerActorId = 0;
             std::uint32_t mapEpoch = 0;
             std::uint32_t actionEpoch = 0;
-            std::uint32_t animationId = 0;
-            std::uint32_t animationFlags = 0;
+            std::uint32_t abilityId = 0;
+            float abilityCharge = 0.0f;
             protocol::EntityActionKind kind =
                 protocol::EntityActionKind::Native;
             std::uint8_t flags = 0;
@@ -105,21 +108,26 @@ namespace fable::multiplayer::replication
             // PrimaryAttacker lease. Ending that sub-action must not release
             // the engagement that owns the lease.
             bool ownsLease = true;
-            bool animationReplayed = false;
-            bool animationReplayFailed = false;
+            bool nativeAbility = false;
+            bool abilityReplayed = false;
+            bool abilityReplayFailed = false;
+            bool nativeReplayed = false;
+            bool nativeReplayFailed = false;
+            std::uint32_t nativeReplayAttempts = 0;
+            std::uint64_t nextNativeReplayAt = 0;
         };
 
         static void CaptureEvent(
             void* context,
             const game::creature::actions::CreatureActionLifecycleEvent& event);
-        static void CapturePlayerAttack(
+        static void CaptureAbility(
             void* context,
-            const game::creature::combat::PlayerAttackEvent& event);
+            const game::creature::combat::CreatureAbilityEvent& event);
         void Enqueue(
             const game::creature::actions::CreatureActionLifecycleEvent& event)
             noexcept;
-        void EnqueuePlayerAttack(
-            const game::creature::combat::PlayerAttackEvent& event) noexcept;
+        void EnqueueAbility(
+            const game::creature::combat::CreatureAbilityEvent& event) noexcept;
         bool ProcessEvent(
             const game::creature::actions::CreatureActionLifecycleEvent& event,
             const std::string& localMap,
@@ -128,9 +136,15 @@ namespace fable::multiplayer::replication
             const game::creature::actions::CreatureActionLifecycleEvent& event,
             const std::string& localMap,
             std::uint32_t mapEpoch);
+        bool BeginLocalAbility(
+            const game::creature::combat::CreatureAbilityEvent& event,
+            const std::string& localMap,
+            std::uint32_t mapEpoch);
+        bool BindLocalAbilityAction(
+            const game::creature::actions::CreatureActionLifecycleEvent& event);
         bool FinishLocalAction(void* nativeAction);
         bool BeginOrRefreshCombatEngagement(
-            const game::creature::combat::PlayerAttackEvent& event,
+            const game::creature::combat::CreatureAbilityEvent& event,
             const std::string& localMap,
             std::uint32_t mapEpoch);
         bool QueueUpdate(ActiveAction& action);
@@ -141,8 +155,10 @@ namespace fable::multiplayer::replication
             std::uint64_t sourceActorId);
         bool AcceptAuthoritative(
             const protocol::EntityActionMessage& message);
-        bool ReplayAuthoritativeAnimation(ActiveAction& action);
-        bool ReplayPendingAnimations();
+        bool ReplayAuthoritativeAbility(ActiveAction& action);
+        bool ReplayAuthoritativeNativeAction(ActiveAction& action);
+        bool ReplayPendingAbilities();
+        bool ReplayPendingNativeActions();
         bool PublishPeerBaseline();
         bool QueueEnd(ActiveAction& action);
         bool Queue(protocol::EntityActionMessage message);
@@ -166,8 +182,7 @@ namespace fable::multiplayer::replication
         entities::EntityLifecycleReplication* lifecycle_ = nullptr;
         entities::EntityNetworkIdentityRegistry* identities_ = nullptr;
         entities::EntityPresenceReplication* presence_ = nullptr;
-        game::creature::animation::CreatureAnimationService* animation_ =
-            nullptr;
+        combat::PlayerCombatantDirectory* combatants_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
@@ -176,12 +191,13 @@ namespace fable::multiplayer::replication
         std::mutex pendingEventMutex_;
         std::deque<game::creature::actions::CreatureActionLifecycleEvent>
             pendingEvents_;
-        std::deque<game::creature::combat::PlayerAttackEvent>
-            pendingPlayerAttacks_;
+        std::deque<game::creature::combat::CreatureAbilityEvent>
+            pendingAbilities_;
         std::deque<protocol::EntityActionMessage> pendingMessages_;
         std::unordered_map<std::uint64_t, ActiveAction> activeActions_;
         std::unordered_map<void*, std::uint64_t> localActionIds_;
         std::unordered_map<std::uint64_t, std::uint64_t> combatActionIds_;
+        std::unordered_map<std::uint64_t, std::uint64_t> recentAbilityActions_;
         std::atomic_bool acceptingEvents_{false};
         std::atomic_uint droppedEvents_{0};
         unsigned int reportedDroppedEvents_ = 0;

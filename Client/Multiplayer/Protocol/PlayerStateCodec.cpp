@@ -39,6 +39,12 @@ namespace
         char appearanceDefinition[96] = {};
         std::uint8_t appearanceValid = 0;
         std::uint8_t appearanceChild = 0;
+        std::uint8_t equipmentValid = 0;
+        std::uint8_t activeWeaponFamily = 0;
+        std::int32_t meleeWeaponDefinitionIndex = 0;
+        std::int32_t rangedWeaponDefinitionIndex = 0;
+        std::uint32_t meleeWeaponAttachmentSlot = 0;
+        std::uint32_t rangedWeaponAttachmentSlot = 0;
         float heroMorph[8] = {};
         std::int32_t heroClothingDefinitionIndices[
             fable::game::hero_pawn::appearance::
@@ -169,6 +175,49 @@ namespace
             state.heroMorph[7] <= 16.0f;
     }
 
+    bool IsSaneEquipment(const WirePlayerState& state)
+    {
+        const bool carriesEquipment =
+            (state.changedProperties &
+                fable::multiplayer::player_property::Equipment) != 0;
+        if (!carriesEquipment)
+        {
+            return state.equipmentValid == 0;
+        }
+        const auto saneDefinition = [](std::int32_t definitionIndex)
+        {
+            return definitionIndex == -1 ||
+                (definitionIndex > 0 && definitionIndex < 1'000'000);
+        };
+        using fable::game::creature::equipment::CreatureWeaponFamily;
+        const auto family = static_cast<CreatureWeaponFamily>(
+            state.activeWeaponFamily);
+        const bool saneFamily = family == CreatureWeaponFamily::None ||
+            family == CreatureWeaponFamily::Melee ||
+            family == CreatureWeaponFamily::Ranged;
+        const bool availableFamily = family == CreatureWeaponFamily::None ||
+            (family == CreatureWeaponFamily::Melee &&
+                state.meleeWeaponDefinitionIndex > 0) ||
+            (family == CreatureWeaponFamily::Ranged &&
+                state.rangedWeaponDefinitionIndex > 0);
+        const auto saneAttachment = [](std::int32_t definitionIndex,
+                                       std::uint32_t attachmentSlot)
+        {
+            return definitionIndex == -1
+                ? attachmentSlot == 0
+                : attachmentSlot < 1'000'000;
+        };
+        return state.equipmentValid == 1 && saneFamily && availableFamily &&
+            saneDefinition(state.meleeWeaponDefinitionIndex) &&
+            saneDefinition(state.rangedWeaponDefinitionIndex) &&
+            saneAttachment(
+                state.meleeWeaponDefinitionIndex,
+                state.meleeWeaponAttachmentSlot) &&
+            saneAttachment(
+                state.rangedWeaponDefinitionIndex,
+                state.rangedWeaponAttachmentSlot);
+    }
+
     std::size_t PayloadSize(const WirePlayerState& state)
     {
         return kBaseSize +
@@ -199,6 +248,8 @@ namespace fable::multiplayer::protocol
         encodedSize = 0;
         const bool carriesAppearance =
             (state.changedProperties & player_property::Appearance) != 0;
+        const bool carriesEquipment =
+            (state.changedProperties & player_property::Equipment) != 0;
         if (state.actorId == 0 || state.authorityEpoch == 0 ||
             (state.role != PeerRole::Host && state.role != PeerRole::Guest) ||
             (state.changedProperties & ~player_property::All) != 0 ||
@@ -214,7 +265,8 @@ namespace fable::multiplayer::protocol
                 (!state.heroMorph.IsSane() ||
                     !state.heroClothing.IsSane() ||
                     !state.heroBoneScales.IsSane() ||
-                    !state.heroAppearanceModifiers.IsSane())))
+                    !state.heroAppearanceModifiers.IsSane())) ||
+            (carriesEquipment && !state.heroEquipment.IsSane()))
         {
             return false;
         }
@@ -280,6 +332,20 @@ namespace fable::multiplayer::protocol
                 target.z = QuantizeBoneScale(source.z);
             }
         }
+        if (carriesEquipment)
+        {
+            packet.equipmentValid = 1;
+            packet.meleeWeaponDefinitionIndex =
+                state.heroEquipment.meleeDefinitionIndex;
+            packet.rangedWeaponDefinitionIndex =
+                state.heroEquipment.rangedDefinitionIndex;
+            packet.meleeWeaponAttachmentSlot =
+                state.heroEquipment.meleeAttachmentSlot;
+            packet.rangedWeaponAttachmentSlot =
+                state.heroEquipment.rangedAttachmentSlot;
+            packet.activeWeaponFamily = static_cast<std::uint8_t>(
+                state.heroEquipment.activeFamily);
+        }
         const std::size_t payloadSize = PayloadSize(packet);
         if (destination == nullptr || payloadSize > destinationCapacity)
         {
@@ -314,6 +380,7 @@ namespace fable::multiplayer::protocol
             PayloadSize(packet) != byteCount ||
             (packet.changedProperties & ~player_property::All) != 0 ||
             !IsFinite(packet) || !IsSaneAppearance(packet) ||
+            !IsSaneEquipment(packet) ||
             !IsTerminated(packet.playerId) ||
             !IsTerminated(packet.mapName) ||
             !IsTerminated(packet.appearanceDefinition))
@@ -377,6 +444,21 @@ namespace fable::multiplayer::protocol
             target.x = DequantizeBoneScale(source.x);
             target.y = DequantizeBoneScale(source.y);
             target.z = DequantizeBoneScale(source.z);
+        }
+        if ((packet.changedProperties & player_property::Equipment) != 0)
+        {
+            state.heroEquipment.valid = packet.equipmentValid != 0;
+            state.heroEquipment.meleeDefinitionIndex =
+                packet.meleeWeaponDefinitionIndex;
+            state.heroEquipment.rangedDefinitionIndex =
+                packet.rangedWeaponDefinitionIndex;
+            state.heroEquipment.meleeAttachmentSlot =
+                packet.meleeWeaponAttachmentSlot;
+            state.heroEquipment.rangedAttachmentSlot =
+                packet.rangedWeaponAttachmentSlot;
+            state.heroEquipment.activeFamily = static_cast<
+                game::creature::equipment::CreatureWeaponFamily>(
+                    packet.activeWeaponFamily);
         }
         return true;
     }

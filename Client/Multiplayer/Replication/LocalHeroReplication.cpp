@@ -3,13 +3,16 @@
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
 #include "Game/Creature/Look/Native/CreatureLookFunctions.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
+#include "Game/Creature/Equipment/Native/CreatureWeaponFunctions.h"
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 #include "Game/HeroPawn/Appearance/Native/HeroAttachableAppearanceComponent.h"
 #include "Game/HeroPawn/Appearance/Native/HeroClothingComponent.h"
 #include "Game/HeroPawn/Appearance/Native/HeroMorphComponent.h"
-#include "Multiplayer/Presentation/HeroPresentationDiagnostics.h"
+#include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
+#include "Game/HeroPawn/Appearance/Diagnostics/HeroPresentationDiagnostics.h"
+#include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Replication/LocalPlayerChannel.h"
 #include "Multiplayer/Transport/UdpPeer.h"
 
@@ -56,6 +59,7 @@ namespace fable::multiplayer::replication
                 return 0;
             }
         }
+
     }
 
     void LocalHeroReplication::Initialize(
@@ -63,6 +67,7 @@ namespace fable::multiplayer::replication
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         LocalPlayerChannel& channel,
         UdpPeer& transport,
+        combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics,
         PeerRole role,
         std::uint64_t actorId,
@@ -75,12 +80,46 @@ namespace fable::multiplayer::replication
         locomotion_ = &locomotion;
         channel_ = &channel;
         transport_ = &transport;
+        combatants_ = &combatants;
         diagnostics_ = diagnostics;
         role_ = role;
         actorId_ = actorId;
         playerId_ = std::move(playerId);
         appearanceDefinition_ = std::move(appearanceDefinition);
         morphSelfTest_ = morphSelfTest;
+        if (appearanceObserver_.Install(entities.GameModule(), diagnostics_))
+        {
+            appearanceObserver_.SetEventSink(
+                &LocalHeroReplication::ObserveAppearanceMutation, this);
+        }
+        else
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-owner-appearance-mutation-observer");
+        }
+        if (equipmentObserver_.Install(entities.GameModule(), diagnostics_))
+        {
+            equipmentObserver_.SetEventSink(
+                &LocalHeroReplication::ObserveEquipmentMutation, this);
+        }
+        else
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-owner-equipment-mutation-observer");
+        }
+        if (carryingObserver_.Install(entities.GameModule(), diagnostics_))
+        {
+            carryingObserver_.SetEventSink(
+                &LocalHeroReplication::ObserveCarryingMutation, this);
+        }
+        else
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-owner-carrying-mutation-observer");
+        }
         initialized_ = true;
     }
 
@@ -133,6 +172,7 @@ namespace fable::multiplayer::replication
         }
         hero_ = currentHero;
         nativeHero_ = currentNative;
+        nativeHeroForMutation_.store(nativeHero_, std::memory_order_release);
         mapName_ = currentMap;
         mapId_ = ReadNativeThingMapId(nativeHero_);
         if (mapId_ == 0)
@@ -140,6 +180,7 @@ namespace fable::multiplayer::replication
             currentHero->Release();
             hero_ = nullptr;
             nativeHero_ = nullptr;
+            nativeHeroForMutation_.store(nullptr, std::memory_order_release);
             mapName_.clear();
             return false;
         }
@@ -167,6 +208,31 @@ namespace fable::multiplayer::replication
             game::hero_pawn::appearance::native::
                 HeroAttachableAppearanceComponent::Capture(
                     nativeHero_, modifiers);
+        game::hero_pawn::equipment::HeroEquipmentState equipment;
+        const bool equipmentReady =
+            game::hero_pawn::equipment::native::HeroWeaponComponent::Capture(
+                nativeHero_, equipment);
+        if (!equipmentReady)
+        {
+            game::hero_pawn::equipment::native::HeroWeaponInspection inspection;
+            const bool inspected = game::hero_pawn::equipment::native::
+                HeroWeaponComponent::Inspect(nativeHero_, inspection);
+            char equipmentDetail[256] = {};
+            std::snprintf(
+                equipmentDetail,
+                sizeof(equipmentDetail),
+                "component=%p functions=%s signature_mask=0x%02X readable=%s melee=%p melee_definition=%d ranged=%p ranged_definition=%d",
+                inspected ? inspection.component : nullptr,
+                inspection.functionsResolved ? "true" : "false",
+                inspection.functionSignatureMask,
+                inspection.readable ? "true" : "false",
+                inspection.meleeWeapon,
+                inspection.meleeDefinitionIndex,
+                inspection.rangedWeapon,
+                inspection.rangedDefinitionIndex);
+            diagnostics_.Event(
+                "MultiplayerOwnerEquipmentWaiting", equipmentDetail);
+        }
         if (scalesReady && morphSelfTest_ &&
             !game::hero_pawn::appearance::native::HeroMorphComponent::
                 ApplyBoneScaleState(nativeHero_, heroBoneScales))
@@ -187,8 +253,8 @@ namespace fable::multiplayer::replication
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             channel_->Open(
                 actorId_, 1, role_, playerId_, appearanceDefinition_,
-                heroMorph, heroClothing, heroBoneScales, modifiers, mapName_,
-                mapId_, position, facing, GetTickCount64());
+                heroMorph, heroClothing, heroBoneScales, modifiers, equipment,
+                mapName_, mapId_, position, facing, GetTickCount64());
         }
         PlayerState baseline;
         {
@@ -207,6 +273,13 @@ namespace fable::multiplayer::replication
             return false;
         }
 
+        if (!combatants_->Bind(actorId_, nativeHero_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-local-combatant-binding");
+            ReleaseHero();
+            return false;
+        }
         worldReady_ = true;
         entryPending_ = false;
         // ReleaseHero detaches the observer during level teardown. Restore it
@@ -215,6 +288,7 @@ namespace fable::multiplayer::replication
             &LocalHeroReplication::ObservePlayerFrame,
             this);
         appearanceReady_ = scalesReady && clothingReady && modifiersReady;
+        equipmentReady_ = equipmentReady;
         transitionCompleted_ = transitionActive_;
         transitionActive_ = false;
         departingNativeHero_ = nullptr;
@@ -322,7 +396,7 @@ namespace fable::multiplayer::replication
         if (!graphicRuntimeReported_)
         {
             graphicRuntimeReported_ =
-                presentation::ReportHeroSkeletalPresentation(
+                game::hero_pawn::appearance::ReportHeroSkeletalPresentation(
                     "owner", nativeHero_, diagnostics_);
         }
         CaptureMovement(GetTickCount64());
@@ -396,12 +470,14 @@ namespace fable::multiplayer::replication
 
     void LocalHeroReplication::CaptureAppearance(std::uint64_t now)
     {
-        if (!worldReady_ || appearanceReady_ || nativeHero_ == nullptr ||
+        if (!worldReady_ || nativeHero_ == nullptr ||
+            (appearanceReady_ &&
+                !appearanceDirty_.load(std::memory_order_acquire)) ||
             now < nextAppearanceCaptureAt_)
         {
             return;
         }
-        nextAppearanceCaptureAt_ = now + 500;
+        nextAppearanceCaptureAt_ = now + 100;
         game::hero_pawn::appearance::HeroMorphState morph;
         game::hero_pawn::appearance::HeroClothingState clothing;
         game::hero_pawn::appearance::HeroBoneScaleState boneScales;
@@ -440,6 +516,8 @@ namespace fable::multiplayer::replication
             }
             return;
         }
+        PlayerState update;
+        bool changed = false;
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             if (!channel_->CaptureAppearance(
@@ -450,24 +528,43 @@ namespace fable::multiplayer::replication
                     "ClientFailed", "multiplayer-owner-appearance-capture");
                 return;
             }
+            changed = channel_->TakeDirtyUpdate(update);
         }
-        PlayerState update;
+        appearanceReady_ = true;
+        appearanceDirty_.store(false, std::memory_order_release);
+        if (!changed)
         {
-            std::lock_guard<std::mutex> lock(ownerStateMutex_);
-            if (!channel_->TakeDirtyUpdate(update))
-            {
-                diagnostics_.Event(
-                    "ClientFailed", "multiplayer-owner-appearance-submit");
-                return;
-            }
+            return;
         }
         if (!transport_->Submit(update))
         {
+            appearanceDirty_.store(true, std::memory_order_release);
+            char rejected[256] = {};
+            std::snprintf(
+                rejected,
+                sizeof(rejected),
+                "started=%s failed=%s update_actor=%llu expected_actor=%llu epoch=%u properties=0x%08X appearance_sane=%s",
+                transport_->IsStarted() ? "true" : "false",
+                transport_->HasFailed() ? "true" : "false",
+                static_cast<unsigned long long>(update.actorId),
+                static_cast<unsigned long long>(actorId_),
+                update.authorityEpoch,
+                update.changedProperties,
+                update.heroMorph.IsSane() &&
+                        update.heroClothing.IsSane() &&
+                        update.heroBoneScales.IsSane() &&
+                        update.heroAppearanceModifiers.IsSane()
+                    ? "true"
+                    : "false");
             diagnostics_.Event(
-                "ClientFailed", "multiplayer-owner-appearance-submit");
+                "MultiplayerOwnerAppearanceSubmitDeferred", rejected);
+            if (transport_->HasFailed())
+            {
+                diagnostics_.Event(
+                    "ClientFailed", "multiplayer-owner-appearance-submit");
+            }
             return;
         }
-        appearanceReady_ = true;
         char detail[160] = {};
         std::snprintf(
             detail, sizeof(detail),
@@ -477,6 +574,224 @@ namespace fable::multiplayer::replication
             clothing.definitionIndices[4], clothing.definitionIndices[5],
             boneScales.count, modifiers.count);
         diagnostics_.Event("MultiplayerOwnerAppearanceReplicated", detail);
+    }
+
+    void LocalHeroReplication::CaptureEquipment(std::uint64_t now)
+    {
+        if (!worldReady_ || nativeHero_ == nullptr ||
+            (equipmentReady_ &&
+                !equipmentDirty_.load(std::memory_order_acquire)) ||
+            now < nextEquipmentCaptureAt_)
+        {
+            return;
+        }
+        nextEquipmentCaptureAt_ = now + 100;
+        game::hero_pawn::equipment::HeroEquipmentState equipment;
+        if (!game::hero_pawn::equipment::native::HeroWeaponComponent::Capture(
+                nativeHero_, equipment))
+        {
+            return;
+        }
+        PlayerState update;
+        bool changed = false;
+        {
+            std::lock_guard<std::mutex> lock(ownerStateMutex_);
+            if (!channel_->CaptureEquipment(equipment))
+            {
+                return;
+            }
+            changed = channel_->TakeDirtyUpdate(update);
+        }
+        equipmentReady_ = true;
+        equipmentDirty_.store(false, std::memory_order_release);
+        if (!changed)
+        {
+            return;
+        }
+        if (!transport_->Submit(update))
+        {
+            equipmentDirty_.store(true, std::memory_order_release);
+            diagnostics_.Event(
+                "MultiplayerOwnerEquipmentSubmitDeferred",
+                "carried weapon state remains dirty until transport accepts it");
+            if (transport_->HasFailed())
+            {
+                diagnostics_.Event(
+                    "ClientFailed", "multiplayer-owner-equipment-submit");
+            }
+            return;
+        }
+        char detail[128] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "melee=%d melee_slot=%u ranged=%d ranged_slot=%u active=%s",
+            equipment.meleeDefinitionIndex,
+            equipment.meleeAttachmentSlot,
+            equipment.rangedDefinitionIndex,
+            equipment.rangedAttachmentSlot,
+            equipment.activeFamily ==
+                    game::creature::equipment::CreatureWeaponFamily::Melee
+                ? "melee"
+                : equipment.activeFamily ==
+                        game::creature::equipment::CreatureWeaponFamily::Ranged
+                    ? "ranged"
+                    : "sheathed");
+        diagnostics_.Event("MultiplayerOwnerEquipmentReplicated", detail);
+        game::creature::equipment::native::CreatureCarryingInspection
+            carrying;
+        if (game::creature::equipment::native::CreatureWeaponFunctions::
+                InspectCarrying(nativeHero_, carrying))
+        {
+            char inventory[1024] = {};
+            int used = std::snprintf(
+                inventory,
+                sizeof(inventory),
+                "count=%zu truncated=%s entries=",
+                carrying.count,
+                carrying.truncated ? "true" : "false");
+            for (std::size_t index = 0;
+                 index < carrying.count && used > 0 &&
+                 static_cast<std::size_t>(used) < sizeof(inventory);
+                 ++index)
+            {
+                const game::creature::equipment::native::
+                    CreatureCarryingEntry& entry = carrying.entries[index];
+                used += std::snprintf(
+                    inventory + used,
+                    sizeof(inventory) - static_cast<std::size_t>(used),
+                    "%s%u:%d:%p:%p",
+                    index == 0 ? "[" : ",",
+                    entry.attachmentSlot,
+                    entry.definitionIndex,
+                    entry.thing,
+                    entry.graphic);
+            }
+            if (used > 0 &&
+                static_cast<std::size_t>(used) < sizeof(inventory) - 1)
+            {
+                std::snprintf(
+                    inventory + used,
+                    sizeof(inventory) - static_cast<std::size_t>(used),
+                    "]");
+            }
+            diagnostics_.Event(
+                "MultiplayerOwnerWeaponCarryingInspected", inventory);
+        }
+    }
+
+    void LocalHeroReplication::ObserveAppearanceMutation(
+        void* context,
+        const game::hero_pawn::appearance::hooks::
+            HeroAppearanceMutationEvent& event)
+    {
+        if (context != nullptr)
+        {
+            static_cast<LocalHeroReplication*>(context)->
+                OnAppearanceMutation(event);
+        }
+    }
+
+    void LocalHeroReplication::OnAppearanceMutation(
+        const game::hero_pawn::appearance::hooks::
+            HeroAppearanceMutationEvent& event) noexcept
+    {
+        void* const hero = nativeHeroForMutation_.load(
+            std::memory_order_acquire);
+        if (hero == nullptr)
+        {
+            return;
+        }
+        using game::hero_pawn::appearance::hooks::
+            HeroAppearanceMutationKind;
+        bool localMutation = event.kind ==
+                HeroAppearanceMutationKind::Clothing
+            ? event.nativeThing == hero
+            : game::entity::native::ThingComponentAccess::Find(
+                    hero,
+                    game::entity::native::ThingComponentType::
+                        HeroAttachableAppearanceModifiers) == event.component;
+        if (!localMutation)
+        {
+            return;
+        }
+        appearanceDirty_.store(true, std::memory_order_release);
+        diagnostics_.Event(
+            "MultiplayerOwnerAppearanceDirty",
+            event.kind == HeroAppearanceMutationKind::Clothing
+                ? "local clothing mutation will publish a fresh actor property"
+                : "local attachable appearance mutation will publish a fresh actor property");
+    }
+
+    void LocalHeroReplication::ObserveEquipmentMutation(
+        void* context,
+        void* component)
+    {
+        if (context != nullptr)
+        {
+            static_cast<LocalHeroReplication*>(context)->
+                OnEquipmentMutation(component);
+        }
+    }
+
+    void LocalHeroReplication::OnEquipmentMutation(void* component) noexcept
+    {
+        void* const hero = nativeHeroForMutation_.load(
+            std::memory_order_acquire);
+        if (hero == nullptr || component == nullptr ||
+            game::entity::native::ThingComponentAccess::FindByVtableRva(
+                hero,
+                entities_ != nullptr ? entities_->GameModule() : nullptr,
+                game::hero_pawn::equipment::native::HeroWeaponComponent::
+                    ExpectedVtableRva) != component)
+        {
+            return;
+        }
+        equipmentDirty_.store(true, std::memory_order_release);
+        diagnostics_.Event(
+            "MultiplayerOwnerEquipmentDirty",
+            "local carried weapon mutation will publish a fresh actor property");
+    }
+
+    void LocalHeroReplication::ObserveCarryingMutation(
+        void* context,
+        const game::creature::equipment::hooks::
+            CreatureCarryingMutationEvent& event)
+    {
+        if (context != nullptr)
+        {
+            static_cast<LocalHeroReplication*>(context)->
+                OnCarryingMutation(event);
+        }
+    }
+
+    void LocalHeroReplication::OnCarryingMutation(
+        const game::creature::equipment::hooks::
+            CreatureCarryingMutationEvent& event) noexcept
+    {
+        void* const hero = nativeHeroForMutation_.load(
+            std::memory_order_acquire);
+        if (hero == nullptr || event.component == nullptr ||
+            game::entity::native::ThingComponentAccess::Find(
+                hero,
+                game::entity::native::ThingComponentType::Carrying) !=
+                event.component)
+        {
+            return;
+        }
+        equipmentDirty_.store(true, std::memory_order_release);
+        char detail[160] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "kind=%s thing=%p carry_slot=%d operation=publish-final-carry-slots",
+            event.kind == game::creature::equipment::hooks::
+                    CreatureCarryingMutationKind::Attached
+                ? "attached"
+                : "removed",
+            event.thing,
+            event.carrySlot);
+        diagnostics_.Event("MultiplayerOwnerEquipmentDirty", detail);
     }
 
     bool LocalHeroReplication::WorldIsCurrent() const
@@ -517,11 +832,16 @@ namespace fable::multiplayer::replication
 
     void LocalHeroReplication::ReleaseHero() noexcept
     {
+        if (combatants_ != nullptr && nativeHero_ != nullptr)
+        {
+            combatants_->Unbind(actorId_, nativeHero_);
+        }
         if (locomotion_ != nullptr)
         {
             locomotion_->SetPlayerFrameObserver(nullptr, nullptr);
         }
         nativeHero_ = nullptr;
+        nativeHeroForMutation_.store(nullptr, std::memory_order_release);
         if (hero_ != nullptr)
         {
             hero_->Release();
@@ -530,8 +850,12 @@ namespace fable::multiplayer::replication
         worldReady_ = false;
         entryPending_ = false;
         appearanceReady_ = false;
+        appearanceDirty_.store(false, std::memory_order_release);
+        equipmentReady_ = false;
+        equipmentDirty_.store(false, std::memory_order_release);
         nextBindDiagnosticAt_ = 0;
         nextAppearanceCaptureAt_ = 0;
+        nextEquipmentCaptureAt_ = 0;
         graphicRuntimeReported_ = false;
         mapName_.clear();
         mapId_ = 0;
@@ -539,11 +863,15 @@ namespace fable::multiplayer::replication
 
     void LocalHeroReplication::Shutdown() noexcept
     {
+        appearanceObserver_.SetEventSink(nullptr, nullptr);
+        equipmentObserver_.SetEventSink(nullptr, nullptr);
+        carryingObserver_.SetEventSink(nullptr, nullptr);
         ReleaseHero();
         entities_ = nullptr;
         locomotion_ = nullptr;
         channel_ = nullptr;
         transport_ = nullptr;
+        combatants_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
         actorId_ = 0;
@@ -557,6 +885,8 @@ namespace fable::multiplayer::replication
         exchangeReported_ = false;
         transportFailureReported_ = false;
         morphSelfTest_ = false;
+        appearanceDirty_.store(false, std::memory_order_release);
+        equipmentDirty_.store(false, std::memory_order_release);
     }
 
     bool LocalHeroReplication::IsWorldReady() const noexcept

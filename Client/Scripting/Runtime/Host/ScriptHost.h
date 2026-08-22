@@ -35,6 +35,7 @@ namespace fable::automation::local_instance
 namespace fable::automation::multiplayer::combat
 {
     class CombatTargetAcceptanceDriver;
+    class CombatVisualExchangeDriver;
 }
 
 namespace fable::automation::multiplayer::transition
@@ -55,6 +56,16 @@ namespace fable::game::creature::locomotion
 namespace fable::game::creature::combat
 {
     class CreatureCombatService;
+}
+
+namespace fable::automation::multiplayer::abilities
+{
+    class HeroWillAbilityAcceptanceDriver;
+}
+
+namespace fable::game::hero_pawn::abilities
+{
+    class HeroWillAbilityService;
 }
 
 namespace fable::game::creature::animation
@@ -189,6 +200,8 @@ namespace fable::scripting
             creatureLookService_;
         std::unique_ptr<game::creature::combat::CreatureCombatService>
             creatureCombatService_;
+        std::unique_ptr<game::hero_pawn::abilities::HeroWillAbilityService>
+            heroWillAbilityService_;
         std::unique_ptr<game::creature::animation::CreatureAnimationService>
             creatureAnimationService_;
         std::unique_ptr<game::PlayerService> playerService_;
@@ -211,11 +224,16 @@ namespace fable::scripting
             MapTransitionAcceptanceDriver> transitionAcceptanceDriver_;
         std::unique_ptr<automation::multiplayer::combat::
             CombatTargetAcceptanceDriver> combatTargetAcceptanceDriver_;
+        std::unique_ptr<automation::multiplayer::combat::
+            CombatVisualExchangeDriver> combatVisualExchangeDriver_;
+        std::unique_ptr<automation::multiplayer::abilities::
+            HeroWillAbilityAcceptanceDriver> heroWillAbilityAcceptanceDriver_;
         std::unique_ptr<automation::multiplayer::transition::
             NpcTransferAcceptanceDriver> npcTransferAcceptanceDriver_;
         std::unique_ptr<multiplayer::MultiplayerSession> multiplayerSession_;
         std::filesystem::path scriptsRoot_;
         core::Diagnostics diagnostics_ = {};
+        bool heroWillFocusedAcceptance_ = false;
         bool loaded_ = false;
     };
 }

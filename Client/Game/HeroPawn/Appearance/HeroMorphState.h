@@ -21,7 +21,9 @@ namespace fable::game::hero_pawn::appearance
         // Fable's Hero skeleton currently materializes 91 mass-scaling slots.
         // The wire representation quantizes each vector to keep the complete
         // baseline within a normal 1,472-byte UDP payload.
-        static constexpr std::size_t MaximumEntries = 128;
+        // Leave packet headroom for other bounded Hero presentation state.
+        // The retail Hero currently materializes 91 entries.
+        static constexpr std::size_t MaximumEntries = 120;
 
         bool valid = false;
         std::uint32_t count = 0;

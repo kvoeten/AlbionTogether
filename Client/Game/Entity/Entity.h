@@ -51,6 +51,10 @@ namespace fable::game
         [[nodiscard]] float GetFacing() const;
 
         bool Teleport(const Vector3& position, float facing, bool effect = false);
+        bool OpenDoor();
+        bool UseScriptedAction(
+            bool requireRegionEntrance = false,
+            const char** failure = nullptr);
         bool SetAttackable(bool enabled);
         bool SetDamageable(bool enabled);
         bool SetCollidable(bool enabled);

@@ -147,10 +147,73 @@ namespace fable::game::entity::native
         return nullptr;
     }
 
+    void* ThingComponentAccess::FindByVtableRva(
+        void* nativeThing,
+        HMODULE gameModule,
+        std::uintptr_t vtableRva) noexcept
+    {
+        ThingComponentRange range;
+        if (gameModule == nullptr || vtableRva == 0 ||
+            !ReadRange(nativeThing, range))
+        {
+            return nullptr;
+        }
+        void* const expected = reinterpret_cast<void*>(
+            reinterpret_cast<std::uintptr_t>(gameModule) + vtableRva);
+        __try
+        {
+            for (const ThingComponentEntry* entry = range.begin;
+                 entry != range.end;
+                 ++entry)
+            {
+                if (entry->instance != nullptr &&
+                    *static_cast<void**>(entry->instance) == expected)
+                {
+                    return entry->instance;
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+        return nullptr;
+    }
+
     bool ThingComponentAccess::Has(
         void* nativeThing,
         ThingComponentType type) noexcept
     {
         return Find(nativeThing, type) != nullptr;
+    }
+
+    bool ThingComponentAccess::IsActiveSummonedCreature(
+        void* nativeThing) noexcept
+    {
+        void* const component = Find(
+            nativeThing,
+            ThingComponentType::SummonedCreature);
+        if (!IsReadableRange(component, 0x14))
+        {
+            return false;
+        }
+
+        // Retail CGameScriptThing::IsSummonedCreature (preferred VA
+        // 0x01CB3710) returns true only for this live-state combination.
+        // Reading it directly avoids constructing a ref-counted ScriptThing
+        // while CTCMapwho is in the middle of registering the native Thing.
+        bool active = false;
+        __try
+        {
+            const auto* const bytes =
+                static_cast<const std::uint8_t*>(component);
+            active = bytes[0x10] != 0 &&
+                bytes[0x12] == 0 && bytes[0x13] == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            active = false;
+        }
+        return active;
     }
 }

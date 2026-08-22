@@ -7,7 +7,8 @@
 #include <Windows.h>
 
 #include <atomic>
-#include <vector>
+#include <memory>
+#include <unordered_map>
 
 namespace fable::game::creature::look
 {
@@ -51,16 +52,35 @@ namespace fable::game::creature::look
     private:
         struct Binding final
         {
-            void* creature = nullptr;
+            std::atomic<void*> navigator{nullptr};
+            std::atomic<ReplicatedMovementProvider> provider{nullptr};
+            std::atomic<void*> providerContext{nullptr};
+            std::atomic<ULONGLONG> lastFrameAt{0};
+            std::atomic<ULONGLONG> lastNativeMovementReportAt{0};
+            std::atomic<ULONGLONG> lastBackgroundMovementReportAt{0};
+            std::atomic_bool nativeMoving{false};
+            std::atomic_bool backgroundMoving{false};
+        };
+
+        struct BindingSnapshot final
+        {
             void* navigator = nullptr;
             ReplicatedMovementProvider provider = nullptr;
             void* providerContext = nullptr;
             ULONGLONG lastFrameAt = 0;
-            ULONGLONG lastNativeMovementReportAt = 0;
-            ULONGLONG lastBackgroundMovementReportAt = 0;
-            bool nativeMoving = false;
-            bool backgroundMoving = false;
         };
+
+        [[nodiscard]] std::shared_ptr<Binding> FindBinding(
+            void* creature) const noexcept;
+        [[nodiscard]] bool SnapshotBinding(
+            void* creature,
+            BindingSnapshot& snapshot,
+            ULONGLONG frameAt = 0) noexcept;
+        [[nodiscard]] bool UpdateMovementReport(
+            void* creature,
+            bool nativeFrame,
+            bool moving,
+            ULONGLONG now) noexcept;
 
         static bool __fastcall ObserveCreatureUpdate(
             void* creature,
@@ -74,7 +94,7 @@ namespace fable::game::creature::look
             original_ = nullptr;
         void** vtableSlot_ = nullptr;
         mutable SRWLOCK bindingLock_ = SRWLOCK_INIT;
-        std::vector<Binding> bindings_;
+        std::unordered_map<void*, std::shared_ptr<Binding>> bindings_;
         std::atomic<FrameObserver> frameObserver_{nullptr};
         std::atomic<void*> frameObserverContext_{nullptr};
         std::atomic_uint routedFacingCount_{0};

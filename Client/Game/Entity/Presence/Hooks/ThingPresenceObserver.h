@@ -55,6 +55,7 @@ namespace fable::game::entity::presence
             bool creature = false;
             bool hasHeroMorph = false;
             bool hasVillageMembership = false;
+            bool summonedCreature = false;
             void* thing = nullptr;
             bool registered = false;
             bool readable = false;

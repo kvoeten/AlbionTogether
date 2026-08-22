@@ -6,6 +6,7 @@
 
 #include <Windows.h>
 
+#include <array>
 #include <atomic>
 
 namespace fable::game::creature::combat
@@ -19,6 +20,7 @@ namespace fable::game::creature::combat
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
         void SetEventSink(EventSink sink, void* context) noexcept;
+        bool SetReplicaProtected(void* creature, bool protectedReplica) noexcept;
         bool ApplyAuthoritative(
             void* creature,
             float currentHealth,
@@ -37,6 +39,7 @@ namespace fable::game::creature::combat
             float delta,
             bool combatFlag);
         static std::uint64_t ReadThingUid(void* creature) noexcept;
+        [[nodiscard]] bool IsReplicaProtected(void* creature) const noexcept;
 
         static CombatHealthMutationHook* active_;
         native::CombatHealthMutationFunction::Pointer original_ = nullptr;
@@ -46,5 +49,8 @@ namespace fable::game::creature::combat
         std::atomic<EventSink> eventSink_{nullptr};
         std::atomic<void*> eventSinkContext_{nullptr};
         std::atomic_uint observedCount_{0};
+        static constexpr std::size_t ReplicaCapacity = 64;
+        std::array<std::atomic<void*>, ReplicaCapacity> protectedReplicas_ = {};
+        std::atomic_uint rejectedReplicaMutationCount_{0};
     };
 }

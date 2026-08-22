@@ -1,5 +1,7 @@
 #include "CreatureCombatService.h"
 
+#include "Game/Creature/Actions/Native/CreatureActionFunctions.h"
+#include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Combat/Native/HeroTargetingComponent.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Entity/Entity.h"
@@ -12,6 +14,22 @@
 
 namespace
 {
+    class AuthoritativeReplayScope final
+    {
+    public:
+        AuthoritativeReplayScope() noexcept
+        {
+            fable::game::creature::actions::
+                CreatureActionLifecycleObserver::BeginAuthoritativeReplay();
+        }
+
+        ~AuthoritativeReplayScope()
+        {
+            fable::game::creature::actions::
+                CreatureActionLifecycleObserver::EndAuthoritativeReplay();
+        }
+    };
+
     std::uint64_t ReadThingUid(void* thing) noexcept
     {
         if (thing == nullptr)
@@ -176,14 +194,22 @@ namespace fable::game::creature::combat
         return true;
     }
 
-    void CreatureCombatService::ObservePlayerAttack(
+    void CreatureCombatService::ObservePlayerAbility(
         void* sourceCreature,
         unsigned int abilityId,
-        float charge) noexcept
+        float charge,
+        bool attackCommand) noexcept
     {
-        const PlayerAttackSink sink = playerAttackSink_.load(
-            std::memory_order_acquire);
-        if (sink == nullptr || entities_ == nullptr || sourceCreature == nullptr)
+        std::array<AbilitySinkEntry, AbilitySinkCapacity> sinks = {};
+        AcquireSRWLockShared(&abilitySinkLock_);
+        sinks = abilitySinks_;
+        ReleaseSRWLockShared(&abilitySinkLock_);
+        bool hasSink = false;
+        for (const AbilitySinkEntry& entry : sinks)
+        {
+            hasSink = hasSink || entry.sink != nullptr;
+        }
+        if (!hasSink || entities_ == nullptr || sourceCreature == nullptr)
         {
             return;
         }
@@ -201,18 +227,23 @@ namespace fable::game::creature::combat
                 ? targets.candidatePrimary
                 : targets.candidateSecondary);
         if (!::fable::game::creature::native::CreatureFrameFunctions::
-                ValidateCreature(entities_->GameModule(), target))
+                ValidateCreature(entities_->GameModule(), target) &&
+            !::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(entities_->GameModule(), target))
         {
             target = nullptr;
         }
 
-        PlayerAttackEvent event;
+        CreatureAbilityEvent event;
         event.sourceCreature = sourceCreature;
+        event.sourceThingUid = ReadThingUid(sourceCreature);
         event.targetCreature = target;
         event.targetThingUid = ReadThingUid(target);
         event.abilityId = abilityId;
+        event.threadId = GetCurrentThreadId();
         event.charge = charge;
         event.observedAt = GetTickCount64();
+        event.attackCommand = attackCommand;
         const unsigned int observed =
             observedPlayerAttackCount_.fetch_add(
                 1,
@@ -223,9 +254,10 @@ namespace fable::game::creature::combat
             std::snprintf(
                 detail,
                 sizeof(detail),
-                "event=%u source=%p targeting=%p read=%s selected=%p primary=%p secondary=%p accepted_target=%p target_uid=%llu ability=%u charge=%.3f",
+                "event=%u source=%p source_uid=%016llX targeting=%p read=%s selected=%p primary=%p secondary=%p accepted_target=%p target_uid=%016llX ability=%u charge=%.3f attack_command=%s",
                 observed,
                 sourceCreature,
+                static_cast<unsigned long long>(event.sourceThingUid),
                 targeting,
                 targetsRead ? "true" : "false",
                 targets.selected,
@@ -234,20 +266,195 @@ namespace fable::game::creature::combat
                 target,
                 static_cast<unsigned long long>(event.targetThingUid),
                 abilityId,
-                charge);
-            diagnostics_.Event("CreaturePlayerAttackTargetObserved", detail);
+                charge,
+                attackCommand ? "true" : "false");
+            diagnostics_.Event("CreaturePlayerAbilityObserved", detail);
         }
-        sink(
-            playerAttackSinkContext_.load(std::memory_order_acquire),
-            event);
+        for (const AbilitySinkEntry& entry : sinks)
+        {
+            if (entry.sink != nullptr)
+            {
+                entry.sink(entry.context, event);
+            }
+        }
     }
 
-    void CreatureCombatService::SetPlayerAttackSink(
-        PlayerAttackSink sink,
+    bool CreatureCombatService::AddAbilitySink(
+        AbilitySink sink,
         void* context) noexcept
     {
-        playerAttackSinkContext_.store(context, std::memory_order_release);
-        playerAttackSink_.store(sink, std::memory_order_release);
+        if (sink == nullptr)
+        {
+            return false;
+        }
+        AcquireSRWLockExclusive(&abilitySinkLock_);
+        for (const AbilitySinkEntry& entry : abilitySinks_)
+        {
+            if (entry.sink == sink && entry.context == context)
+            {
+                ReleaseSRWLockExclusive(&abilitySinkLock_);
+                return true;
+            }
+        }
+        for (AbilitySinkEntry& entry : abilitySinks_)
+        {
+            if (entry.sink == nullptr)
+            {
+                entry = {sink, context};
+                ReleaseSRWLockExclusive(&abilitySinkLock_);
+                return true;
+            }
+        }
+        ReleaseSRWLockExclusive(&abilitySinkLock_);
+        return false;
+    }
+
+    void CreatureCombatService::RemoveAbilitySink(
+        AbilitySink sink,
+        void* context) noexcept
+    {
+        AcquireSRWLockExclusive(&abilitySinkLock_);
+        for (AbilitySinkEntry& entry : abilitySinks_)
+        {
+            if (entry.sink == sink && entry.context == context)
+            {
+                entry = {};
+            }
+        }
+        ReleaseSRWLockExclusive(&abilitySinkLock_);
+    }
+
+    bool CreatureCombatService::SubmitReplicatedAbility(
+        void* creature,
+        unsigned int abilityId,
+        float charge) noexcept
+    {
+        if (entities_ == nullptr)
+        {
+            return false;
+        }
+        const HMODULE gameModule = entities_->GameModule();
+        const bool creatureValid =
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(gameModule, creature) ||
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(gameModule, creature);
+        if (!creatureValid)
+        {
+            return false;
+        }
+        const AuthoritativeReplayScope replay;
+        const bool receiptArmed = actions::CreatureActionLifecycleObserver::
+            BeginSubmissionReceipt(creature);
+        const bool invoked = playerAttackAbilityHook_.SubmitReplicatedAbility(
+            creature, abilityId, charge);
+        bool accepted = false;
+        const bool submissionObserved = receiptArmed &&
+            actions::CreatureActionLifecycleObserver::EndSubmissionReceipt(
+                creature, accepted);
+        return invoked && (!receiptArmed ||
+            (submissionObserved && accepted));
+    }
+
+    bool CreatureCombatService::SubmitReplicatedImmediateAttack(
+        void* creature,
+        void* targetCreature) noexcept
+    {
+        if (entities_ == nullptr || creature == nullptr ||
+            targetCreature == nullptr)
+        {
+            return false;
+        }
+        const HMODULE gameModule = entities_->GameModule();
+        const bool creatureValid =
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(gameModule, creature) ||
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(gameModule, creature);
+        const bool targetValid =
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(gameModule, targetCreature) ||
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(gameModule, targetCreature);
+        if (!creatureValid || !targetValid)
+        {
+            return false;
+        }
+        {
+            const AuthoritativeReplayScope replay;
+            if (::fable::game::creature::actions::native::
+                    CreatureActionFunctions::SubmitImmediateAttack(
+                        gameModule, creature, targetCreature))
+            {
+                return true;
+            }
+        }
+
+        // A publisher hand-off can leave the pre-handoff action in +0x120.
+        // Its updates are fenced, so it cannot finish on its own. Retire only
+        // that locally-originated action and resubmit through Fable's normal
+        // action replacement boundary.
+        if (!::fable::game::creature::actions::
+                CreatureActionLifecycleObserver::
+                    RetireLocalActionForAuthoritativeReplay(creature))
+        {
+            return false;
+        }
+        const AuthoritativeReplayScope replay;
+        return ::fable::game::creature::actions::native::
+            CreatureActionFunctions::SubmitImmediateAttack(
+                gameModule, creature, targetCreature);
+    }
+
+    bool CreatureCombatService::SubmitAuthoritativeImmediateAttack(
+        void* creature,
+        void* targetCreature) noexcept
+    {
+        if (entities_ == nullptr || creature == nullptr ||
+            targetCreature == nullptr)
+        {
+            return false;
+        }
+        const HMODULE gameModule = entities_->GameModule();
+        const auto validCombatant = [gameModule](void* candidate) noexcept
+        {
+            return ::fable::game::creature::native::CreatureFrameFunctions::
+                    ValidateCreature(gameModule, candidate) ||
+                ::fable::game::creature::native::CreatureFrameFunctions::
+                    ValidatePlayerCreature(gameModule, candidate);
+        };
+        if (!validCombatant(creature) || !validCombatant(targetCreature))
+        {
+            return false;
+        }
+
+        return ::fable::game::creature::actions::native::
+            CreatureActionFunctions::SubmitImmediateAttack(
+                gameModule, creature, targetCreature);
+    }
+
+    bool CreatureCombatService::SubmitReplicatedUntargetedAttack(
+        void* creature,
+        const float (&targetPosition)[3]) noexcept
+    {
+        if (entities_ == nullptr || creature == nullptr)
+        {
+            return false;
+        }
+        const HMODULE gameModule = entities_->GameModule();
+        const bool creatureValid =
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(gameModule, creature) ||
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(gameModule, creature);
+        if (!creatureValid)
+        {
+            return false;
+        }
+        const AuthoritativeReplayScope replay;
+        return ::fable::game::creature::actions::native::
+            CreatureActionFunctions::SubmitUntargetedAttack(
+                gameModule, creature, targetPosition);
     }
 
     void CreatureCombatService::SetHealthMutationSink(
@@ -255,6 +462,14 @@ namespace fable::game::creature::combat
         void* context) noexcept
     {
         combatHealthMutationHook_.SetEventSink(sink, context);
+    }
+
+    bool CreatureCombatService::SetReplicaHealthProtection(
+        void* creature,
+        bool protectedReplica) noexcept
+    {
+        return combatHealthMutationHook_.SetReplicaProtected(
+            creature, protectedReplica);
     }
 
     bool CreatureCombatService::ReadCombatHealth(

@@ -116,29 +116,23 @@ namespace fable::game::creature::look
         }
 
         AcquireSRWLockExclusive(&bindingLock_);
-        Binding* available = nullptr;
-        for (Binding& binding : bindings_)
-        {
-            if (binding.creature == targetCreature)
-            {
-                available = &binding;
-                break;
-            }
-        }
+        auto& available = bindings_[targetCreature];
         if (available == nullptr)
         {
-            bindings_.push_back({});
-            available = &bindings_.back();
+            available = std::make_shared<Binding>();
         }
-        available->creature = targetCreature;
-        available->navigator = targetPhysicsNavigator;
-        available->provider = provider;
-        available->providerContext = providerContext;
-        available->lastFrameAt = 0;
-        available->lastNativeMovementReportAt = 0;
-        available->lastBackgroundMovementReportAt = 0;
-        available->nativeMoving = false;
-        available->backgroundMoving = false;
+        available->navigator.store(
+            targetPhysicsNavigator, std::memory_order_release);
+        available->providerContext.store(
+            providerContext, std::memory_order_release);
+        available->provider.store(provider, std::memory_order_release);
+        available->lastFrameAt.store(0, std::memory_order_release);
+        available->lastNativeMovementReportAt.store(
+            0, std::memory_order_release);
+        available->lastBackgroundMovementReportAt.store(
+            0, std::memory_order_release);
+        available->nativeMoving.store(false, std::memory_order_release);
+        available->backgroundMoving.store(false, std::memory_order_release);
         ReleaseSRWLockExclusive(&bindingLock_);
 
         char detail[192] = {};
@@ -156,10 +150,7 @@ namespace fable::game::creature::look
     void CreatureFacingInputRouterHook::Clear() noexcept
     {
         AcquireSRWLockExclusive(&bindingLock_);
-        for (Binding& binding : bindings_)
-        {
-            binding = {};
-        }
+        bindings_.clear();
         ReleaseSRWLockExclusive(&bindingLock_);
     }
 
@@ -170,15 +161,79 @@ namespace fable::game::creature::look
             return;
         }
         AcquireSRWLockExclusive(&bindingLock_);
-        for (auto iterator = bindings_.begin(); iterator != bindings_.end(); ++iterator)
-        {
-            if (iterator->creature == targetCreature)
-            {
-                bindings_.erase(iterator);
-                break;
-            }
-        }
+        bindings_.erase(targetCreature);
         ReleaseSRWLockExclusive(&bindingLock_);
+    }
+
+    std::shared_ptr<CreatureFacingInputRouterHook::Binding>
+        CreatureFacingInputRouterHook::FindBinding(
+            void* creature) const noexcept
+    {
+        std::shared_ptr<Binding> result;
+        AcquireSRWLockShared(&bindingLock_);
+        const auto found = bindings_.find(creature);
+        if (found != bindings_.end())
+        {
+            result = found->second;
+        }
+        ReleaseSRWLockShared(&bindingLock_);
+        return result;
+    }
+
+    bool CreatureFacingInputRouterHook::SnapshotBinding(
+        void* creature,
+        BindingSnapshot& snapshot,
+        ULONGLONG frameAt) noexcept
+    {
+        snapshot = {};
+        const std::shared_ptr<Binding> binding = FindBinding(creature);
+        if (binding == nullptr)
+        {
+            return false;
+        }
+        if (frameAt != 0)
+        {
+            binding->lastFrameAt.store(frameAt, std::memory_order_release);
+        }
+        snapshot.navigator = binding->navigator.load(
+            std::memory_order_acquire);
+        snapshot.provider = binding->provider.load(
+            std::memory_order_acquire);
+        snapshot.providerContext = binding->providerContext.load(
+            std::memory_order_acquire);
+        snapshot.lastFrameAt = binding->lastFrameAt.load(
+            std::memory_order_acquire);
+        return true;
+    }
+
+    bool CreatureFacingInputRouterHook::UpdateMovementReport(
+        void* creature,
+        bool nativeFrame,
+        bool moving,
+        ULONGLONG now) noexcept
+    {
+        const std::shared_ptr<Binding> binding = FindBinding(creature);
+        if (binding == nullptr)
+        {
+            return false;
+        }
+        std::atomic_bool& movingState = nativeFrame
+            ? binding->nativeMoving
+            : binding->backgroundMoving;
+        std::atomic<ULONGLONG>& lastReportAt = nativeFrame
+            ? binding->lastNativeMovementReportAt
+            : binding->lastBackgroundMovementReportAt;
+        const bool wasMoving = movingState.exchange(
+            moving, std::memory_order_acq_rel);
+        const ULONGLONG previousReportAt = lastReportAt.load(
+            std::memory_order_acquire);
+        const bool report = moving &&
+            (!wasMoving || now - previousReportAt >= 250);
+        if (report)
+        {
+            lastReportAt.store(now, std::memory_order_release);
+        }
+        return report;
     }
 
     bool CreatureFacingInputRouterHook::Drive(void* targetCreature)
@@ -188,20 +243,15 @@ namespace fable::game::creature::look
             return false;
         }
         const ULONGLONG now = GetTickCount64();
-        Binding activeBinding;
-        AcquireSRWLockShared(&bindingLock_);
-        for (const Binding& binding : bindings_)
+        BindingSnapshot binding;
+        if (!SnapshotBinding(targetCreature, binding))
         {
-            if (binding.creature == targetCreature)
-            {
-                activeBinding = binding;
-                break;
-            }
+            return false;
         }
-        ReleaseSRWLockShared(&bindingLock_);
-        if (activeBinding.creature == nullptr ||
-            activeBinding.navigator == nullptr ||
-            activeBinding.provider == nullptr)
+        void* const navigator = binding.navigator;
+        const ReplicatedMovementProvider provider = binding.provider;
+        void* const providerContext = binding.providerContext;
+        if (navigator == nullptr || provider == nullptr)
         {
             return false;
         }
@@ -210,15 +260,15 @@ namespace fable::game::creature::look
         // so the timer fallback must wait for a genuine simulation stall
         // instead of filling every apparent gap with absolute corrections.
         constexpr ULONGLONG NativeFrameGraceMilliseconds = 120;
-        if (activeBinding.lastFrameAt != 0 &&
-            now - activeBinding.lastFrameAt < NativeFrameGraceMilliseconds)
+        if (binding.lastFrameAt != 0 &&
+            now - binding.lastFrameAt < NativeFrameGraceMilliseconds)
         {
             return true;
         }
 
         ReplicatedMovementInput input;
-        if (!activeBinding.provider(
-                activeBinding.providerContext,
+        if (!provider(
+                providerContext,
                 targetCreature,
                 input) ||
             !std::isfinite(input.position.x) ||
@@ -239,7 +289,7 @@ namespace fable::game::creature::look
         {
             std::memcpy(
                 &currentPosition,
-                static_cast<const std::uint8_t*>(activeBinding.navigator) +
+                static_cast<const std::uint8_t*>(navigator) +
                     ::fable::game::creature::locomotion::native::
                         PhysicsNavigatorFunctions::WorldPositionOffset,
                 sizeof(currentPosition));
@@ -259,14 +309,14 @@ namespace fable::game::creature::look
         const bool controlledPhysics =
             ::fable::game::creature::locomotion::native::
                 PhysicsWorldPositionFunctions::ValidateControlledComponent(
-                    gameModule_, activeBinding.navigator);
+                    gameModule_, navigator);
         const bool positioned = controlledPhysics
             ? ::fable::game::creature::locomotion::native::
                 PhysicsWorldPositionFunctions::SetControlledWorldPosition(
-                    gameModule_, activeBinding.navigator, input.position)
+                    gameModule_, navigator, input.position)
             : ::fable::game::creature::locomotion::native::
                 PhysicsWorldPositionFunctions::SetNavigatorWorldPosition(
-                    gameModule_, activeBinding.navigator, input.position);
+                    gameModule_, navigator, input.position);
         if (!positioned)
         {
             return false;
@@ -278,11 +328,11 @@ namespace fable::game::creature::look
         }
         const bool facingApplied =
             native::CreatureLookFunctions::SetNavigatorFacing(
-                gameModule_, activeBinding.navigator, facing);
+                gameModule_, navigator, facing);
         float observedFacing = 0.0f;
         const bool facingObserved = facingApplied &&
             native::CreatureLookFunctions::ReadNavigatorFacing(
-                gameModule_, activeBinding.navigator, observedFacing);
+                gameModule_, navigator, observedFacing);
         float facingError = facingObserved
             ? std::fabs(observedFacing - facing)
             : 1.0f;
@@ -290,25 +340,8 @@ namespace fable::game::creature::look
         const bool moving = input.velocity.x * input.velocity.x +
             input.velocity.y * input.velocity.y +
             input.velocity.z * input.velocity.z >= 0.0025f;
-        bool reportActorMovement = false;
-        AcquireSRWLockExclusive(&bindingLock_);
-        for (Binding& binding : bindings_)
-        {
-            if (binding.creature != targetCreature)
-            {
-                continue;
-            }
-            reportActorMovement = moving &&
-                (!binding.backgroundMoving ||
-                    now - binding.lastBackgroundMovementReportAt >= 250);
-            binding.backgroundMoving = moving;
-            if (reportActorMovement)
-            {
-                binding.lastBackgroundMovementReportAt = now;
-            }
-            break;
-        }
-        ReleaseSRWLockExclusive(&bindingLock_);
+        const bool reportActorMovement = UpdateMovementReport(
+            targetCreature, false, moving, now);
 
         const unsigned int ordinal = backgroundMovementCount_.fetch_add(
             1, std::memory_order_acq_rel) + 1;
@@ -354,13 +387,7 @@ namespace fable::game::creature::look
     bool CreatureFacingInputRouterHook::IsBound() const noexcept
     {
         AcquireSRWLockShared(&bindingLock_);
-        const bool bound = std::any_of(
-            bindings_.begin(),
-            bindings_.end(),
-            [](const Binding& binding)
-            {
-                return binding.creature != nullptr && binding.navigator != nullptr;
-            });
+        const bool bound = !bindings_.empty();
         ReleaseSRWLockShared(&bindingLock_);
         return bound;
     }
@@ -380,28 +407,21 @@ namespace fable::game::creature::look
             return false;
         }
 
-        Binding activeBinding;
         const ULONGLONG now = GetTickCount64();
-        AcquireSRWLockExclusive(&router->bindingLock_);
-        for (Binding& binding : router->bindings_)
-        {
-            if (binding.creature == creature)
-            {
-                activeBinding = binding;
-                binding.lastFrameAt = now;
-                break;
-            }
-        }
-        ReleaseSRWLockExclusive(&router->bindingLock_);
+        BindingSnapshot binding;
+        (void)router->SnapshotBinding(creature, binding, now);
+        void* const navigator = binding.navigator;
+        const ReplicatedMovementProvider provider = binding.provider;
+        void* const providerContext = binding.providerContext;
 
         ReplicatedMovementInput replicatedInput;
-        bool hasReplicatedInput = activeBinding.provider != nullptr &&
-            activeBinding.provider(
-                activeBinding.providerContext,
+        bool hasReplicatedInput = provider != nullptr &&
+            provider(
+                providerContext,
                 creature,
                 replicatedInput);
         const bool validReplicatedInput = hasReplicatedInput &&
-            activeBinding.navigator != nullptr &&
+            navigator != nullptr &&
             std::isfinite(replicatedInput.position.x) &&
             std::isfinite(replicatedInput.position.y) &&
             std::isfinite(replicatedInput.position.z) &&
@@ -415,33 +435,16 @@ namespace fable::game::creature::look
                 replicatedInput.velocity.y * replicatedInput.velocity.y +
                 replicatedInput.velocity.z * replicatedInput.velocity.z >=
                 0.0025f;
-        bool reportNativeMovement = false;
-        AcquireSRWLockExclusive(&router->bindingLock_);
-        for (Binding& binding : router->bindings_)
-        {
-            if (binding.creature != creature)
-            {
-                continue;
-            }
-            reportNativeMovement = replicatedMoving &&
-                (!binding.nativeMoving ||
-                    now - binding.lastNativeMovementReportAt >= 250);
-            binding.nativeMoving = replicatedMoving;
-            if (reportNativeMovement)
-            {
-                binding.lastNativeMovementReportAt = now;
-            }
-            break;
-        }
-        ReleaseSRWLockExclusive(&router->bindingLock_);
+        const bool reportNativeMovement = router->UpdateMovementReport(
+            creature, true, replicatedMoving, now);
         bool positionApplied = false;
         bool facingAppliedBeforeUpdate = false;
         float replicatedFacing = 0.0f;
-        const bool controlledPhysics = activeBinding.navigator != nullptr &&
+        const bool controlledPhysics = navigator != nullptr &&
             ::fable::game::creature::locomotion::native::
                 PhysicsWorldPositionFunctions::ValidateControlledComponent(
                     router->gameModule_,
-                    activeBinding.navigator);
+                    navigator);
         if (validReplicatedInput)
         {
             Vector3 currentPosition = {};
@@ -450,7 +453,7 @@ namespace fable::game::creature::look
             {
                 std::memcpy(
                     &currentPosition,
-                    static_cast<const std::uint8_t*>(activeBinding.navigator) +
+                    static_cast<const std::uint8_t*>(navigator) +
                         ::fable::game::creature::locomotion::native::PhysicsNavigatorFunctions::WorldPositionOffset,
                     sizeof(currentPosition));
                 readable = std::isfinite(currentPosition.x) &&
@@ -481,12 +484,12 @@ namespace fable::game::creature::look
                         ? ::fable::game::creature::locomotion::native::
                             PhysicsWorldPositionFunctions::SetControlledWorldPosition(
                                 router->gameModule_,
-                                activeBinding.navigator,
+                                navigator,
                                 target)
                         : ::fable::game::creature::locomotion::native::
                             PhysicsWorldPositionFunctions::SetNavigatorWorldPosition(
                                 router->gameModule_,
-                                activeBinding.navigator,
+                                navigator,
                                 target);
                 }
                 else
@@ -507,7 +510,7 @@ namespace fable::game::creature::look
             facingAppliedBeforeUpdate =
                 native::CreatureLookFunctions::SetNavigatorFacing(
                     router->gameModule_,
-                    activeBinding.navigator,
+                    navigator,
                     replicatedFacing);
         }
 
@@ -521,7 +524,6 @@ namespace fable::game::creature::look
                     std::memory_order_acquire),
                 creature);
         }
-        void* const navigator = activeBinding.navigator;
         if (navigator == nullptr)
         {
             return result;

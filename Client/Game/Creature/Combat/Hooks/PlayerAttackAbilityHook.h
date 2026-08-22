@@ -21,6 +21,10 @@ namespace fable::game::creature::combat
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] unsigned int InterceptedAttackCount() const noexcept;
+        bool SubmitReplicatedAbility(
+            void* creature,
+            unsigned int abilityId,
+            float charge) noexcept;
 
     private:
         static void __fastcall Intercept(

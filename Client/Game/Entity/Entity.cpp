@@ -86,6 +86,22 @@ namespace fable::game
         return service_ != nullptr && service_->Teleport(handle_, position, facing, effect);
     }
 
+    bool Entity::OpenDoor()
+    {
+        return service_ != nullptr && service_->OpenDoor(handle_);
+    }
+
+    bool Entity::UseScriptedAction(
+        bool requireRegionEntrance,
+        const char** failure)
+    {
+        return service_ != nullptr &&
+            service_->UseScriptedAction(
+                handle_,
+                requireRegionEntrance,
+                failure);
+    }
+
     bool Entity::SetAttackable(bool enabled)
     {
         return service_ != nullptr && service_->SetAttackable(handle_, enabled);
