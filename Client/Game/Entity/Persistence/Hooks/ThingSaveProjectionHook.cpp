@@ -140,6 +140,17 @@ namespace fable::game::entity::persistence
 #endif
     }
 
+    void ThingSaveProjectionHook::Shutdown() noexcept
+    {
+        SetMapOverrideSink(nullptr, nullptr);
+        RestoreDetour(loadDetour_);
+        RestoreDetour(saveDetour_);
+        if (active_ == this) active_ = nullptr;
+        originalLoad_ = nullptr;
+        originalSave_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void ThingSaveProjectionHook::SetMapOverrideSink(
         MapOverrideSink sink,
         void* context) noexcept

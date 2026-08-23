@@ -126,6 +126,31 @@ namespace fable::game::creature::locomotion
         return true;
     }
 
+    void CreatureFrameInputRouterHook::Shutdown() noexcept
+    {
+        Clear();
+        SetFrameObserver(nullptr, nullptr);
+        if (active_ == this && vtableSlot_ != nullptr && original_ != nullptr)
+        {
+            DWORD previousProtection = 0;
+            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &previousProtection))
+            {
+                if (*vtableSlot_ == reinterpret_cast<void*>(&ObservePlayerUpdate))
+                {
+                    *vtableSlot_ = reinterpret_cast<void*>(original_);
+                    FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
+                }
+                DWORD discarded = 0;
+                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), previousProtection, &discarded);
+            }
+            active_ = nullptr;
+        }
+        original_ = nullptr;
+        vtableSlot_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void CreatureFrameInputRouterHook::Clear() noexcept
     {
         targetNavigator_.store(nullptr, std::memory_order_release);

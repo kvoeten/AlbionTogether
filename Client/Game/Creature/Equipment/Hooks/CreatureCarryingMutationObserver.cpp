@@ -128,6 +128,20 @@ namespace fable::game::creature::equipment::hooks
 #endif
     }
 
+    void CreatureCarryingMutationObserver::Shutdown() noexcept
+    {
+        SetEventSink(nullptr, nullptr);
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        RestoreDetour(attachDetour_);
+        RestoreDetour(removeDetour_);
+        originalAttach_ = nullptr;
+        originalRemove_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void CreatureCarryingMutationObserver::SetEventSink(
         EventSink sink,
         void* context) noexcept

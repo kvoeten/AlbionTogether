@@ -34,6 +34,14 @@ namespace fable::multiplayer::persistence
           public authority::MapAuthorityBaselineGate
     {
     public:
+        [[nodiscard]] ReliableMessageTypeSet HandledPacketTypes()
+            const noexcept override
+        {
+            static constexpr protocol::PacketType types[] = {
+                protocol::PacketType::SavedEntityMapBaseline};
+            return {types, sizeof(types) / sizeof(types[0])};
+        }
+
         static constexpr std::size_t MaximumGuestBaselineBytes =
             64 * 1024 * 1024;
 

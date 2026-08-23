@@ -35,6 +35,7 @@ namespace fable::game::entity::persistence
             const SavedEntityMapCollectionEvent& event) noexcept;
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetSnapshotSink(SnapshotSink sink, void* context) noexcept;
         void SetCollectionSink(CollectionSink sink, void* context) noexcept;
         void SetPostLoadBarrierSink(

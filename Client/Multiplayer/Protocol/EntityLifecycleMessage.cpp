@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -29,6 +30,9 @@ namespace
         char scriptName[96] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WireEntityLifecycleMessage>);
+    static_assert(sizeof(WireEntityLifecycleMessage) == 488);
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept

@@ -65,6 +65,49 @@ namespace fable::game::hero_pawn::equipment::hooks
 #endif
     }
 
+    void HeroEquipmentMutationObserver::Shutdown() noexcept
+    {
+        SetEventSink(nullptr, nullptr);
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        if (target_ != nullptr)
+        {
+            DWORD previousProtection = 0;
+            if (VirtualProtect(
+                    target_,
+                    originalBytes_.size(),
+                    PAGE_EXECUTE_READWRITE,
+                    &previousProtection))
+            {
+                std::memcpy(
+                    target_,
+                    originalBytes_.data(),
+                    originalBytes_.size());
+                FlushInstructionCache(
+                    GetCurrentProcess(),
+                    target_,
+                    originalBytes_.size());
+                DWORD discarded = 0;
+                VirtualProtect(
+                    target_,
+                    originalBytes_.size(),
+                    previousProtection,
+                    &discarded);
+            }
+        }
+        if (trampoline_ != nullptr)
+        {
+            VirtualFree(trampoline_, 0, MEM_RELEASE);
+        }
+        original_ = nullptr;
+        target_ = nullptr;
+        trampoline_ = nullptr;
+        originalBytes_.fill(0);
+        diagnostics_ = {};
+    }
+
     void HeroEquipmentMutationObserver::SetEventSink(
         EventSink sink,
         void* context) noexcept

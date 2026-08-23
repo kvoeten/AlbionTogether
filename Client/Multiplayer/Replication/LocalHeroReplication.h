@@ -50,11 +50,13 @@ namespace fable::multiplayer::replication
             const core::Diagnostics& diagnostics,
             PeerRole role,
             std::uint64_t actorId,
+            std::uint32_t authorityEpoch,
             std::string playerId,
             std::string appearanceDefinition,
             bool morphSelfTest);
         bool OnWorldReady();
         bool TryBind();
+        void CaptureMovement(std::uint64_t now);
         void CaptureAppearance(std::uint64_t now);
         void CaptureEquipment(std::uint64_t now);
         [[nodiscard]] bool WorldIsCurrent() const;
@@ -89,7 +91,8 @@ namespace fable::multiplayer::replication
         void OnCarryingMutation(
             const game::creature::equipment::hooks::
                 CreatureCarryingMutationEvent& event) noexcept;
-        void CaptureMovement(std::uint64_t now);
+        [[nodiscard]] bool ReadHeroPosition(
+            game::Vector3& position) const noexcept;
         [[nodiscard]] float ReadHeroFacing() const noexcept;
         void ReleaseHero() noexcept;
 
@@ -111,6 +114,7 @@ namespace fable::multiplayer::replication
         std::mutex ownerStateMutex_;
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t actorId_ = 0;
+        std::uint32_t authorityEpoch_ = 0;
         std::string playerId_;
         std::string appearanceDefinition_;
         std::string mapName_;
@@ -133,6 +137,7 @@ namespace fable::multiplayer::replication
         bool transitionActive_ = false;
         bool transitionCompleted_ = false;
         bool exchangeReported_ = false;
+        bool movingExchangeReported_ = false;
         bool transportFailureReported_ = false;
     };
 }

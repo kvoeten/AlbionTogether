@@ -1,4 +1,5 @@
 #include "SchedulerBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
 
 #include "Scheduler.h"
 
@@ -43,6 +44,14 @@ namespace
 
 namespace fable::scripting::bindings
 {
+    bool RegisterSchedulerBindingGroup(BindingContext& context)
+    {
+        return context.Scheduler != nullptr &&
+            RegisterSchedulerBindings(context.Engine, *context.Scheduler);
+    }
+
+    FABLE_SCRIPT_BINDING_GROUP(Scheduler, 400, &RegisterSchedulerBindingGroup);
+
     bool RegisterSchedulerBindings(asIScriptEngine& engine, Scheduler& scheduler)
     {
         g_scheduler = &scheduler;

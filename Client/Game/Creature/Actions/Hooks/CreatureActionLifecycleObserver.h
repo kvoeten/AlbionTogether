@@ -30,6 +30,7 @@ namespace fable::game::creature::actions
             void* creature);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool AddEventSink(EventSink sink, void* context) noexcept;
         void RemoveEventSink(EventSink sink, void* context) noexcept;
         bool AddPostUpdateSink(PostUpdateSink sink, void* context) noexcept;

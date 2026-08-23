@@ -1,4 +1,6 @@
 #include "CreatureLocomotionBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
 #include "Game/Creature/Locomotion/CreatureLocomotionState.h"
@@ -116,6 +118,16 @@ namespace
             : 0;
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterCreatureLocomotionBindingGroup(BindingContext& context)
+    {
+        return RegisterCreatureLocomotionBindings(context.Engine, context.Services.Locomotion());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(CreatureLocomotion, 220, &fable::scripting::bindings::RegisterCreatureLocomotionBindingGroup);
 
 namespace fable::scripting::bindings
 {

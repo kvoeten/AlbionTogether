@@ -18,7 +18,9 @@ namespace fable::ui
     class MainWindowHook final
     {
     public:
-        HWND WaitForWindow(const core::Diagnostics& diagnostics);
+        HWND WaitForWindow(
+            const core::Diagnostics& diagnostics,
+            HANDLE cancelEvent = nullptr);
         bool Install(
             HWND window,
             UINT_PTR timerId,
@@ -27,6 +29,7 @@ namespace fable::ui
             bool preserveBackgroundRendering,
             const MainWindowCallbacks& callbacks,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         [[nodiscard]] HWND Window() const noexcept;
         [[nodiscard]] DWORD ThreadId() const noexcept;

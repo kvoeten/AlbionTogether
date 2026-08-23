@@ -1,4 +1,6 @@
 #include "SavedEntityMapBaselineService.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/Entity/Persistence/Hooks/SavedEntityMapBlobObserver.h"
 #include "Multiplayer/Protocol/PacketEnvelope.h"
@@ -32,6 +34,23 @@ namespace
         return hash;
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolveSavedEntityBaselineSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.world.savedEntityMapBaseline;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkSavedEntityBaseline,
+    0x1008u,
+    "saved-entity-map-baseline",
+    800u,
+    "multiplayer-saved-entity-map-baseline-dispatch",
+    ResolveSavedEntityBaselineSink);
 
 namespace fable::multiplayer::persistence
 {
@@ -423,6 +442,7 @@ namespace fable::multiplayer::persistence
                 protocol::MaximumPayloadBytes(),
                 payloadSize) &&
             transport_->SubmitReliable(
+                reliable_stream::Control,
                 protocol::PacketType::SavedEntityMapBaseline,
                 payload.data(),
                 payloadSize);

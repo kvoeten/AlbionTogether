@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <cstdint>
 
 namespace fable::game::creature::locomotion
 {
@@ -13,6 +14,7 @@ namespace fable::game::creature::locomotion
     {
     public:
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] unsigned int StartCount() const noexcept;
@@ -31,6 +33,9 @@ namespace fable::game::creature::locomotion
         static FollowCreatureActionHook* active_;
 
         core::Diagnostics diagnostics_ = {};
+        HMODULE gameModule_ = nullptr;
+        std::uint8_t* startTarget_ = nullptr;
+        std::uint8_t* tickTarget_ = nullptr;
         native::FollowCreatureActionFunctions::ActionMethodPointer originalStart_ = nullptr;
         native::FollowCreatureActionFunctions::ActionMethodPointer originalTick_ = nullptr;
         void* startTrampoline_ = nullptr;

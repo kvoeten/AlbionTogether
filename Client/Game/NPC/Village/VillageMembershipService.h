@@ -15,6 +15,7 @@ namespace fable::game::npc::village
         bool Initialize(
             HMODULE gameModule,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetMutationSink(MutationSink sink, void* context) noexcept;
         [[nodiscard]] bool Read(
             void* thing,

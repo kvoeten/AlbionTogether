@@ -1,4 +1,6 @@
 #include "CreatureLookBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/Creature/Look/CreatureLookService.h"
 #include "Game/Entity/Entity.h"
@@ -27,6 +29,16 @@ namespace
         return g_look != nullptr ? g_look->RoutedMovementFacingCount() : 0;
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterCreatureLookBindingGroup(BindingContext& context)
+    {
+        return RegisterCreatureLookBindings(context.Engine, context.Services.Look());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(CreatureLook, 230, &fable::scripting::bindings::RegisterCreatureLookBindingGroup);
 
 namespace fable::scripting::bindings
 {

@@ -1106,17 +1106,22 @@ namespace fable::game::creature::equipment::native
                     // than CTCHeroInventoryWeapons, so retail Hero sheathe
                     // actions cannot complete on it. Reproduce the final
                     // CTCCarrying mutation observed from the owning Hero.
+                    // EquipWeapon can materialize a weapon without a
+                    // CTCCarrying entry. Treat slot zero as an unattached
+                    // weapon that still needs its first target attachment;
+                    // do not call remove on it before that initial attach.
                     const bool moveMelee = inspected &&
                         meleeWeapon != nullptr && targetMeleeSlot != 0 &&
-                        current.meleeAttachmentSlot != 0 &&
                         current.meleeAttachmentSlot != targetMeleeSlot;
                     const bool moveRanged = inspected &&
                         rangedWeapon != nullptr && targetRangedSlot != 0 &&
-                        current.rangedAttachmentSlot != 0 &&
                         current.rangedAttachmentSlot != targetRangedSlot;
                     if (moveMelee)
                     {
-                        functions.remove(carrying, meleeWeapon);
+                        if (current.meleeAttachmentSlot != 0)
+                        {
+                            functions.remove(carrying, meleeWeapon);
+                        }
                         functions.attach(
                             carrying,
                             meleeWeapon,
@@ -1125,7 +1130,10 @@ namespace fable::game::creature::equipment::native
                     }
                     if (moveRanged)
                     {
-                        functions.remove(carrying, rangedWeapon);
+                        if (current.rangedAttachmentSlot != 0)
+                        {
+                            functions.remove(carrying, rangedWeapon);
+                        }
                         functions.attach(
                             carrying,
                             rangedWeapon,
@@ -1181,26 +1189,26 @@ namespace fable::game::creature::equipment::native
                         if (moveMelee)
                         {
                             functions.remove(carrying, meleeWeapon);
+                            if (current.meleeAttachmentSlot != 0)
+                            {
+                                functions.attach(
+                                    carrying,
+                                    meleeWeapon,
+                                    current.meleeAttachmentSlot,
+                                    true);
+                            }
                         }
                         if (moveRanged)
                         {
                             functions.remove(carrying, rangedWeapon);
-                        }
-                        if (moveMelee)
-                        {
-                            functions.attach(
-                                carrying,
-                                meleeWeapon,
-                                current.meleeAttachmentSlot,
-                                true);
-                        }
-                        if (moveRanged)
-                        {
-                            functions.attach(
-                                carrying,
-                                rangedWeapon,
-                                current.rangedAttachmentSlot,
-                                true);
+                            if (current.rangedAttachmentSlot != 0)
+                            {
+                                functions.attach(
+                                    carrying,
+                                    rangedWeapon,
+                                    current.rangedAttachmentSlot,
+                                    true);
+                            }
                         }
                     }
                 }

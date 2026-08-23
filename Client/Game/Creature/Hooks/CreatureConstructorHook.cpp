@@ -108,6 +108,7 @@ namespace fable::game::creature
         }
 
         trampoline_ = trampoline;
+        target_ = target;
         original_ = reinterpret_cast<native::CreatureConstructorFunction::Pointer>(
             trampoline_);
         active_ = this;
@@ -140,6 +141,30 @@ namespace fable::game::creature
         diagnostics_.Event("CreatureLifecycleHookAddresses", detail);
         return true;
 #endif
+    }
+
+    void CreatureConstructorHook::Shutdown() noexcept
+    {
+#if defined(_M_IX86)
+        if (target_ != nullptr && trampoline_ != nullptr)
+        {
+            constexpr std::size_t displacedBytes = native::CreatureConstructorFunction::DisplacedBytes;
+            DWORD protection = 0;
+            if (VirtualProtect(target_, displacedBytes, PAGE_EXECUTE_READWRITE, &protection))
+            {
+                std::memcpy(target_, trampoline_, displacedBytes);
+                FlushInstructionCache(GetCurrentProcess(), target_, displacedBytes);
+                DWORD discarded = 0;
+                VirtualProtect(target_, displacedBytes, protection, &discarded);
+            }
+        }
+#endif
+        if (active_ == this) active_ = nullptr;
+        original_ = nullptr;
+        target_ = nullptr;
+        if (trampoline_ != nullptr) VirtualFree(trampoline_, 0, MEM_RELEASE);
+        trampoline_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool CreatureConstructorHook::IsInstalled() const noexcept

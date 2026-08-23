@@ -93,6 +93,7 @@ namespace fable::automation::fixture_documents
 
         fixtureDocumentsPath_ = fixtureDocumentsPath;
         original_ = imported.importedFunction;
+        slot_ = imported.slot;
         active_ = this;
         *imported.slot = &DocumentsFolderRedirectHook::Redirect;
 
@@ -110,6 +111,29 @@ namespace fable::automation::fixture_documents
         installed_ = true;
         ReportInstalled();
         return true;
+    }
+
+    void DocumentsFolderRedirectHook::Shutdown() noexcept
+    {
+        if (slot_ != nullptr && original_ != nullptr)
+        {
+            DWORD protection = 0;
+            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
+            {
+                if (*slot_ == &DocumentsFolderRedirectHook::Redirect)
+                {
+                    *slot_ = original_;
+                }
+                DWORD discarded = 0;
+                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
+                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        installed_ = false;
+        slot_ = nullptr;
+        original_ = nullptr;
+        diagnostics_ = {};
     }
 
     void DocumentsFolderRedirectHook::ReportInstalled()

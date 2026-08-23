@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -47,6 +48,9 @@ namespace
     constexpr wchar_t kDevelopmentGameRoot[] = L"D:\\SteamLibrary\\steamapps\\common\\Fable Anniversary";
     constexpr wchar_t kFableSteamAppId[] = L"288470";
     constexpr DWORD kInjectionTimeoutMilliseconds = 15'000;
+    constexpr DWORD kRuntimeReadyTimeoutMilliseconds = 90'000;
+    constexpr DWORD kClientPreResumeReady = 0x0000F101;
+    constexpr DWORD kClientRuntimeReady = 0x0000F102;
     // Keep two local acceptance peers visible on a 1700px-wide desktop. The
     // game still renders its 1280x720 fixture internally; only the test window
     // frame is compacted after creation.
@@ -904,7 +908,11 @@ namespace
         return value;
     }
 
-    bool InjectClient(HANDLE process, const fs::path& clientDll, std::wstring& error)
+    bool InjectClient(
+        HANDLE process,
+        const fs::path& clientDll,
+        HMODULE& remoteClientModule,
+        std::wstring& error)
     {
         const std::wstring dllPath = clientDll.wstring();
         const SIZE_T bytes = (dllPath.size() + 1) * sizeof(wchar_t);
@@ -960,6 +968,8 @@ namespace
                         }
                         else
                         {
+                            remoteClientModule = reinterpret_cast<HMODULE>(
+                                static_cast<ULONG_PTR>(remoteResult));
                             success = true;
                         }
                     }
@@ -969,6 +979,140 @@ namespace
 
         VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
         return success;
+    }
+
+    bool InvokeInjectedClientExport(
+        HANDLE process,
+        HMODULE remoteClientModule,
+        const fs::path& clientDll,
+        const char* exportName,
+        void* parameter,
+        DWORD timeoutMilliseconds,
+        DWORD expectedResult,
+        DWORD& result,
+        std::wstring& error)
+    {
+        if (process == nullptr || remoteClientModule == nullptr)
+        {
+            error = L"The injected client module handle was invalid.";
+            return false;
+        }
+
+        // Resolve the exported entry point in a loader-only mapping. The
+        // export RVA is stable between mappings, so adding it to the remote
+        // LoadLibrary result lets the suspended process call its own code.
+        HMODULE localImage = LoadLibraryExW(
+            clientDll.c_str(),
+            nullptr,
+            DONT_RESOLVE_DLL_REFERENCES);
+        if (localImage == nullptr)
+        {
+            const DWORD code = GetLastError();
+            error = L"Could not inspect the client exports (" +
+                std::to_wstring(code) + L"): " + FormatWindowsError(code);
+            return false;
+        }
+
+        const FARPROC localEntry = GetProcAddress(localImage, exportName);
+        const auto localBase = reinterpret_cast<std::uintptr_t>(localImage);
+        const auto localAddress = reinterpret_cast<std::uintptr_t>(localEntry);
+        const std::uintptr_t entryRva = localEntry != nullptr && localAddress >= localBase
+            ? localAddress - localBase
+            : 0;
+        FreeLibrary(localImage);
+        if (entryRva == 0)
+        {
+            error = L"The client DLL does not export the required startup entry point.";
+            return false;
+        }
+
+        const auto remoteAddress = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+            reinterpret_cast<std::uintptr_t>(remoteClientModule) + entryRva);
+        UniqueHandle initializationThread(CreateRemoteThread(
+            process,
+            nullptr,
+            0,
+            remoteAddress,
+            parameter,
+            0,
+            nullptr));
+        if (!initializationThread.valid())
+        {
+            const DWORD code = GetLastError();
+            error = L"CreateRemoteThread for client initialization failed (" +
+                std::to_wstring(code) + L"): " + FormatWindowsError(code);
+            return false;
+        }
+
+        const DWORD waitResult = WaitForSingleObject(
+            initializationThread.get(),
+            timeoutMilliseconds);
+        if (waitResult != WAIT_OBJECT_0)
+        {
+            error = waitResult == WAIT_TIMEOUT
+                ? L"Timed out while initializing the client DLL."
+                : L"Waiting for client initialization failed.";
+            return false;
+        }
+
+        if (!GetExitCodeThread(initializationThread.get(), &result))
+        {
+            const DWORD code = GetLastError();
+            error = L"Could not read the client startup result (" +
+                std::to_wstring(code) + L"): " + FormatWindowsError(code);
+            return false;
+        }
+        if (result != expectedResult)
+        {
+            wchar_t detail[96] = {};
+            swprintf_s(
+                detail,
+                L"The client startup entry point returned 0x%08lX; expected 0x%08lX.",
+                static_cast<unsigned long>(result),
+                static_cast<unsigned long>(expectedResult));
+            error = detail;
+            return false;
+        }
+        return true;
+    }
+
+    bool InitializeInjectedClient(
+        HANDLE process,
+        HMODULE remoteClientModule,
+        const fs::path& clientDll,
+        std::wstring& error)
+    {
+        DWORD result = 0;
+        return InvokeInjectedClientExport(
+            process,
+            remoteClientModule,
+            clientDll,
+            "FableTogetherInitialize",
+            nullptr,
+            kInjectionTimeoutMilliseconds,
+            kClientPreResumeReady,
+            result,
+            error);
+    }
+
+    bool WaitForInjectedClientReady(
+        HANDLE process,
+        HMODULE remoteClientModule,
+        const fs::path& clientDll,
+        std::wstring& error)
+    {
+        DWORD result = 0;
+        return InvokeInjectedClientExport(
+            process,
+            remoteClientModule,
+            clientDll,
+            "FableTogetherWaitForReady",
+            reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(kRuntimeReadyTimeoutMilliseconds)),
+            kRuntimeReadyTimeoutMilliseconds + 5'000,
+            kClientRuntimeReady,
+            result,
+            error);
     }
 
     struct ProcessWindowSearch
@@ -1608,14 +1752,29 @@ namespace
         std::wcout << L"Inject: loading " << clientDll.wstring() << L".\n";
         std::wcout.flush();
         std::wstring injectionError;
-        if (!InjectClient(process.get(), clientDll, injectionError))
+        HMODULE remoteClientModule = nullptr;
+        if (!InjectClient(process.get(), clientDll, remoteClientModule, injectionError))
         {
             TerminateProcess(process.get(), ERROR_DLL_INIT_FAILED);
             WaitForSingleObject(process.get(), 5'000);
             std::wcerr << L"Injection failed; the suspended game process was terminated: " << injectionError << L'\n';
             return false;
         }
-        std::wcout << L"Inject: client DLL loaded successfully; resuming the primary thread.\n";
+        std::wcout << L"Inject: client DLL loaded; initializing before resume.\n";
+        std::wcout.flush();
+        if (!InitializeInjectedClient(
+                process.get(),
+                remoteClientModule,
+                clientDll,
+                injectionError))
+        {
+            TerminateProcess(process.get(), ERROR_DLL_INIT_FAILED);
+            WaitForSingleObject(process.get(), 5'000);
+            std::wcerr << L"Client initialization failed; the suspended game process was terminated: "
+                       << injectionError << L'\n';
+            return false;
+        }
+        std::wcout << L"Inject: pre-resume initialization validated; resuming the primary thread.\n";
 
         if (ResumeThread(primaryThread.get()) == static_cast<DWORD>(-1))
         {
@@ -1625,7 +1784,23 @@ namespace
             return false;
         }
 
-        std::wcout << L"Fable Anniversary started with FableTogether.Client.dll (PID " << processInfo.dwProcessId << L").\n";
+        std::wcout << L"Inject: waiting for the client runtime to become ready.\n";
+        std::wcout.flush();
+        if (!WaitForInjectedClientReady(
+                process.get(),
+                remoteClientModule,
+                clientDll,
+                injectionError))
+        {
+            TerminateProcess(process.get(), ERROR_DLL_INIT_FAILED);
+            WaitForSingleObject(process.get(), 5'000);
+            std::wcerr << L"Client runtime startup failed; the game process was terminated: "
+                       << injectionError << L'\n';
+            return false;
+        }
+
+        std::wcout << L"Fable Anniversary started with FableTogether.Client.dll; runtime ready (PID "
+                   << processInfo.dwProcessId << L").\n";
         launched.process = std::move(process);
         launched.shutdownEvent = std::move(shutdownEvent);
         launched.processId = processInfo.dwProcessId;
@@ -1709,7 +1884,6 @@ namespace
                 EventWasReported(events, "FrontEndStartReady") &&
                 EventWasReported(events, "LocalInstanceReady") &&
                 EventWasReported(events, "UnrealSingletonNamespaced") &&
-                EventWasReported(events, "UnrealSingletonRedirected") &&
                 EventWasReported(events, "FixtureDocumentsRedirectReady") &&
                 EventWasReported(events, "ScriptStorageRootReady"))
             {

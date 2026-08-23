@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <cstdint>
 
 namespace fable::game::creature
 {
@@ -13,6 +14,7 @@ namespace fable::game::creature
     {
     public:
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         bool IsInstalled() const noexcept;
         unsigned int ConstructionCount() const noexcept;
@@ -26,6 +28,7 @@ namespace fable::game::creature
 
         core::Diagnostics diagnostics_;
         native::CreatureConstructorFunction::Pointer original_ = nullptr;
+        std::uint8_t* target_ = nullptr;
         void* trampoline_ = nullptr;
         std::atomic_uint constructionCount_{0};
         std::atomic<DWORD> firstConstructionThread_{0};

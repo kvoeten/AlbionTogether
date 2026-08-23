@@ -33,6 +33,7 @@ namespace fable::game::creature::look
         using FrameObserver = void(*)(void* context, void* creature);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool Bind(
             void* targetCreature,
             void* targetPhysicsNavigator,

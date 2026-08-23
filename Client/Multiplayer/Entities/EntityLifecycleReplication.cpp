@@ -1,4 +1,6 @@
 #include "EntityLifecycleReplication.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Protocol/EntityLifecycleMessage.h"
@@ -921,6 +923,7 @@ namespace fable::multiplayer::entities
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    reliable_stream::WorldLifecycle,
                     protocol::PacketType::EntityLifecycle,
                     payload.data(),
                     payloadSize))
@@ -1196,3 +1199,20 @@ namespace fable::multiplayer::entities
         initialized_ = false;
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolveEntityLifecycleSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.entities.entityLifecycle;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkEntityLifecycle,
+    0x1002u,
+    "entity-lifecycle",
+    200u,
+    "multiplayer-entity-lifecycle-dispatch",
+    ResolveEntityLifecycleSink);

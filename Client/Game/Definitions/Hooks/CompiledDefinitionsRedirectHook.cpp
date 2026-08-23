@@ -244,6 +244,7 @@ namespace fable::game::definitions
             reinterpret_cast<native::CreateFileFunctions::NativeOpenFunction>(
                 trampolines[3]);
         trampolineMemory_ = trampolineMemory;
+        targets_ = targets;
         active_ = this;
 
         std::array<DWORD, kPatchCount> previousProtections = {};
@@ -311,6 +312,7 @@ namespace fable::game::definitions
             originalNative_ = nullptr;
             originalNativeOpen_ = nullptr;
             trampolineMemory_ = nullptr;
+            targets_ = {};
             VirtualFree(trampolineMemory, 0, MEM_RELEASE);
             return false;
         }
@@ -349,6 +351,47 @@ namespace fable::game::definitions
                 "CompiledDefinitionsRedirected",
                 gameDefinitionsPathAnsi_.c_str());
         }
+    }
+
+    void CompiledDefinitionsRedirectHook::Shutdown() noexcept
+    {
+        if (installed_ && trampolineMemory_ != nullptr)
+        {
+            if (targets_[0] != nullptr)
+            {
+                constexpr std::size_t bytes = native::CreateFileFunctions::PrologueSize;
+                constexpr std::size_t trampolineSize = bytes + 5;
+                auto* originals = static_cast<std::uint8_t*>(trampolineMemory_);
+                for (std::size_t index = targets_.size(); index > 0; --index)
+                {
+                    void* target = targets_[index - 1];
+                    DWORD protection = 0;
+                    if (VirtualProtect(target, bytes, PAGE_EXECUTE_READWRITE, &protection))
+                    {
+                        std::memcpy(
+                            target,
+                            originals + (index - 1) * trampolineSize,
+                            bytes);
+                        FlushInstructionCache(GetCurrentProcess(), target, bytes);
+                        DWORD discarded = 0;
+                        VirtualProtect(target, bytes, protection, &discarded);
+                    }
+                }
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        originalWide_ = nullptr;
+        originalAnsi_ = nullptr;
+        originalNative_ = nullptr;
+        originalNativeOpen_ = nullptr;
+        if (trampolineMemory_ != nullptr) VirtualFree(trampolineMemory_, 0, MEM_RELEASE);
+        trampolineMemory_ = nullptr;
+        targets_ = {};
+        gameDefinitionsPath_.clear();
+        gameDefinitionsNtPath_.clear();
+        gameDefinitionsPathAnsi_.clear();
+        diagnostics_ = {};
+        installed_ = false;
     }
 
     bool CompiledDefinitionsRedirectHook::IsInstalled() const noexcept

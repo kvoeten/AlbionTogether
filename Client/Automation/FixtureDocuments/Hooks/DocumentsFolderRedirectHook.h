@@ -17,6 +17,7 @@ namespace fable::automation::fixture_documents
             HMODULE gameModule,
             const wchar_t* fixtureDocumentsPath,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
 
@@ -35,6 +36,7 @@ namespace fable::automation::fixture_documents
 
         core::Diagnostics diagnostics_ = {};
         native::DocumentsFolderImport::Function original_ = nullptr;
+        native::DocumentsFolderImport::Function* slot_ = nullptr;
         std::wstring fixtureDocumentsPath_;
         std::atomic_bool redirectOccurred_{false};
         std::atomic_bool readyReported_{false};

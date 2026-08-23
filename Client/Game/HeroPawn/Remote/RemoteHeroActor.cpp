@@ -61,7 +61,7 @@ namespace fable::game::hero_pawn::remote
         float maximumHealth,
         std::uint32_t revision)
     {
-        return initialized_ && !avatarSuspended_ &&
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
             combat_.ApplyHealth(currentHealth, maximumHealth, revision);
     }
 
@@ -77,7 +77,7 @@ namespace fable::game::hero_pawn::remote
         const std::string& resolvedActionType,
         std::uint32_t resolvedAnimationId)
     {
-        return initialized_ && !avatarSuspended_ &&
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
             combat_.PerformAbility(
                 weaponFamily,
                 requiredWeapons,
@@ -106,7 +106,7 @@ namespace fable::game::hero_pawn::remote
         equipment.meleeAttachmentSlot = meleeAttachmentSlot;
         equipment.rangedAttachmentSlot = rangedAttachmentSlot;
         equipment.activeFamily = weaponFamily;
-        return initialized_ && !avatarSuspended_ &&
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
             equipment_.PerformTransition(
                 equipment, resolvedActionType, resolvedAnimationId);
     }
@@ -117,7 +117,7 @@ namespace fable::game::hero_pawn::remote
         std::int32_t progressionState,
         void* targetCreature)
     {
-        return initialized_ && !avatarSuspended_ &&
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
             abilities_.Perform(
                 ability, command, progressionState, targetCreature);
     }
@@ -147,13 +147,76 @@ namespace fable::game::hero_pawn::remote
         game::Entity* localHero,
         std::uint64_t receivedAt)
     {
-        if (!initialized_ || state.actorId == 0 || state.playerId.empty() ||
+        multiplayer::replication::RemotePlayerSnapshot snapshot;
+        snapshot.state = state;
+        snapshot.receivedAt = receivedAt;
+        snapshot.lifecycle.actorGeneration = actorGeneration_;
+        snapshot.lifecycle.mapEpoch = mapEpoch_;
+        snapshot.lifecycle.appearancePresent =
+            state.heroMorph.IsSane() && state.heroClothing.IsSane() &&
+            state.heroBoneScales.IsSane() &&
+            state.heroAppearanceModifiers.IsSane();
+        snapshot.lifecycle.equipmentPresent = state.heroEquipment.IsSane();
+        snapshot.lifecycle.appearanceReady =
+            snapshot.lifecycle.appearancePresent;
+        snapshot.lifecycle.equipmentReady = snapshot.lifecycle.equipmentPresent;
+        snapshot.lifecycle.active = snapshot.lifecycle.appearanceReady &&
+            snapshot.lifecycle.equipmentReady;
+        Reconcile(snapshot, localMap, localHero);
+    }
+
+    void RemoteHeroActor::Reconcile(
+        const multiplayer::replication::RemotePlayerSnapshot& snapshot,
+        const std::string& localMap,
+        game::Entity* localHero)
+    {
+        const PlayerState& state = snapshot.state;
+        const std::uint64_t receivedAt = snapshot.receivedAt;
+        if (!initialized_)
+        {
+            return;
+        }
+        if (!snapshot.lifecycle.active)
+        {
+            // Defensive fence: the channel rejects mandatory-component
+            // removal, but an inactive snapshot can still arrive from a
+            // compatibility caller or a future lifecycle path. Never leave a
+            // previously active native presentation actionable in that state.
+            if (avatar_ != nullptr || lifecyclePhase_ ==
+                    RemoteHeroLifecyclePhase::Active)
+            {
+                Retire();
+            }
+            else
+            {
+                lifecyclePhase_ = RemoteHeroLifecyclePhase::Constructing;
+                appearanceBaselineApplied_ = false;
+                equipmentBaselineApplied_ = false;
+            }
+            return;
+        }
+        if (state.actorId == 0 || state.playerId.empty() ||
             state.appearanceDefinition.empty())
         {
             return;
         }
+        if (actorId_ != 0 && !MatchesLifecycle(
+                snapshot.lifecycle.actorGeneration,
+                snapshot.lifecycle.mapEpoch))
+        {
+            Retire();
+        }
         actorId_ = state.actorId;
-        movement_.Update(MovementSample(state, receivedAt), localMap);
+        actorGeneration_ = snapshot.lifecycle.actorGeneration;
+        mapEpoch_ = snapshot.lifecycle.mapEpoch;
+        if (lifecyclePhase_ == RemoteHeroLifecyclePhase::Constructing &&
+            avatar_ != nullptr && avatar_->IsValid())
+        {
+            lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
+        }
+        // The channel has already accepted a complete reliable construction
+        // baseline. Native appearance and inventory application may continue
+        // asynchronously, but they are independent of transform playback.
         if (state.mapName.empty() || state.mapName != localMap)
         {
             Suspend(state, localMap);
@@ -178,13 +241,13 @@ namespace fable::game::hero_pawn::remote
                 return;
             }
         }
+        movement_.Update(MovementSample(state, receivedAt), localMap);
 
-        const bool appearanceReady = state.heroMorph.IsSane() &&
-            state.heroClothing.IsSane() &&
-            state.heroBoneScales.IsSane() &&
-            state.heroAppearanceModifiers.IsSane();
-        if (!presentationStateReported_ &&
-            (appearanceReady || state.heroEquipment.IsSane()))
+        const bool appearanceReady = snapshot.lifecycle.appearancePresent &&
+            snapshot.lifecycle.appearanceReady;
+        const bool equipmentReady = snapshot.lifecycle.equipmentPresent &&
+            snapshot.lifecycle.equipmentReady;
+        if (!presentationStateReported_ && (appearanceReady || equipmentReady))
         {
             presentationStateReported_ = true;
             char detail[224] = {};
@@ -194,27 +257,19 @@ namespace fable::game::hero_pawn::remote
                 "actor_id=%llu appearance=%s equipment=%s melee=%d ranged=%d",
                 static_cast<unsigned long long>(actorId_),
                 appearanceReady ? "ready" : "pending",
-                state.heroEquipment.IsSane() ? "ready" : "pending",
+                equipmentReady ? "ready" : "pending",
                 state.heroEquipment.meleeDefinitionIndex,
                 state.heroEquipment.rangedDefinitionIndex);
             diagnostics_.Event(
                 "MultiplayerRemotePresentationStateReceived", detail);
         }
 
-        const bool presentationRequired =
-            appearanceReady || state.heroEquipment.IsSane();
-        const game::hero_pawn::appearance::RemoteHeroAppearanceResult
-            appearanceResult = appearance_.Reconcile(
-                state.heroMorph,
-                state.heroClothing,
-                state.heroBoneScales,
-                state.heroAppearanceModifiers,
-                presentationRequired);
-        if (appearanceResult == game::hero_pawn::appearance::
-                RemoteHeroAppearanceResult::Pending)
-        {
-            return;
-        }
+        const auto appearanceResult = appearance_.Reconcile(
+            state.heroMorph,
+            state.heroClothing,
+            state.heroBoneScales,
+            state.heroAppearanceModifiers,
+            appearanceReady);
         if (appearanceResult == game::hero_pawn::appearance::
                 RemoteHeroAppearanceResult::Failed)
         {
@@ -223,8 +278,33 @@ namespace fable::game::hero_pawn::remote
             Retire();
             return;
         }
-
-        equipment_.Reconcile(state.heroEquipment, now);
+        // Appearance resolution may span frames. Equipment is independent and
+        // must continue reconciling while that work is pending.
+        if (snapshot.lifecycle.equipmentPresent)
+        {
+            equipment_.Reconcile(state.heroEquipment, now);
+        }
+        // The current Hero path requires both reliable component presence bits
+        // before it can become Active. A default/native presentation is not a
+        // valid replicated baseline.
+        const bool appearanceApplied = snapshot.lifecycle.appearancePresent &&
+            appearanceReady &&
+            appearanceResult == game::hero_pawn::appearance::
+                RemoteHeroAppearanceResult::Ready;
+        const bool equipmentApplied = snapshot.lifecycle.equipmentPresent &&
+            equipmentReady && equipment_.IsReady();
+        appearanceBaselineApplied_ = appearanceApplied;
+        equipmentBaselineApplied_ = equipmentApplied;
+        if (appearanceApplied && equipmentApplied)
+        {
+            lifecyclePhase_ = RemoteHeroLifecyclePhase::BaselineApplied;
+            lifecyclePhase_ = RemoteHeroLifecyclePhase::Active;
+        }
+        else
+        {
+            lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
+            return;
+        }
         if (!separationReported_ && localHero != nullptr &&
             localHero->IsValid())
         {
@@ -436,6 +516,7 @@ namespace fable::game::hero_pawn::remote
             Retire();
             return false;
         }
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
         nextSpawnAttemptAt_ = 0;
         return true;
     }
@@ -447,7 +528,7 @@ namespace fable::game::hero_pawn::remote
     {
         auto* const presentation =
             static_cast<RemoteHeroActor*>(context);
-        return presentation != nullptr &&
+        return presentation != nullptr && presentation->IsMovementReady() &&
             presentation->movement_.Provide(creature, input);
     }
 
@@ -487,6 +568,7 @@ namespace fable::game::hero_pawn::remote
             drawable = avatar_->SetDrawable(false);
         }
         avatarSuspended_ = true;
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::BaselineApplied;
         char detail[256] = {};
         std::snprintf(
             detail, sizeof(detail),
@@ -571,16 +653,30 @@ namespace fable::game::hero_pawn::remote
 
     void RemoteHeroActor::DriveMovement()
     {
-        if (initialized_ && !avatarSuspended_ && avatar_ != nullptr &&
-            avatar_->IsValid() && look_ != nullptr)
+        if (IsMovementReady() && look_ != nullptr)
         {
             look_->DriveReplicatedMovement(avatar_);
         }
     }
 
+    bool RemoteHeroActor::IsMovementReady() const
+    {
+        return initialized_ &&
+            lifecyclePhase_ != RemoteHeroLifecyclePhase::Constructing &&
+            !avatarSuspended_ && avatar_ != nullptr && avatar_->IsValid();
+    }
+
     bool RemoteHeroActor::IsActive() const
     {
-        return avatar_ != nullptr && !avatarSuspended_ && avatar_->IsValid();
+        return IsLifecycleActive() && avatar_ != nullptr &&
+            !avatarSuspended_ && avatar_->IsValid();
+    }
+
+    bool RemoteHeroActor::MatchesLifecycle(
+        std::uint32_t actorGeneration,
+        std::uint32_t mapEpoch) const noexcept
+    {
+        return actorGeneration_ == actorGeneration && mapEpoch_ == mapEpoch;
     }
 
     void RemoteHeroActor::CompleteWorldTransition() noexcept
@@ -621,6 +717,9 @@ namespace fable::game::hero_pawn::remote
         separationReported_ = false;
         avatarSuspended_ = false;
         nextSpawnAttemptAt_ = 0;
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::Constructing;
+        appearanceBaselineApplied_ = false;
+        equipmentBaselineApplied_ = false;
     }
 
     void RemoteHeroActor::ReapQuarantinedAvatars() noexcept
@@ -711,6 +810,9 @@ namespace fable::game::hero_pawn::remote
             avatar_ = nullptr;
         }
         nativeAvatar_ = nullptr;
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::Constructing;
+        appearanceBaselineApplied_ = false;
+        equipmentBaselineApplied_ = false;
         if (!worldUnloading)
         {
             playerId_.clear();
@@ -739,6 +841,8 @@ namespace fable::game::hero_pawn::remote
         diagnostics_ = {};
         nextSpawnAttemptAt_ = 0;
         actorId_ = 0;
+        actorGeneration_ = 0;
+        mapEpoch_ = 0;
         initialized_ = false;
     }
 }

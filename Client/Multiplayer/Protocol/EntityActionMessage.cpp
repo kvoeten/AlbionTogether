@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -28,6 +29,9 @@ namespace
         char parameter[160] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WireEntityActionMessage>);
+    static_assert(sizeof(WireEntityActionMessage) == 420);
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept

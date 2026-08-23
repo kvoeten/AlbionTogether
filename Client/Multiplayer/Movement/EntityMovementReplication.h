@@ -65,7 +65,8 @@ namespace fable::multiplayer::movement
         bool Process(
             const entities::LiveEntityRegistry& liveEntities,
             const std::string& localMap,
-            bool ownerRosterReady);
+            bool ownerRosterReady,
+            std::uint64_t observerReadinessRevision);
         void Drive();
         void Shutdown() noexcept;
 
@@ -73,7 +74,8 @@ namespace fable::multiplayer::movement
         static constexpr std::size_t CaptureCapacity = 4096;
         static constexpr std::uint64_t PublishIntervalMilliseconds = 50;
         static constexpr std::uint64_t DeferredSampleLifetimeMilliseconds =
-            2'000;
+            30'000;
+        static constexpr std::size_t ReadinessReplayBudget = 64;
 
         struct NativeCapture final
         {
@@ -162,7 +164,10 @@ namespace fable::multiplayer::movement
         std::unordered_map<std::uint64_t, std::unique_ptr<Playback>> playbacks_;
         std::unordered_set<std::uint64_t> publishedMovingEntities_;
         std::unordered_set<std::uint64_t> acceptedMovingEntities_;
+        std::unordered_set<std::uint64_t> pendingReadinessReplays_;
         std::uint64_t knownPeerRevision_ = 0;
+        std::uint64_t knownObserverReadinessRevision_ = 0;
+        std::uint32_t rejectionReportCount_ = 0;
         std::string ownedMap_;
         std::uint32_t ownedMapEpoch_ = 0;
         std::atomic_bool captureEnabled_{false};

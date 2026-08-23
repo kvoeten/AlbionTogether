@@ -16,6 +16,7 @@ namespace fable::game::creature::ai
         using ExecutionSink = bool(*)(void* context, void* ownerThing);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetExecutionSink(ExecutionSink sink, void* context) noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;

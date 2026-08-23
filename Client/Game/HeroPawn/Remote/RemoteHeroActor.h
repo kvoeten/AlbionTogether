@@ -8,6 +8,7 @@
 #include "Game/HeroPawn/Combat/RemoteHeroCombatController.h"
 #include "Game/HeroPawn/Abilities/RemoteHeroAbilityController.h"
 #include "Multiplayer/Movement/ReplicatedActorMovement.h"
+#include "Multiplayer/Replication/RemotePlayerChannels.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 
 #include <cstdint>
@@ -52,6 +53,14 @@ namespace fable::game::hero_pawn::remote
     using multiplayer::PlayerState;
     namespace movement = multiplayer::movement;
 
+    enum class RemoteHeroLifecyclePhase : std::uint8_t
+    {
+        Constructing,
+        NativeReady,
+        BaselineApplied,
+        Active,
+    };
+
     // Actor-scoped aggregate for one remote Hero. Networking owns only its
     // actor-ID registry; Hero behavior is composed from Hero-domain
     // appearance, equipment, combat, and actor-generic movement controllers.
@@ -69,6 +78,12 @@ namespace fable::game::hero_pawn::remote
             const core::Diagnostics& diagnostics,
             game::hero_pawn::appearance::hooks::
                 RemoteHeroPresentationFactoryHook& presentationFactory);
+        void Reconcile(
+            const multiplayer::replication::RemotePlayerSnapshot& snapshot,
+            const std::string& localMap,
+            game::Entity* localHero);
+        // Compatibility overload for callers that only have a legacy
+        // snapshot. New lifecycle-aware callers must use the overload above.
         void Reconcile(
             const PlayerState& state,
             const std::string& localMap,
@@ -107,6 +122,17 @@ namespace fable::game::hero_pawn::remote
             void* targetCreature);
         void Shutdown() noexcept;
         [[nodiscard]] bool IsActive() const;
+        [[nodiscard]] RemoteHeroLifecyclePhase LifecyclePhase() const noexcept
+        {
+            return lifecyclePhase_;
+        }
+        [[nodiscard]] bool IsLifecycleActive() const noexcept
+        {
+            return lifecyclePhase_ == RemoteHeroLifecyclePhase::Active;
+        }
+        [[nodiscard]] bool MatchesLifecycle(
+            std::uint32_t actorGeneration,
+            std::uint32_t mapEpoch) const noexcept;
 
     private:
         bool Spawn(
@@ -131,6 +157,7 @@ namespace fable::game::hero_pawn::remote
         static movement::ReplicatedMovementSample MovementSample(
             const PlayerState& state,
             std::uint64_t receivedAt);
+        [[nodiscard]] bool IsMovementReady() const;
 
         game::EntityService* entities_ = nullptr;
         game::NpcService* npcs_ = nullptr;
@@ -170,5 +197,11 @@ namespace fable::game::hero_pawn::remote
         bool avatarSuspended_ = false;
         bool separationReported_ = false;
         bool companionRegistered_ = false;
+        RemoteHeroLifecyclePhase lifecyclePhase_ =
+            RemoteHeroLifecyclePhase::Constructing;
+        std::uint32_t actorGeneration_ = 0;
+        std::uint32_t mapEpoch_ = 0;
+        bool appearanceBaselineApplied_ = false;
+        bool equipmentBaselineApplied_ = false;
     };
 }

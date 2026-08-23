@@ -19,6 +19,7 @@ namespace fable::game::creature::combat
             const CombatHealthMutationEvent& event);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         bool SetReplicaProtected(void* creature, bool protectedReplica) noexcept;
         bool ApplyAuthoritative(
@@ -44,6 +45,10 @@ namespace fable::game::creature::combat
         static CombatHealthMutationHook* active_;
         native::CombatHealthMutationFunction::Pointer original_ = nullptr;
         void* trampoline_ = nullptr;
+        std::uint8_t* target_ = nullptr;
+        std::array<std::uint8_t,
+            native::CombatHealthMutationFunction::DisplacedBytes>
+                originalBytes_ = {};
         HMODULE gameModule_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         std::atomic<EventSink> eventSink_{nullptr};

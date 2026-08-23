@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <limits>
+#include <type_traits>
 
 namespace
 {
@@ -31,6 +32,8 @@ namespace
     };
 #pragma pack(pop)
 
+    static_assert(
+        std::is_trivially_copyable_v<WireSavedEntityMapBaselineHeader>);
     static_assert(
         sizeof(WireSavedEntityMapBaselineHeader) ==
             fable::multiplayer::protocol::

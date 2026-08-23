@@ -126,6 +126,29 @@ namespace fable::game::creature::actions
 #endif
     }
 
+    void CreatureActionLifecycleObserver::Shutdown() noexcept
+    {
+        SetAuthorityGate(nullptr, nullptr);
+        AcquireSRWLockExclusive(&eventSinkLock_);
+        for (auto& subscription : eventSinks_) subscription = {};
+        ReleaseSRWLockExclusive(&eventSinkLock_);
+        AcquireSRWLockExclusive(&postUpdateSinkLock_);
+        for (auto& subscription : postUpdateSinks_) subscription = {};
+        ReleaseSRWLockExclusive(&postUpdateSinkLock_);
+        RestoreDetour(finishDetour_);
+        RestoreDetour(submitDetour_);
+        RestoreDetour(updateDetour_);
+        if (active_ == this) active_ = nullptr;
+        originalFinish_ = nullptr;
+        originalSubmit_ = nullptr;
+        originalUpdate_ = nullptr;
+        gameModule_ = nullptr;
+        AcquireSRWLockExclusive(&authoritativeReplayLock_);
+        authoritativeReplayActions_.clear();
+        ReleaseSRWLockExclusive(&authoritativeReplayLock_);
+        diagnostics_ = {};
+    }
+
     bool CreatureActionLifecycleObserver::IsInstalled() const noexcept
     {
         return active_ == this &&

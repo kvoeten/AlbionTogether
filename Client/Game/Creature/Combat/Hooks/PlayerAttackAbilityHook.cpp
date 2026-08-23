@@ -62,6 +62,7 @@ namespace fable::game::creature::combat
             return false;
         }
 
+        std::memcpy(originalBytes_.data(), target, displacedBytes);
         std::memcpy(trampoline, target, displacedBytes);
         trampoline[displacedBytes] = 0xE9;
         const std::intptr_t trampolineDisplacement =
@@ -112,6 +113,7 @@ namespace fable::game::creature::combat
         }
 
         service_ = &service;
+        target_ = target;
         trampoline_ = trampoline;
         original_ = reinterpret_cast<
             native::CreatureAbilitySubmissionFunction::Pointer>(trampoline_);
@@ -144,6 +146,40 @@ namespace fable::game::creature::combat
         diagnostics_.Event("PlayerAttackAbilityHookReady", detail);
         return true;
 #endif
+    }
+
+    void PlayerAttackAbilityHook::Shutdown() noexcept
+    {
+        service_ = nullptr;
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        if (target_ != nullptr && trampoline_ != nullptr)
+        {
+            DWORD previousProtection = 0;
+            if (VirtualProtect(
+                    target_, originalBytes_.size(), PAGE_EXECUTE_READWRITE,
+                    &previousProtection))
+            {
+                std::memcpy(target_, originalBytes_.data(), originalBytes_.size());
+                FlushInstructionCache(GetCurrentProcess(), target_, originalBytes_.size());
+                DWORD discarded = 0;
+                VirtualProtect(
+                    target_, originalBytes_.size(), previousProtection, &discarded);
+            }
+        }
+        if (trampoline_ != nullptr)
+        {
+            VirtualFree(trampoline_, 0, MEM_RELEASE);
+        }
+        target_ = nullptr;
+        trampoline_ = nullptr;
+        original_ = nullptr;
+        originalBytes_ = {};
+        gameModule_ = nullptr;
+        interceptedAttackCount_.store(0, std::memory_order_release);
+        diagnostics_ = {};
     }
 
     bool PlayerAttackAbilityHook::IsInstalled() const noexcept

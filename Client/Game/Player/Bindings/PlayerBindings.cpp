@@ -1,4 +1,6 @@
 #include "PlayerBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/Player/PlayerService.h"
 
@@ -28,6 +30,16 @@ namespace
         return g_player != nullptr && g_player->SetHealth(health);
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterPlayerBindingGroup(BindingContext& context)
+    {
+        return RegisterPlayerBindings(context.Engine, context.Services.Players());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(Player, 300, &fable::scripting::bindings::RegisterPlayerBindingGroup);
 
 namespace fable::scripting::bindings
 {

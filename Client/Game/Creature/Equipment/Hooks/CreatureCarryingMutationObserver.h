@@ -37,6 +37,7 @@ namespace fable::game::creature::equipment::hooks
             const CreatureCarryingMutationEvent& event);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
 

@@ -120,7 +120,8 @@ namespace fable::multiplayer::movement
     bool EntityMovementReplication::Process(
         const entities::LiveEntityRegistry& liveEntities,
         const std::string& localMap,
-        bool ownerRosterReady)
+        bool ownerRosterReady,
+        const std::uint64_t observerReadinessRevision)
     {
         if (!initialized_.load(std::memory_order_acquire) ||
             transport_ == nullptr || authority_ == nullptr ||
@@ -145,6 +146,7 @@ namespace fable::multiplayer::movement
             ownedMapEpoch_ != mapEpoch)
         {
             localStates_.clear();
+            pendingReadinessReplays_.clear();
             std::lock_guard<std::mutex> lock(captureMutex_);
             pendingCaptures_.clear();
         }
@@ -158,6 +160,31 @@ namespace fable::multiplayer::movement
         }
         RetryDeferredInbound();
         PruneCurrentSamples();
+        if (canPublish && observerReadinessRevision !=
+                knownObserverReadinessRevision_)
+        {
+            for (const auto& entry : localStates_)
+            {
+                if (pendingReadinessReplays_.size() >= CaptureCapacity)
+                {
+                    break;
+                }
+                pendingReadinessReplays_.insert(entry.first);
+            }
+            knownObserverReadinessRevision_ = observerReadinessRevision;
+
+            char detail[256] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "map=%s observer_revision=%llu queued_entities=%zu batch_size=%zu",
+                localMap.c_str(),
+                static_cast<unsigned long long>(observerReadinessRevision),
+                pendingReadinessReplays_.size(),
+                ReadinessReplayBudget);
+            diagnostics_.Event(
+                "MultiplayerEntityMovementReadinessReplayQueued", detail);
+        }
         if (canPublish &&
             !ProcessLocalCaptures(liveEntities, localMap, mapEpoch))
         {
@@ -451,6 +478,7 @@ namespace fable::multiplayer::movement
         }
 
         std::vector<std::uint64_t> stale;
+        std::size_t readinessReplayBudget = ReadinessReplayBudget;
         for (auto& entry : localStates_)
         {
             const std::uint64_t entityUid = entry.first;
@@ -479,10 +507,13 @@ namespace fable::multiplayer::movement
                 std::fabs(FacingDelta(
                     state.current.facing,
                     state.published.facing)) >= 0.0005f;
+            const bool readinessReplay = readinessReplayBudget != 0 &&
+                pendingReadinessReplays_.find(entityUid) !=
+                    pendingReadinessReplays_.end();
             const bool due = !state.hasPublished || stopped ||
                 (now - state.lastPublishedAt >=
                     PublishIntervalMilliseconds &&
-                    (state.current.moving || rotated));
+                    (state.current.moving || rotated)) || readinessReplay;
             if (!due)
             {
                 continue;
@@ -527,11 +558,17 @@ namespace fable::multiplayer::movement
             state.hasPublished = true;
             state.lastPublishedAt = now;
             currentSamples_[entityUid] = {state.current, now};
+            if (pendingReadinessReplays_.erase(entityUid) != 0 &&
+                readinessReplayBudget != 0)
+            {
+                --readinessReplayBudget;
+            }
         }
         for (const std::uint64_t entityUid : stale)
         {
             localStates_.erase(entityUid);
             publishedMovingEntities_.erase(entityUid);
+            pendingReadinessReplays_.erase(entityUid);
         }
         return true;
     }
@@ -542,17 +579,61 @@ namespace fable::multiplayer::movement
         std::uint64_t receivedAt,
         bool relay)
     {
+        const auto reject = [&](const char* reason)
+        {
+            constexpr std::uint32_t RejectionReportLimit = 32;
+            if (rejectionReportCount_ < RejectionReportLimit)
+            {
+                ++rejectionReportCount_;
+                const entities::WorldEntityRecord* const observed =
+                    lifecycle_->Directory().Find(message.entityUid);
+                char detail[512] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "reason=%s thing_uid=%016llX packet_generation=%u packet_owner=%llu source_actor_id=%llu packet_map=%s packet_epoch=%u record=%s record_generation=%u record_owner=%llu record_map=%s record_epoch=%u record_live=%s record_available=%s record_creature=%s",
+                    reason,
+                    static_cast<unsigned long long>(message.entityUid),
+                    message.entityGeneration,
+                    static_cast<unsigned long long>(message.ownerActorId),
+                    static_cast<unsigned long long>(sourceActorId),
+                    message.mapName.c_str(),
+                    message.mapEpoch,
+                    observed != nullptr ? "present" : "missing",
+                    observed != nullptr ? observed->generation : 0,
+                    static_cast<unsigned long long>(
+                        observed != nullptr
+                            ? observed->simulationOwnerActorId
+                            : 0),
+                    observed != nullptr ? observed->mapName.c_str() : "",
+                    observed != nullptr ? observed->mapEpoch : 0,
+                    observed != nullptr && observed->live ? "true" : "false",
+                    observed != nullptr && observed->available
+                        ? "true"
+                        : "false",
+                    observed != nullptr && observed->creature
+                        ? "true"
+                        : "false");
+                diagnostics_.Event(
+                    "MultiplayerEntityMovementFenceRejected", detail);
+            }
+            return false;
+        };
+
         const authority::EntityAuthorityKey key{
             message.entityUid,
             message.entityGeneration};
-        if (message.ownerActorId != sourceActorId ||
-            !authority_->IsEntityPublisher(
+        if (message.ownerActorId != sourceActorId)
+        {
+            return reject("source-owner-mismatch");
+        }
+        if (!authority_->IsEntityPublisher(
                 key,
                 message.mapName,
                 sourceActorId,
                 message.mapEpoch))
         {
-            return false;
+            return reject("authority-fence");
         }
         const entities::WorldEntityRecord* const record =
             lifecycle_->Directory().Find(message.entityUid);
@@ -561,7 +642,7 @@ namespace fable::multiplayer::movement
                 message.entityGeneration || record->mapName !=
                 message.mapName || record->mapEpoch != message.mapEpoch)
         {
-            return false;
+            return reject("lifecycle-fence");
         }
         const auto existing = currentSamples_.find(message.entityUid);
         if (existing != currentSamples_.end())
@@ -580,7 +661,7 @@ namespace fable::multiplayer::movement
         }
         if (relay && !lifecycle_->HostAcceptMovement(message))
         {
-            return false;
+            return reject("host-checkpoint-fence");
         }
         currentSamples_[message.entityUid] = {message, receivedAt};
         if (message.moving &&
@@ -822,6 +903,7 @@ namespace fable::multiplayer::movement
         deferredInbound_.clear();
         publishedMovingEntities_.clear();
         acceptedMovingEntities_.clear();
+        pendingReadinessReplays_.clear();
         transport_ = nullptr;
         authority_ = nullptr;
         lifecycle_ = nullptr;
@@ -833,6 +915,8 @@ namespace fable::multiplayer::movement
         role_ = PeerRole::Guest;
         localActorId_ = 0;
         knownPeerRevision_ = 0;
+        knownObserverReadinessRevision_ = 0;
+        rejectionReportCount_ = 0;
         ownedMap_.clear();
         ownedMapEpoch_ = 0;
     }

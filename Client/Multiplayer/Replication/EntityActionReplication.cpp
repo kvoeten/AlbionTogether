@@ -1,4 +1,6 @@
 #include "EntityActionReplication.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
@@ -74,6 +76,23 @@ namespace
         }
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolveEntityActionSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.actions.entityActions;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkEntityAction,
+    0x1003u,
+    "entity-action",
+    300u,
+    "multiplayer-entity-action-dispatch",
+    ResolveEntityActionSink);
 
 namespace fable::multiplayer::replication
 {
@@ -1511,6 +1530,7 @@ namespace fable::multiplayer::replication
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    reliable_stream::Entity(pendingMessages_.front().entityUid),
                     protocol::PacketType::EntityAction,
                     payload.data(),
                     payloadSize))

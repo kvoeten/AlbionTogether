@@ -151,6 +151,22 @@ namespace fable::game::entity::presence
 #endif
     }
 
+    void ThingPresenceObserver::Shutdown() noexcept
+    {
+        SetEventSink(nullptr, nullptr);
+        RestoreDetour(destructorDetour_);
+        RestoreDetour(unregisterDetour_);
+        RestoreDetour(updateDetour_);
+        RestoreDetour(registerDetour_);
+        if (active_ == this) active_ = nullptr;
+        originalDestructor_ = nullptr;
+        originalUnregister_ = nullptr;
+        originalUpdate_ = nullptr;
+        originalRegister_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void ThingPresenceObserver::SetEventSink(
         EventSink sink,
         void* context) noexcept

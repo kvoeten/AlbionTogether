@@ -1,4 +1,6 @@
 #include "WorldBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Core/Capabilities/CapabilityRegistry.h"
 #include "Game/World/WorldService.h"
@@ -97,6 +99,20 @@ namespace
         g_diagnostics.Event(state.c_str(), detail.c_str());
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterWorldBindingGroup(BindingContext& context)
+    {
+        return RegisterWorldBindings(
+            context.Engine,
+            context.Services.World(),
+            context.Capabilities,
+            context.Diagnostics);
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(World, 340, &fable::scripting::bindings::RegisterWorldBindingGroup);
 
 namespace fable::scripting::bindings
 {

@@ -19,6 +19,7 @@ namespace fable::game::creature::locomotion
     {
     public:
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         static bool WatchOwner(void* nativeThing) noexcept;
         static bool BindAnimationMotionSource(
             void* sourcePlayerCreature,
@@ -107,6 +108,9 @@ namespace fable::game::creature::locomotion
 
         core::Diagnostics diagnostics_ = {};
         HMODULE gameModule_ = nullptr;
+        std::uint8_t* addSourceTarget_ = nullptr;
+        std::uint8_t* removeSourceTarget_ = nullptr;
+        std::uint8_t* evaluateLocomotionTarget_ = nullptr;
         native::CreatureModeManagerFunctions::AddSourcePointer
             originalAddSource_ = nullptr;
         native::CreatureModeManagerFunctions::RemoveSourcePointer

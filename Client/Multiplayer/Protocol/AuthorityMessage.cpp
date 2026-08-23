@@ -1,6 +1,7 @@
 #include "AuthorityMessage.h"
 
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -22,6 +23,9 @@ namespace
         char mapName[96] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WireAuthorityMessage>);
+    static_assert(sizeof(WireAuthorityMessage) == 140);
 
     bool IsTerminated(const char (&value)[96]) noexcept
     {

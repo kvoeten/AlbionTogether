@@ -1,4 +1,5 @@
 #include "EntityBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
 
 #include "Game/Creature/Control/ScriptControl.h"
 #include "Game/Entity/Entity.h"
@@ -123,3 +124,19 @@ namespace fable::scripting::bindings
         return result >= 0;
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterEntityTypesBindingGroup(BindingContext& context)
+    {
+        return RegisterEntityTypes(context.Engine);
+    }
+
+    bool RegisterEntityMembersBindingGroup(BindingContext& context)
+    {
+        return RegisterEntityMembers(context.Engine);
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(EntityTypes, 110, &fable::scripting::bindings::RegisterEntityTypesBindingGroup);
+FABLE_SCRIPT_BINDING_GROUP(EntityMembers, 120, &fable::scripting::bindings::RegisterEntityMembersBindingGroup);

@@ -1,4 +1,6 @@
 #include "EntityLowSimulationReplication.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/NPC/Simulation/DummyVillager/DummyVillagerService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
@@ -33,6 +35,23 @@ namespace
         return state;
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolveEntityLowSimulationSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.entities.entityLowSimulation;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkEntityLowSimulation,
+    0x1006u,
+    "entity-low-simulation",
+    600u,
+    "multiplayer-entity-low-simulation-dispatch",
+    ResolveEntityLowSimulationSink);
 
 namespace fable::multiplayer::replication
 {
@@ -395,6 +414,7 @@ namespace fable::multiplayer::replication
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    reliable_stream::Entity(pending_.front().entityUid),
                     protocol::PacketType::EntityLowSimulation,
                     payload.data(),
                     payloadSize))

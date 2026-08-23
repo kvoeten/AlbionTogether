@@ -1,4 +1,6 @@
 #include "HeroPawnBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/HeroPawn/HeroPawnService.h"
 
@@ -18,6 +20,16 @@ namespace
         return g_heroPawn != nullptr && g_heroPawn->SetVisible(hero, visible);
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterHeroPawnBindingGroup(BindingContext& context)
+    {
+        return RegisterHeroPawnBindings(context.Engine, context.Services.HeroPawns());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(HeroPawn, 320, &fable::scripting::bindings::RegisterHeroPawnBindingGroup);
 
 namespace fable::scripting::bindings
 {

@@ -26,6 +26,7 @@ namespace fable::game::creature::look
         bool Initialize(
             EntityService& entities,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool RouteMovementFacing(Entity* target);
         bool RouteReplicatedMovement(
             Entity* target,

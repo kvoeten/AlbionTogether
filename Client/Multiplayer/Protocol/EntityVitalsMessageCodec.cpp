@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -14,6 +15,9 @@ namespace
         std::uint64_t entityUid = 0;
         std::uint32_t entityGeneration = 0;
         std::uint64_t ownerActorId = 0;
+        std::uint32_t playerAuthorityEpoch = 0;
+        std::uint32_t playerActorGeneration = 0;
+        std::uint32_t playerMapEpoch = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t revision = 0;
         float currentHealth = 0.0f;
@@ -21,6 +25,9 @@ namespace
         char mapName[96] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WireEntityVitalsMessage>);
+    static_assert(sizeof(WireEntityVitalsMessage) == 156);
 
     bool IsSane(const fable::multiplayer::protocol::EntityVitalsMessage& message)
     {
@@ -37,11 +44,17 @@ namespace
         {
             return message.playerActorId != 0 &&
                 message.playerActorId == message.ownerActorId &&
-                message.entityUid == 0 && message.entityGeneration == 0;
+                message.entityUid == 0 && message.entityGeneration == 0 &&
+                message.playerAuthorityEpoch != 0 &&
+                message.playerActorGeneration != 0 &&
+                message.playerMapEpoch != 0 && message.mapEpoch == 0;
         }
         return message.subject == EntityVitalsSubject::WorldEntity &&
             message.playerActorId == 0 && message.entityUid != 0 &&
             message.entityGeneration != 0 && message.mapEpoch != 0 &&
+            message.playerAuthorityEpoch == 0 &&
+            message.playerActorGeneration == 0 &&
+            message.playerMapEpoch == 0 &&
             !message.mapName.empty();
     }
 }
@@ -66,6 +79,9 @@ namespace fable::multiplayer::protocol
         wire.entityUid = message.entityUid;
         wire.entityGeneration = message.entityGeneration;
         wire.ownerActorId = message.ownerActorId;
+        wire.playerAuthorityEpoch = message.playerAuthorityEpoch;
+        wire.playerActorGeneration = message.playerActorGeneration;
+        wire.playerMapEpoch = message.playerMapEpoch;
         wire.mapEpoch = message.mapEpoch;
         wire.revision = message.revision;
         wire.currentHealth = message.currentHealth;
@@ -97,6 +113,9 @@ namespace fable::multiplayer::protocol
         message.entityUid = wire.entityUid;
         message.entityGeneration = wire.entityGeneration;
         message.ownerActorId = wire.ownerActorId;
+        message.playerAuthorityEpoch = wire.playerAuthorityEpoch;
+        message.playerActorGeneration = wire.playerActorGeneration;
+        message.playerMapEpoch = wire.playerMapEpoch;
         message.mapEpoch = wire.mapEpoch;
         message.revision = wire.revision;
         message.currentHealth = wire.currentHealth;

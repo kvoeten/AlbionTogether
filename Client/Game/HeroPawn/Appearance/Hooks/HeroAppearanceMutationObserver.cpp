@@ -97,6 +97,21 @@ namespace fable::game::hero_pawn::appearance::hooks
 #endif
     }
 
+    void HeroAppearanceMutationObserver::Shutdown() noexcept
+    {
+        SetEventSink(nullptr, nullptr);
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        RestoreDetour(modifierDetour_);
+        RestoreDetour(clothingDetour_);
+        originalModifierRefresh_ = nullptr;
+        originalClothingRebuild_ = nullptr;
+        mutationCount_.store(0, std::memory_order_relaxed);
+        diagnostics_ = {};
+    }
+
     void HeroAppearanceMutationObserver::SetEventSink(
         EventSink sink,
         void* context) noexcept

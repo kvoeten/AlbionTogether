@@ -1,4 +1,5 @@
 #include "CreatureBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
 
 #include "Game/Creature/Control/ScriptControl.h"
 
@@ -117,3 +118,13 @@ namespace fable::scripting::bindings
         return result >= 0;
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterCreatureBindingGroup(BindingContext& context)
+    {
+        return RegisterCreatureBindings(context.Engine);
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(Creature, 200, &fable::scripting::bindings::RegisterCreatureBindingGroup);

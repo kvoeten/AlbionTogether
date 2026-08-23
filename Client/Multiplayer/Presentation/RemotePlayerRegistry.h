@@ -103,6 +103,10 @@ namespace fable::multiplayer::presentation
         void Shutdown() noexcept;
         [[nodiscard]] std::size_t Size() const noexcept;
         [[nodiscard]] std::size_t ActiveCount() const;
+        [[nodiscard]] bool IsLifecycleActive(
+            std::uint64_t actorId,
+            std::uint32_t actorGeneration,
+            std::uint32_t mapEpoch) const noexcept;
 
     private:
         std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>

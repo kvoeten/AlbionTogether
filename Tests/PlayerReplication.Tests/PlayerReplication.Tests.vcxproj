@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectGuid>{D7BDF4A7-1C83-4D2A-9E58-C6C9B9D3A7D4}</ProjectGuid>
+    <RootNamespace>PlayerReplicationTests</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>PlayerReplication.Tests</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v145</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)..\..\bin\Tests\PlayerReplication.Tests\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)..\..\build\PlayerReplication.Tests\$(Configuration)\</IntDir>
+    <TargetName>PlayerReplication.Tests</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>Disabled</Optimization><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir)..\..\Client;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>MaxSpeed</Optimization><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir)..\..\Client;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <Link><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences><SubSystem>Console</SubSystem><AdditionalDependencies>Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="PlayerReplication.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\AuthorityMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\PlayerActorStateCodec.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\PlayerMovementCodec.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\PacketEnvelope.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityActionMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityLifecycleMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityLowSimulationMessageCodec.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityMovementMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityVitalsMessageCodec.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\PlayerActionMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\RemotePlayerChannels.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\EntityVitalsReplication.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActionEventQueue.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActionReplication.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActorStateReplication.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActorStatePublicationQueue.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\ConnectionNonceRegistry.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\MovementTransport.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\PeerDatagramCodec.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\PeerSessionRegistry.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\ReliableStreamTransport.cpp" />
+    <ClCompile Include="PlayerActorStateTestStubs.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\UdpPeer.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\AuthorityMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\PlayerActorStateCodec.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\EntityActionMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\EntityLifecycleMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\EntityLowSimulationMessageCodec.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\EntityVitalsMessageCodec.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\PlayerActionMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\PlayerMovementCodec.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\RemotePlayerChannels.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\EntityVitalsReplication.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActionEventQueue.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActionReplication.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Transport\UdpPeer.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActorStatePublicationQueue.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Transport\MovementTransport.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerDatagramCodec.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerSessionRegistry.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Transport\ReliableStreamTransport.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

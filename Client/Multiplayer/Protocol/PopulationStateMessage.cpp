@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -16,6 +17,9 @@ namespace
         float regionFactors[4] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WirePopulationStateMessage>);
+    static_assert(sizeof(WirePopulationStateMessage) == 40);
 
     bool IsSane(
         const fable::multiplayer::protocol::PopulationStateMessage& message)

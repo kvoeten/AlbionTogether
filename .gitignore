@@ -1,7 +1,9 @@
 /bin/
+/**/bin/
 /build/
 /obj/
 /**/build/
+/*.obj
 /.analysis/
 /.vs/
 /fixtures/candidates/

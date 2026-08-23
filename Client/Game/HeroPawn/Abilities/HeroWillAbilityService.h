@@ -24,9 +24,11 @@ namespace fable::game::hero_pawn::abilities
         bool Initialize(
             game::EntityService& entities,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool AttachActionLifecycleObserver(
             game::creature::actions::CreatureActionLifecycleObserver&
                 observer);
+        void DetachActionLifecycleObserver() noexcept;
         bool AddEventSink(EventSink sink, void* context) noexcept;
         void RemoveEventSink(EventSink sink, void* context) noexcept;
         [[nodiscard]] bool SubmitAuthoritative(

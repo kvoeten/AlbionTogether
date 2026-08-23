@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -22,6 +23,9 @@ namespace
         char mapName[96] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WireEntityMovementMessage>);
+    static_assert(sizeof(WireEntityMovementMessage) == 160);
 
     bool IsSane(
         const fable::multiplayer::protocol::EntityMovementMessage& message)

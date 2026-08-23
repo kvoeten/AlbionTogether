@@ -1,4 +1,6 @@
 #include "CreatureCombatBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/Entity/Entity.h"
@@ -32,6 +34,16 @@ namespace
         return g_combat != nullptr ? g_combat->RoutedPlayerAttackCount() : 0;
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterCreatureCombatBindingGroup(BindingContext& context)
+    {
+        return RegisterCreatureCombatBindings(context.Engine, context.Services.Combat());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(CreatureCombat, 240, &fable::scripting::bindings::RegisterCreatureCombatBindingGroup);
 
 namespace fable::scripting::bindings
 {

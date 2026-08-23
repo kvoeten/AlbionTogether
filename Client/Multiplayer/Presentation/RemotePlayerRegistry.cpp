@@ -102,11 +102,32 @@ namespace fable::multiplayer::presentation
                 diagnostics_.Event(
                     "MultiplayerRemotePlayerRegistered", detail);
             }
-            iterator->second->Reconcile(
-                state, localMap, localHero, snapshot.receivedAt);
+            // The actor owns incarnation retirement and phase transitions;
+            // passing the bounded lifecycle snapshot keeps generation/map
+            // changes coupled to presentation teardown.
+            iterator->second->Reconcile(snapshot, localMap, localHero);
         }
-        // Channel removal is explicit (disconnect/authority retirement). A
-        // player on another map remains live but its presentation is dormant.
+        // Cross-map actors remain in the channel and therefore stay dormant.
+        // Reliable Retire removes the channel; prune its native presentation
+        // in the same reconciliation pass so disconnects cannot leave ghosts.
+        for (auto iterator = presentations_.begin();
+             iterator != presentations_.end();)
+        {
+            const bool stillLive = std::any_of(
+                snapshots.begin(), snapshots.end(),
+                [actorId = iterator->first](
+                    const replication::RemotePlayerSnapshot& snapshot)
+                {
+                    return snapshot.state.actorId == actorId;
+                });
+            if (stillLive)
+            {
+                ++iterator;
+                continue;
+            }
+            iterator->second->Shutdown();
+            iterator = presentations_.erase(iterator);
+        }
     }
 
     void RemotePlayerRegistry::Remove(std::uint64_t actorId) noexcept
@@ -231,6 +252,7 @@ namespace fable::multiplayer::presentation
         }
         presentations_.clear();
         presentationFactory_.Cancel();
+        presentationFactory_.Shutdown();
         entities_ = nullptr;
         npcs_ = nullptr;
         locomotion_ = nullptr;
@@ -257,5 +279,17 @@ namespace fable::multiplayer::presentation
             {
                 return entry.second != nullptr && entry.second->IsActive();
             }));
+    }
+
+    bool RemotePlayerRegistry::IsLifecycleActive(
+        const std::uint64_t actorId,
+        const std::uint32_t actorGeneration,
+        const std::uint32_t mapEpoch) const noexcept
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->IsLifecycleActive() &&
+            iterator->second->MatchesLifecycle(actorGeneration, mapEpoch);
     }
 }

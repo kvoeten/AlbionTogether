@@ -84,6 +84,18 @@ namespace fable::game::npc::population
 #endif
     }
 
+    void PopulationSimulationHook::Shutdown() noexcept
+    {
+        SetStateSink(nullptr, nullptr);
+        SetExecutionSink(nullptr, nullptr);
+        RestoreDetour(highDetailDetour_);
+        RestoreDetour(processAlbionDetour_);
+        if (active_ == this) active_ = nullptr;
+        originalProcessHighDetail_ = nullptr;
+        originalProcessAlbion_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void PopulationSimulationHook::SetExecutionSink(
         ExecutionSink sink,
         void* context) noexcept

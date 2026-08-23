@@ -51,6 +51,10 @@ namespace fable::multiplayer::replication
 
     private:
         PlayerState state_ = {};
+        std::uint64_t actorId_ = 0;
+        std::uint32_t authorityEpoch_ = 0;
+        std::uint32_t actorGeneration_ = 0;
+        std::uint32_t mapEpoch_ = 0;
         std::uint32_t dirtyProperties_ = 0;
         std::uint64_t lastCaptureAt_ = 0;
         bool open_ = false;

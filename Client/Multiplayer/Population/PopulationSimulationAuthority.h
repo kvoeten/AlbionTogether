@@ -36,6 +36,14 @@ namespace fable::multiplayer::population
     class PopulationSimulationAuthority final : public ReliableMessageSink
     {
     public:
+        [[nodiscard]] ReliableMessageTypeSet HandledPacketTypes()
+            const noexcept override
+        {
+            static constexpr protocol::PacketType types[] = {
+                protocol::PacketType::PopulationState};
+            return {types, sizeof(types) / sizeof(types[0])};
+        }
+
         void Initialize(
             PeerRole role,
             std::uint64_t localActorId,

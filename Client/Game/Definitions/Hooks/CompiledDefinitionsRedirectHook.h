@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <array>
 #include <string>
 
 namespace fable::game::definitions
@@ -16,6 +17,7 @@ namespace fable::game::definitions
         bool InstallEarly(
             HMODULE gameModule,
             const wchar_t* gameDefinitionsPath) noexcept;
+        void Shutdown() noexcept;
 
         void Report(const core::Diagnostics& diagnostics);
 
@@ -65,6 +67,7 @@ namespace fable::game::definitions
         native::CreateFileFunctions::NativeFunction originalNative_ = nullptr;
         native::CreateFileFunctions::NativeOpenFunction originalNativeOpen_ = nullptr;
         void* trampolineMemory_ = nullptr;
+        std::array<void*, 4> targets_ = {};
         std::wstring gameDefinitionsPath_;
         std::wstring gameDefinitionsNtPath_;
         std::string gameDefinitionsPathAnsi_;

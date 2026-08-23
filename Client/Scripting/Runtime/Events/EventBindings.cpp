@@ -1,4 +1,5 @@
 #include "EventBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
 
 #include "EventBus.h"
 
@@ -28,6 +29,14 @@ namespace
 
 namespace fable::scripting::bindings
 {
+    bool RegisterEventBindingGroup(BindingContext& context)
+    {
+        return context.Events != nullptr &&
+            RegisterEventBindings(context.Engine, *context.Events);
+    }
+
+    FABLE_SCRIPT_BINDING_GROUP(Events, 410, &RegisterEventBindingGroup);
+
     bool RegisterEventBindings(asIScriptEngine& engine, EventBus& events)
     {
         g_events = &events;

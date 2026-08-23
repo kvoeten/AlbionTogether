@@ -13,6 +13,7 @@ namespace fable::game::creature::locomotion
     {
     public:
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool Bind(void* sourcePhysicsControlled, void* targetPhysicsNavigator);
         void Clear() noexcept;
 

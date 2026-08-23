@@ -14,6 +14,7 @@ namespace fable::game::creature::locomotion
     {
     public:
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] unsigned int RequestCount() const noexcept;

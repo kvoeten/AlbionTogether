@@ -1,4 +1,6 @@
 #include "QuestBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/Quest/QuestService.h"
 
@@ -15,6 +17,16 @@ namespace
     bool IsCompleted(const std::string& questName) { return g_quests != nullptr && g_quests->IsCompleted(questName); }
     bool IsFailed(const std::string& questName) { return g_quests != nullptr && g_quests->IsFailed(questName); }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterQuestBindingGroup(BindingContext& context)
+    {
+        return RegisterQuestBindings(context.Engine, context.Services.Quests());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(Quest, 330, &fable::scripting::bindings::RegisterQuestBindingGroup);
 
 namespace fable::scripting::bindings
 {

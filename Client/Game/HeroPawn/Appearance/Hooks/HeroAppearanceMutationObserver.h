@@ -32,6 +32,7 @@ namespace fable::game::hero_pawn::appearance::hooks
             const HeroAppearanceMutationEvent& event);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
 

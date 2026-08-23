@@ -79,23 +79,6 @@ namespace fable::game::hero_pawn::equipment::transitions
             return false;
         }
 
-        std::size_t removedTemplateWeapons = 0;
-        if (!game::creature::equipment::native::CreatureWeaponFunctions::
-                PruneUnexpectedWeapons(
-                    nativeHero_,
-                    finalState.meleeDefinitionIndex,
-                    finalState.meleeAttachmentSlot,
-                    finalState.rangedDefinitionIndex,
-                    finalState.rangedAttachmentSlot,
-                    removedTemplateWeapons))
-        {
-            return false;
-        }
-        if (removedTemplateWeapons != 0)
-        {
-            hero_->UpdateAttachment();
-        }
-
         const game::creature::animation::native::AnimationPlaybackAttempt
             attempt = animation_.Play(nativeHero_, animationId, 0);
         if (attempt.result != game::creature::animation::native::

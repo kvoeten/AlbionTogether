@@ -15,6 +15,7 @@ namespace fable::game::player::input
         bool Install(
             HMODULE gameModule,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
 
     private:

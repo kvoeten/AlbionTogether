@@ -17,6 +17,7 @@ namespace fable::core::game_thread
             DWORD gameThreadId,
             const core::Diagnostics& diagnostics,
             IdleCallback idleCallback);
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
 
@@ -32,6 +33,7 @@ namespace fable::core::game_thread
 
         core::Diagnostics diagnostics_ = {};
         native::PeekMessageImport::Function original_ = nullptr;
+        native::PeekMessageImport::Function* slot_ = nullptr;
         IdleCallback idleCallback_ = nullptr;
         DWORD gameThreadId_ = 0;
         bool installed_ = false;
