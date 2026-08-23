@@ -1,6 +1,7 @@
 #include "LocalHeroReplication.h"
 
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
+#include "Game/Creature/Locomotion/Native/PhysicsNavigatorFunctions.h"
 #include "Game/Creature/Look/Native/CreatureLookFunctions.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Creature/Equipment/Native/CreatureWeaponFunctions.h"
@@ -19,7 +20,9 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 namespace fable::multiplayer::replication
@@ -71,6 +74,7 @@ namespace fable::multiplayer::replication
         const core::Diagnostics& diagnostics,
         PeerRole role,
         std::uint64_t actorId,
+        std::uint32_t authorityEpoch,
         std::string playerId,
         std::string appearanceDefinition,
         bool morphSelfTest)
@@ -84,6 +88,7 @@ namespace fable::multiplayer::replication
         diagnostics_ = diagnostics;
         role_ = role;
         actorId_ = actorId;
+        authorityEpoch_ = authorityEpoch;
         playerId_ = std::move(playerId);
         appearanceDefinition_ = std::move(appearanceDefinition);
         morphSelfTest_ = morphSelfTest;
@@ -233,6 +238,14 @@ namespace fable::multiplayer::replication
             diagnostics_.Event(
                 "MultiplayerOwnerEquipmentWaiting", equipmentDetail);
         }
+        if (!scalesReady || !clothingReady || !modifiersReady ||
+            !equipmentReady)
+        {
+            // Actor construction is a transaction. Do not open a movement
+            // channel or advertise a partial Hero while its native appearance
+            // or inventory graph is still settling.
+            return false;
+        }
         if (scalesReady && morphSelfTest_ &&
             !game::hero_pawn::appearance::native::HeroMorphComponent::
                 ApplyBoneScaleState(nativeHero_, heroBoneScales))
@@ -252,25 +265,10 @@ namespace fable::multiplayer::replication
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             channel_->Open(
-                actorId_, 1, role_, playerId_, appearanceDefinition_,
+                actorId_, authorityEpoch_, role_, playerId_,
+                appearanceDefinition_,
                 heroMorph, heroClothing, heroBoneScales, modifiers, equipment,
                 mapName_, mapId_, position, facing, GetTickCount64());
-        }
-        PlayerState baseline;
-        {
-            std::lock_guard<std::mutex> lock(ownerStateMutex_);
-            if (!channel_->TakeDirtyUpdate(baseline))
-            {
-                diagnostics_.Event("ClientFailed", "multiplayer-owner-baseline");
-                ReleaseHero();
-                return false;
-            }
-        }
-        if (!transport_->Submit(baseline))
-        {
-            diagnostics_.Event("ClientFailed", "multiplayer-owner-baseline");
-            ReleaseHero();
-            return false;
         }
 
         if (!combatants_->Bind(actorId_, nativeHero_))
@@ -413,6 +411,11 @@ namespace fable::multiplayer::replication
         {
             return;
         }
+        game::Vector3 position = {};
+        if (!ReadHeroPosition(position))
+        {
+            return;
+        }
         std::string mapName = hero_->GetCurrentMapName();
         if (mapName.empty())
         {
@@ -422,7 +425,7 @@ namespace fable::multiplayer::replication
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             channel_->CaptureMovement(
-                mapName, hero_->GetPosition(), ReadHeroFacing(), now);
+                mapName, position, ReadHeroFacing(), now);
             if (!channel_->TakeDirtyUpdate(update))
             {
                 return;
@@ -445,6 +448,70 @@ namespace fable::multiplayer::replication
                 "MultiplayerReplicationStarted",
                 "owner property mutation submitted to the network actor channel");
         }
+        if (update.moving && !movingExchangeReported_)
+        {
+            movingExchangeReported_ = true;
+            char detail[320] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "actor_id=%llu generation=%u map_epoch=%u sequence=%u position=(%.3f,%.3f,%.3f) velocity=(%.3f,%.3f,%.3f)",
+                static_cast<unsigned long long>(update.actorId),
+                update.actorGeneration,
+                update.mapEpoch,
+                update.sequence,
+                update.position.x,
+                update.position.y,
+                update.position.z,
+                update.velocity.x,
+                update.velocity.y,
+                update.velocity.z);
+            diagnostics_.Event("MultiplayerOwnerMovementPublished", detail);
+        }
+    }
+
+    bool LocalHeroReplication::ReadHeroPosition(
+        game::Vector3& position) const noexcept
+    {
+        if (entities_ != nullptr && nativeHero_ != nullptr)
+        {
+            void* const navigator =
+                game::entity::native::ThingComponentAccess::Find(
+                    nativeHero_,
+                    game::entity::native::ThingComponentType::
+                        PhysicsNavigator);
+            if (navigator != nullptr)
+            {
+                bool readable = false;
+                __try
+                {
+                    std::memcpy(
+                        &position,
+                        static_cast<const std::uint8_t*>(navigator) +
+                            game::creature::locomotion::native::
+                                PhysicsNavigatorFunctions::WorldPositionOffset,
+                        sizeof(position));
+                    readable = std::isfinite(position.x) &&
+                        std::isfinite(position.y) &&
+                        std::isfinite(position.z);
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    readable = false;
+                }
+                if (readable)
+                {
+                    return true;
+                }
+            }
+        }
+        if (hero_ == nullptr)
+        {
+            return false;
+        }
+        position = hero_->GetPosition();
+        return std::isfinite(position.x) && std::isfinite(position.y) &&
+            std::isfinite(position.z);
     }
 
     float LocalHeroReplication::ReadHeroFacing() const noexcept
@@ -516,8 +583,6 @@ namespace fable::multiplayer::replication
             }
             return;
         }
-        PlayerState update;
-        bool changed = false;
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             if (!channel_->CaptureAppearance(
@@ -528,43 +593,9 @@ namespace fable::multiplayer::replication
                     "ClientFailed", "multiplayer-owner-appearance-capture");
                 return;
             }
-            changed = channel_->TakeDirtyUpdate(update);
         }
         appearanceReady_ = true;
         appearanceDirty_.store(false, std::memory_order_release);
-        if (!changed)
-        {
-            return;
-        }
-        if (!transport_->Submit(update))
-        {
-            appearanceDirty_.store(true, std::memory_order_release);
-            char rejected[256] = {};
-            std::snprintf(
-                rejected,
-                sizeof(rejected),
-                "started=%s failed=%s update_actor=%llu expected_actor=%llu epoch=%u properties=0x%08X appearance_sane=%s",
-                transport_->IsStarted() ? "true" : "false",
-                transport_->HasFailed() ? "true" : "false",
-                static_cast<unsigned long long>(update.actorId),
-                static_cast<unsigned long long>(actorId_),
-                update.authorityEpoch,
-                update.changedProperties,
-                update.heroMorph.IsSane() &&
-                        update.heroClothing.IsSane() &&
-                        update.heroBoneScales.IsSane() &&
-                        update.heroAppearanceModifiers.IsSane()
-                    ? "true"
-                    : "false");
-            diagnostics_.Event(
-                "MultiplayerOwnerAppearanceSubmitDeferred", rejected);
-            if (transport_->HasFailed())
-            {
-                diagnostics_.Event(
-                    "ClientFailed", "multiplayer-owner-appearance-submit");
-            }
-            return;
-        }
         char detail[160] = {};
         std::snprintf(
             detail, sizeof(detail),
@@ -573,7 +604,7 @@ namespace fable::multiplayer::replication
             clothing.definitionIndices[2], clothing.definitionIndices[3],
             clothing.definitionIndices[4], clothing.definitionIndices[5],
             boneScales.count, modifiers.count);
-        diagnostics_.Event("MultiplayerOwnerAppearanceReplicated", detail);
+        diagnostics_.Event("MultiplayerOwnerAppearanceCaptured", detail);
     }
 
     void LocalHeroReplication::CaptureEquipment(std::uint64_t now)
@@ -592,35 +623,15 @@ namespace fable::multiplayer::replication
         {
             return;
         }
-        PlayerState update;
-        bool changed = false;
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             if (!channel_->CaptureEquipment(equipment))
             {
                 return;
             }
-            changed = channel_->TakeDirtyUpdate(update);
         }
         equipmentReady_ = true;
         equipmentDirty_.store(false, std::memory_order_release);
-        if (!changed)
-        {
-            return;
-        }
-        if (!transport_->Submit(update))
-        {
-            equipmentDirty_.store(true, std::memory_order_release);
-            diagnostics_.Event(
-                "MultiplayerOwnerEquipmentSubmitDeferred",
-                "carried weapon state remains dirty until transport accepts it");
-            if (transport_->HasFailed())
-            {
-                diagnostics_.Event(
-                    "ClientFailed", "multiplayer-owner-equipment-submit");
-            }
-            return;
-        }
         char detail[128] = {};
         std::snprintf(
             detail,
@@ -637,7 +648,7 @@ namespace fable::multiplayer::replication
                         game::creature::equipment::CreatureWeaponFamily::Ranged
                     ? "ranged"
                     : "sheathed");
-        diagnostics_.Event("MultiplayerOwnerEquipmentReplicated", detail);
+        diagnostics_.Event("MultiplayerOwnerEquipmentCaptured", detail);
         game::creature::equipment::native::CreatureCarryingInspection
             carrying;
         if (game::creature::equipment::native::CreatureWeaponFunctions::
@@ -863,9 +874,9 @@ namespace fable::multiplayer::replication
 
     void LocalHeroReplication::Shutdown() noexcept
     {
-        appearanceObserver_.SetEventSink(nullptr, nullptr);
-        equipmentObserver_.SetEventSink(nullptr, nullptr);
-        carryingObserver_.SetEventSink(nullptr, nullptr);
+        carryingObserver_.Shutdown();
+        equipmentObserver_.Shutdown();
+        appearanceObserver_.Shutdown();
         ReleaseHero();
         entities_ = nullptr;
         locomotion_ = nullptr;
@@ -875,6 +886,7 @@ namespace fable::multiplayer::replication
         diagnostics_ = {};
         role_ = PeerRole::Guest;
         actorId_ = 0;
+        authorityEpoch_ = 0;
         playerId_.clear();
         appearanceDefinition_.clear();
         departingNativeHero_ = nullptr;

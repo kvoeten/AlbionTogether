@@ -13,6 +13,7 @@ namespace fable::game::player::input
         bool Initialize(
             HMODULE gameModule,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
     private:
         PlayerCommandPollObserver commandPollObserver_;

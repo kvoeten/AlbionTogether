@@ -21,6 +21,7 @@ namespace fable::game::entity::presence
             const ThingPresenceEvent& event);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         bool RequestUnregister(void* component) noexcept;
 

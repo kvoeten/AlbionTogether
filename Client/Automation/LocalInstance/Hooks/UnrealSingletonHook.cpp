@@ -78,6 +78,7 @@ namespace fable::automation::local_instance
         }
 
         original_ = imported.importedFunction;
+        slot_ = imported.slot;
         active_ = this;
         *imported.slot = &UnrealSingletonHook::CreateMutexRedirect;
 
@@ -91,6 +92,26 @@ namespace fable::automation::local_instance
             GetCurrentProcess(), imported.slot, sizeof(*imported.slot));
         installed_ = true;
         return true;
+    }
+
+    void UnrealSingletonHook::Shutdown() noexcept
+    {
+        if (slot_ != nullptr && original_ != nullptr)
+        {
+            DWORD protection = 0;
+            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
+            {
+                if (*slot_ == &UnrealSingletonHook::CreateMutexRedirect) *slot_ = original_;
+                DWORD discarded = 0;
+                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
+                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        installed_ = false;
+        slot_ = nullptr;
+        original_ = nullptr;
+        namespacedMutex_.clear();
     }
 
     void UnrealSingletonHook::Report(const core::Diagnostics& diagnostics) const

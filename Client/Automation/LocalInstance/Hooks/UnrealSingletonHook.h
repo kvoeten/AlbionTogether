@@ -17,6 +17,7 @@ namespace fable::automation::local_instance
             HMODULE gameModule,
             const wchar_t* sessionId,
             const wchar_t* instanceId) noexcept;
+        void Shutdown() noexcept;
         void Report(const core::Diagnostics& diagnostics) const;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
@@ -32,6 +33,7 @@ namespace fable::automation::local_instance
         static UnrealSingletonHook* active_;
 
         native::UnrealSingletonImport::Function original_ = nullptr;
+        native::UnrealSingletonImport::Function* slot_ = nullptr;
         std::wstring namespacedMutex_;
         std::atomic_ulong redirectCount_{0};
         bool installed_ = false;

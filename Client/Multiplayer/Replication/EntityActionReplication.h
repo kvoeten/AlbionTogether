@@ -50,6 +50,14 @@ namespace fable::multiplayer::replication
     class EntityActionReplication final : public ReliableMessageSink
     {
     public:
+        [[nodiscard]] ReliableMessageTypeSet HandledPacketTypes()
+            const noexcept override
+        {
+            static constexpr protocol::PacketType types[] = {
+                protocol::PacketType::EntityAction};
+            return {types, sizeof(types) / sizeof(types[0])};
+        }
+
         void Initialize(
             PeerRole role,
             std::uint64_t localActorId,

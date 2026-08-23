@@ -95,6 +95,8 @@ namespace fable::game::hero_pawn::appearance::hooks
         {
             return false;
         }
+        std::array<std::uint8_t, kPrologueSize> originalBytes = {};
+        std::memcpy(originalBytes.data(), target, originalBytes.size());
 
         void* const trampoline = VirtualAlloc(
             nullptr,
@@ -151,6 +153,8 @@ namespace fable::game::hero_pawn::appearance::hooks
             previousProtection,
             &ignoredProtection);
 
+        target_ = target;
+        originalBytes_ = originalBytes;
         installed_ = true;
         diagnostics_.Log(
             "Hook: remote Hero presentation factory promotion installed.");
@@ -158,6 +162,58 @@ namespace fable::game::hero_pawn::appearance::hooks
             "MultiplayerRemoteHeroPresentationFactoryReady",
             "native create-presentation command can promote one scoped AI pawn to the complete AHeroPawn initialization path");
         return true;
+    }
+
+    void RemoteHeroPresentationFactoryHook::Shutdown() noexcept
+    {
+        Cancel();
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        if (target_ != nullptr && installed_)
+        {
+            DWORD previousProtection = 0;
+            if (VirtualProtect(
+                    target_,
+                    originalBytes_.size(),
+                    PAGE_EXECUTE_READWRITE,
+                    &previousProtection))
+            {
+                std::memcpy(
+                    target_,
+                    originalBytes_.data(),
+                    originalBytes_.size());
+                FlushInstructionCache(
+                    GetCurrentProcess(),
+                    target_,
+                    originalBytes_.size());
+                DWORD discarded = 0;
+                VirtualProtect(
+                    target_,
+                    originalBytes_.size(),
+                    previousProtection,
+                    &discarded);
+            }
+        }
+        if (trampoline_ != nullptr)
+        {
+            VirtualFree(trampoline_, 0, MEM_RELEASE);
+        }
+        original_ = nullptr;
+        target_ = nullptr;
+        trampoline_ = nullptr;
+        originalBytes_.fill(0);
+        expectedX_.store(0, std::memory_order_relaxed);
+        expectedY_.store(0, std::memory_order_relaxed);
+        expectedZ_.store(0, std::memory_order_relaxed);
+        expectedGraphic_.store(0, std::memory_order_relaxed);
+        observations_.store(0, std::memory_order_relaxed);
+        expiresAt_.store(0, std::memory_order_relaxed);
+        armToken_.store(0, std::memory_order_relaxed);
+        armed_.store(false, std::memory_order_release);
+        diagnostics_ = {};
+        installed_ = false;
     }
 
     RemoteHeroPresentationFactoryHook::ArmToken

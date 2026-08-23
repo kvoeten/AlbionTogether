@@ -90,6 +90,22 @@ namespace fable::game::world::travel
 #endif
     }
 
+    void WorldTravelObserver::Shutdown() noexcept
+    {
+        SetDepartureSink(nullptr, nullptr);
+        SetPreparationSink(nullptr, nullptr);
+        RestoreDetour(prepareMapChangeDetour_);
+        RestoreDetour(regionExitDetour_);
+        if (active_ == this) active_ = nullptr;
+        originalPrepareMapChange_ = nullptr;
+        originalRegionExitTrigger_ = nullptr;
+        resolveConnectedThing_ = nullptr;
+        gameModule_ = nullptr;
+        pending_ = {};
+        deferred_ = {};
+        diagnostics_ = {};
+    }
+
     void WorldTravelObserver::SetPreparationSink(
         PreparationSink sink,
         void* context) noexcept

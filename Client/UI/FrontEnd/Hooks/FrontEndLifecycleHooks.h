@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace fable::ui::front_end
 {
@@ -33,6 +34,7 @@ namespace fable::ui::front_end
             HMODULE gameModule,
             const core::Diagnostics& diagnostics,
             const FrontEndLifecycleCallbacks& callbacks);
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
 
@@ -48,6 +50,10 @@ namespace fable::ui::front_end
 
         core::Diagnostics diagnostics_ = {};
         std::array<FrontEndLifecycleCallbacks::Callback, BoundaryCount> callbacks_ = {};
+        std::array<std::uint8_t*, BoundaryCount> targets_ = {};
+        std::array<
+            std::array<std::uint8_t, native::FrontEndLifecycleFunctions::DisplacedBytes>,
+            BoundaryCount> originalBytes_ = {};
         bool installed_ = false;
     };
 }

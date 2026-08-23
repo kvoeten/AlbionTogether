@@ -26,6 +26,7 @@ namespace fable::game::entity::persistence
             std::uint16_t& mapId);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetMapOverrideSink(
             MapOverrideSink sink,
             void* context) noexcept;

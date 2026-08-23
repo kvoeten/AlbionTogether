@@ -52,6 +52,7 @@ namespace fable::game::npc::village
         {
             return false;
         }
+        std::memcpy(originalBytes_.data(), target, displacedBytes);
         std::memcpy(trampoline, target, displacedBytes);
         trampoline[displacedBytes] = 0xE9;
         const std::intptr_t resumeDisplacement =
@@ -95,6 +96,7 @@ namespace fable::game::npc::village
             return false;
         }
         gameModule_ = gameModule;
+        target_ = target;
         trampoline_ = trampoline;
         original_ = reinterpret_cast<
             native::VillageMembershipFunctions::SetVillagePointer>(
@@ -122,6 +124,39 @@ namespace fable::game::npc::village
         diagnostics_.Event("VillageMembershipMutationHookReady", detail);
         return true;
 #endif
+    }
+
+    void VillageMembershipMutationHook::Shutdown() noexcept
+    {
+        SetEventSink(nullptr, nullptr);
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        if (target_ != nullptr && trampoline_ != nullptr)
+        {
+            DWORD previousProtection = 0;
+            if (VirtualProtect(
+                    target_, originalBytes_.size(), PAGE_EXECUTE_READWRITE,
+                    &previousProtection))
+            {
+                std::memcpy(target_, originalBytes_.data(), originalBytes_.size());
+                FlushInstructionCache(GetCurrentProcess(), target_, originalBytes_.size());
+                DWORD discarded = 0;
+                VirtualProtect(
+                    target_, originalBytes_.size(), previousProtection, &discarded);
+            }
+        }
+        if (trampoline_ != nullptr)
+        {
+            VirtualFree(trampoline_, 0, MEM_RELEASE);
+        }
+        target_ = nullptr;
+        trampoline_ = nullptr;
+        original_ = nullptr;
+        originalBytes_ = {};
+        gameModule_ = nullptr;
+        diagnostics_ = {};
     }
 
     void VillageMembershipMutationHook::SetEventSink(

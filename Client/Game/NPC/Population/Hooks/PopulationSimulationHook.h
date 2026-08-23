@@ -45,6 +45,7 @@ namespace fable::game::npc::population
             PopulationSimulationState& state);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetExecutionSink(
             ExecutionSink sink,
             void* context) noexcept;

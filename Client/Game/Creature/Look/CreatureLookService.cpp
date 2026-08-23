@@ -12,18 +12,33 @@ namespace fable::game::creature::look
 {
     CreatureLookService::~CreatureLookService()
     {
+        Shutdown();
+    }
+
+    void CreatureLookService::Shutdown() noexcept
+    {
         ClearMovementFacing();
+        facingRouterHook_.Shutdown();
+        entities_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool CreatureLookService::Initialize(
         EntityService& entities,
         const core::Diagnostics& diagnostics)
     {
+        Shutdown();
         entities_ = &entities;
         gameModule_ = entities.GameModule();
         diagnostics_ = diagnostics;
-        return gameModule_ != nullptr &&
-            facingRouterHook_.Install(gameModule_, diagnostics_);
+        if (gameModule_ == nullptr ||
+            !facingRouterHook_.Install(gameModule_, diagnostics_))
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
     }
 
     bool CreatureLookService::RouteMovementFacing(Entity* target)

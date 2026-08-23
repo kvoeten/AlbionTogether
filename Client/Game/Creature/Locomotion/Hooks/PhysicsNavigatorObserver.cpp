@@ -201,6 +201,33 @@ namespace fable::game::creature::locomotion
             requestVtableSlot_ != nullptr && updateVtableSlot_ != nullptr;
     }
 
+    void PhysicsNavigatorObserver::Shutdown() noexcept
+    {
+        auto restore = [](void** slot, void* replacement, void* original) noexcept
+        {
+            if (slot == nullptr || original == nullptr) return;
+            DWORD protection = 0;
+            if (VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &protection))
+            {
+                if (*slot == replacement) *slot = original;
+                DWORD discarded = 0;
+                VirtualProtect(slot, sizeof(*slot), protection, &discarded);
+                FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
+            }
+        };
+        restore(updateVtableSlot_, reinterpret_cast<void*>(&PhysicsNavigatorObserver::ObserveUpdate),
+            reinterpret_cast<void*>(originalUpdate_));
+        restore(requestVtableSlot_, reinterpret_cast<void*>(&PhysicsNavigatorObserver::ObserveRequest),
+            reinterpret_cast<void*>(originalRequest_));
+        if (active_ == this) active_ = nullptr;
+        updateVtableSlot_ = nullptr;
+        requestVtableSlot_ = nullptr;
+        originalUpdate_ = nullptr;
+        originalRequest_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
+    }
+
     unsigned int PhysicsNavigatorObserver::RequestCount() const noexcept
     {
         return requestCount_.load(std::memory_order_acquire);

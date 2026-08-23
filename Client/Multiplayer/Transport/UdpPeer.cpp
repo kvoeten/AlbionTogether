@@ -3,9 +3,17 @@
 #include <Windows.h>
 
 #include "UdpPeer.h"
+#include "Multiplayer/Protocol/EntityMovementMessage.h"
 #include "Multiplayer/Protocol/PacketEnvelope.h"
-#include "Multiplayer/Protocol/PlayerStateCodec.h"
+#include "Multiplayer/Protocol/PlayerMovementCodec.h"
+#include "Multiplayer/Transport/ConnectionNonceRegistry.h"
+#include "Multiplayer/Transport/MovementTransport.h"
+#include "Multiplayer/Transport/PeerDatagramCodec.h"
+#include "Multiplayer/Transport/PeerSessionRegistry.h"
+#include "Multiplayer/Transport/ReliableStream.h"
+#include "Multiplayer/Transport/ReliableStreamTransport.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -13,11 +21,20 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
-#include <limits>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
+using fable::multiplayer::transport_codec::EncodeAcknowledgement;
+using fable::multiplayer::transport_codec::DecodePeerHelloChallenge;
+using fable::multiplayer::transport_codec::EncodePeerHello;
+using fable::multiplayer::transport_codec::EncodePlayerPacket;
+using fable::multiplayer::transport_codec::EncodeReliablePacket;
+using fable::multiplayer::transport_codec::EncodeUnreliablePacket;
+using fable::multiplayer::transport_codec::IsReliablePacketType;
+using fable::multiplayer::transport_codec::IsUnreliablePacketType;
 
 namespace
 {
@@ -25,204 +42,58 @@ namespace
     constexpr ULONGLONG kKeepAliveIntervalMilliseconds = 1'000;
     constexpr ULONGLONG kPeerHelloIntervalMilliseconds = 250;
     constexpr ULONGLONG kPeerLeaseMilliseconds = 10'000;
-    constexpr ULONGLONG kRetiredActorRetentionMilliseconds = 2'000;
     constexpr ULONGLONG kReliableResendMilliseconds = 100;
-    constexpr std::size_t kReliableQueueLimit = 512;
-    constexpr std::size_t kUnreliableQueueLimit = 4096;
-    constexpr std::size_t kPlayerStateInboxLimit = 256;
-
-    bool IsNewerSequence(std::uint32_t candidate, std::uint32_t previous)
-    {
-        return previous == 0 ||
-            static_cast<std::int32_t>(candidate - previous) > 0;
-    }
-
-    std::uint32_t NextReliableSequence(std::uint32_t previous) noexcept
-    {
-        return previous == (std::numeric_limits<std::uint32_t>::max)()
-            ? 1u
-            : previous + 1u;
-    }
-
-    bool EncodePlayerPacket(
-        const fable::multiplayer::PlayerState& state,
-        std::uint64_t sourceActorId,
-        std::array<
-            std::uint8_t,
-            fable::multiplayer::protocol::MaximumDatagramBytes>& datagram,
-        std::size_t& datagramSize) noexcept
-    {
-        using namespace fable::multiplayer;
-        std::array<std::uint8_t, protocol::MaximumDatagramBytes> payload = {};
-        std::size_t payloadSize = 0;
-        if (!protocol::EncodePlayerState(
-                state,
-                payload.data(),
-                protocol::MaximumPayloadBytes(),
-                payloadSize))
-        {
-            return false;
-        }
-        protocol::PacketEnvelope envelope;
-        envelope.type = protocol::PacketType::PlayerState;
-        envelope.sourceActorId = sourceActorId;
-        return protocol::EncodePacket(
-            envelope,
-            payload.data(),
-            payloadSize,
-            datagram.data(),
-            datagram.size(),
-            datagramSize);
-    }
-
-    bool IsReliablePacketType(
-        fable::multiplayer::protocol::PacketType type) noexcept
-    {
-        using fable::multiplayer::protocol::PacketType;
-        return type == PacketType::Authority ||
-            type == PacketType::EntityLifecycle ||
-            type == PacketType::EntityAction ||
-            type == PacketType::EntityVitals ||
-            type == PacketType::EntityLowSimulation ||
-            type == PacketType::PlayerAction ||
-            type == PacketType::PopulationState ||
-            type == PacketType::SavedEntityMapBaseline;
-    }
-
-    bool IsUnreliablePacketType(
-        fable::multiplayer::protocol::PacketType type) noexcept
-    {
-        return type ==
-            fable::multiplayer::protocol::PacketType::EntityMovement;
-    }
-
-    bool EncodeUnreliablePacket(
-        const fable::multiplayer::TransportMessage& message,
-        std::array<
-            std::uint8_t,
-            fable::multiplayer::protocol::MaximumDatagramBytes>& datagram,
-        std::size_t& datagramSize) noexcept
-    {
-        fable::multiplayer::protocol::PacketEnvelope envelope;
-        envelope.type = message.type;
-        envelope.sourceActorId = message.sourceActorId;
-        return fable::multiplayer::protocol::EncodePacket(
-            envelope,
-            message.payload.data(),
-            message.payloadSize,
-            datagram.data(),
-            datagram.size(),
-            datagramSize);
-    }
-
-    bool EncodeReliablePacket(
-        const fable::multiplayer::TransportMessage& message,
-        std::uint64_t sourceActorId,
-        std::array<
-            std::uint8_t,
-            fable::multiplayer::protocol::MaximumDatagramBytes>& datagram,
-        std::size_t& datagramSize) noexcept
-    {
-        fable::multiplayer::protocol::PacketEnvelope envelope;
-        envelope.type = message.type;
-        envelope.flags = fable::multiplayer::protocol::packet_flag::Reliable;
-        envelope.sourceActorId = sourceActorId;
-        envelope.sequence = message.sequence;
-        return fable::multiplayer::protocol::EncodePacket(
-            envelope,
-            message.payload.data(),
-            message.payloadSize,
-            datagram.data(),
-            datagram.size(),
-            datagramSize);
-    }
-
-    bool EncodeAcknowledgement(
-        std::uint64_t sourceActorId,
-        std::uint32_t acknowledgedSequence,
-        std::array<
-            std::uint8_t,
-            fable::multiplayer::protocol::MaximumDatagramBytes>& datagram,
-        std::size_t& datagramSize) noexcept
-    {
-        fable::multiplayer::protocol::PacketEnvelope envelope;
-        envelope.type =
-            fable::multiplayer::protocol::PacketType::Acknowledgement;
-        envelope.sourceActorId = sourceActorId;
-        envelope.sequence = acknowledgedSequence;
-        return fable::multiplayer::protocol::EncodePacket(
-            envelope,
-            nullptr,
-            0,
-            datagram.data(),
-            datagram.size(),
-            datagramSize);
-    }
-
-    bool EncodePeerHello(
-        std::uint64_t sourceActorId,
-        std::array<
-            std::uint8_t,
-            fable::multiplayer::protocol::MaximumDatagramBytes>& datagram,
-        std::size_t& datagramSize) noexcept
-    {
-        fable::multiplayer::protocol::PacketEnvelope envelope;
-        envelope.type =
-            fable::multiplayer::protocol::PacketType::PeerHello;
-        envelope.sourceActorId = sourceActorId;
-        return fable::multiplayer::protocol::EncodePacket(
-            envelope,
-            nullptr,
-            0,
-            datagram.data(),
-            datagram.size(),
-            datagramSize);
-    }
 }
 
 namespace fable::multiplayer
 {
     struct UdpPeer::Implementation final
     {
-        struct EndpointKey final
-        {
-            std::uint32_t address = 0;
-            std::uint16_t port = 0;
-
-            bool operator==(const EndpointKey& other) const noexcept
-            {
-                return address == other.address && port == other.port;
-            }
-        };
-
-        struct EndpointHash final
-        {
-            std::size_t operator()(const EndpointKey& endpoint) const noexcept
-            {
-                return static_cast<std::size_t>(endpoint.address) ^
-                    (static_cast<std::size_t>(endpoint.port) << 1);
-            }
-        };
-
-        struct Peer final
-        {
-            sockaddr_in endpoint = {};
-            std::uint64_t actorId = 0;
-            ULONGLONG lastReceivedAt = 0;
-            std::unordered_map<std::uint64_t, std::uint32_t> lastSentSequence;
-            std::unordered_map<std::uint64_t, ULONGLONG> lastSentAt;
-            std::uint32_t lastReceivedReliableSequence = 0;
-            std::uint32_t lastAcknowledgedReliableSequence = 0;
-            std::uint32_t lastReliableSequenceSent = 0;
-            ULONGLONG lastReliableSentAt = 0;
-        };
-
         struct ActorRecord final
         {
             PlayerState state;
-            bool retired = false;
-            ULONGLONG retiredAt = 0;
         };
+
+        struct ReliableBroadcast final
+        {
+            struct PendingPeer final
+            {
+                PeerSessionRegistry::EndpointKey endpoint = {};
+                std::uint64_t connectionNonce = 0;
+
+                bool operator==(const PendingPeer& other) const noexcept
+                {
+                    return endpoint == other.endpoint &&
+                        connectionNonce == other.connectionNonce;
+                }
+            };
+
+            struct PendingPeerHash final
+            {
+                std::size_t operator()(
+                    const PendingPeer& peer) const noexcept
+                {
+                    return PeerSessionRegistry::EndpointHash{}(
+                               peer.endpoint) ^
+                        (static_cast<std::size_t>(peer.connectionNonce) *
+                            static_cast<std::size_t>(0x9E3779B1u));
+                }
+            };
+
+            ReliableStreamId streamId = reliable_stream::Control;
+            protocol::PacketType type = protocol::PacketType::Authority;
+            std::uint64_t sourceActorId = 0;
+            std::size_t payloadSize = 0;
+            std::array<
+                std::uint8_t,
+                protocol::MaximumDatagramBytes - protocol::PacketHeaderBytes>
+                payload = {};
+            std::unordered_set<PendingPeer, PendingPeerHash> pending;
+        };
+
+        static constexpr std::size_t ReliableBroadcastLimit = 512;
+        static constexpr std::size_t ReliableBroadcastPerStreamLimit =
+            ReliableStreamTransport::PerStreamQueueLimit;
 
         SOCKET socket = INVALID_SOCKET;
         sockaddr_in peer = {};
@@ -232,21 +103,19 @@ namespace fable::multiplayer
         std::mutex stateMutex;
         std::condition_variable wake;
         PlayerState outbound = {};
-        std::deque<PlayerState> inbound;
-        std::deque<TransportMessage> reliableOutbound;
-        std::deque<TransportMessage> reliableInbound;
-        std::deque<TransportMessage> unreliableOutbound;
-        std::deque<TransportMessage> unreliableInbound;
-        std::unordered_map<std::uint64_t, std::uint32_t> lastRemoteSequence;
-        std::unordered_map<EndpointKey, Peer, EndpointHash> peers;
+        ReliableStreamTransport reliable;
+        MovementTransport movement;
+        PeerSessionRegistry sessions;
         std::unordered_map<std::uint64_t, ActorRecord> actors;
+        std::unordered_map<
+            ReliableStreamId,
+            std::deque<ReliableBroadcast>> reliableBroadcasts;
+        std::deque<ReliableStreamId> reliableBroadcastOrder;
+        std::size_t reliableBroadcastCount = 0;
         std::uint64_t localActorId = 0;
+        std::uint64_t localConnectionNonce = 0;
         ULONGLONG lastSentAt = 0;
         ULONGLONG lastPeerHelloSentAt = 0;
-        ULONGLONG lastReliableSentAt = 0;
-        std::uint32_t nextReliableSequence = 1;
-        std::uint32_t lastReceivedReliableSequence = 0;
-        std::uint32_t lastAcknowledgedReliableSequence = 0;
         std::atomic_bool started{false};
         std::atomic_bool stopping{false};
         std::atomic_bool failed{false};
@@ -257,6 +126,8 @@ namespace fable::multiplayer
         bool peerEventReported = false;
         bool sendEventReported = false;
         bool receiveEventReported = false;
+        bool movingReceiveEventReported = false;
+        bool entityMovementReceiveEventReported = false;
         bool reliableSendEventReported = false;
         bool reliableReceiveEventReported = false;
         bool peerHelloSendEventReported = false;
@@ -271,156 +142,59 @@ namespace fable::multiplayer
             }
         }
 
-        static EndpointKey Key(const sockaddr_in& endpoint) noexcept
-        {
-            return {endpoint.sin_addr.s_addr, endpoint.sin_port};
-        }
-
         static void MergeActor(ActorRecord& record, const PlayerState& update)
         {
             PlayerState& current = record.state;
             if (current.actorId != update.actorId ||
-                current.authorityEpoch != update.authorityEpoch)
+                current.authorityEpoch != update.authorityEpoch ||
+                current.actorGeneration != update.actorGeneration ||
+                current.mapEpoch != update.mapEpoch ||
+                current.mapId != update.mapId)
             {
                 current = {};
             }
-            if ((update.changedProperties & player_property::Identity) != 0)
-            {
-                current.actorId = update.actorId;
-                current.authorityEpoch = update.authorityEpoch;
-                current.role = update.role;
-                current.playerId = update.playerId;
-                current.appearanceDefinition = update.appearanceDefinition;
-            }
-            if ((update.changedProperties & player_property::Map) != 0)
-            {
-                current.mapName = update.mapName;
-                current.mapId = update.mapId;
-            }
-            if ((update.changedProperties & player_property::Appearance) != 0)
-            {
-                current.heroMorph = update.heroMorph;
-                current.heroClothing = update.heroClothing;
-                current.heroBoneScales = update.heroBoneScales;
-                current.heroAppearanceModifiers =
-                    update.heroAppearanceModifiers;
-            }
-            if ((update.changedProperties & player_property::Equipment) != 0)
-            {
-                current.heroEquipment = update.heroEquipment;
-            }
-            if ((update.changedProperties & player_property::Movement) != 0)
-            {
-                current.position = update.position;
-                current.velocity = update.velocity;
-                current.facing = update.facing;
-                current.angularVelocity = update.angularVelocity;
-                current.moving = update.moving;
-            }
+            current.actorId = update.actorId;
+            current.authorityEpoch = update.authorityEpoch;
+            current.actorGeneration = update.actorGeneration;
+            current.mapEpoch = update.mapEpoch;
+            current.role = update.role;
+            current.mapId = update.mapId;
+            current.position = update.position;
+            current.velocity = update.velocity;
+            current.facing = update.facing;
+            current.angularVelocity = update.angularVelocity;
+            current.moving = update.moving;
             current.sequence = update.sequence;
-            current.changedProperties = update.changedProperties;
-            record.retired =
-                (update.changedProperties & player_property::Retired) != 0;
+            current.changedProperties = player_property::Movement;
         }
 
-        // PlayerState is current actor state, not an event log. Coalesce all
-        // pending deltas for an actor into one bounded latest-state snapshot.
-        void QueueInbound(const PlayerState& state)
-        {
-            for (auto iterator = inbound.begin(); iterator != inbound.end();)
-            {
-                if (iterator->actorId != state.actorId)
-                {
-                    ++iterator;
-                    continue;
-                }
-                if (iterator->authorityEpoch == state.authorityEpoch)
-                {
-                    const std::uint32_t changed =
-                        iterator->changedProperties |
-                        state.changedProperties;
-                    *iterator = state;
-                    iterator->changedProperties = changed;
-                    return;
-                }
-                iterator = inbound.erase(iterator);
-            }
-            if (inbound.size() >= kPlayerStateInboxLimit)
-            {
-                inbound.pop_front();
-            }
-            inbound.push_back(state);
-        }
 
-        bool IsHostEndpoint(const sockaddr_in& sender) const noexcept
+        bool SendPeerHello(
+            const sockaddr_in& endpoint,
+            const std::uint8_t* payload,
+            const std::size_t payloadSize)
         {
-            return sender.sin_addr.s_addr == peer.sin_addr.s_addr &&
-                sender.sin_port == peer.sin_port;
-        }
-
-        bool RegisterGuestEndpoint(
-            const sockaddr_in& sender,
-            std::uint64_t actorId)
-        {
-            if (role != PeerRole::Host || actorId == 0 ||
-                actorId == localActorId)
+            std::array<std::uint8_t, protocol::MaximumDatagramBytes> packet = {};
+            std::size_t packetSize = 0;
+            if (!EncodePeerHello(
+                    localActorId,
+                    localConnectionNonce,
+                    payload,
+                    payloadSize,
+                    packet,
+                    packetSize))
             {
                 return false;
             }
-
-            const EndpointKey endpoint = Key(sender);
-            std::lock_guard<std::mutex> lock(stateMutex);
-            bool peerSetChanged = false;
-
-            auto endpointPeer = peers.find(endpoint);
-            if (endpointPeer != peers.end() &&
-                endpointPeer->second.actorId != 0 &&
-                endpointPeer->second.actorId != actorId)
-            {
-                const std::uint64_t retiredActorId =
-                    endpointPeer->second.actorId;
-                auto actor = actors.find(retiredActorId);
-                if (actor != actors.end() && !actor->second.retired)
-                {
-                    actor->second.retired = true;
-                    actor->second.retiredAt = GetTickCount64();
-                    ++actor->second.state.sequence;
-                    actor->second.state.changedProperties =
-                        player_property::Retired;
-                    QueueInbound(actor->second.state);
-                }
-                peers.erase(endpointPeer);
-                peerSetChanged = true;
-            }
-
-            // A restarted client may keep its actor identity while obtaining
-            // a new source port. Reliable sequencing is endpoint-scoped, so
-            // retain only the current endpoint for that actor.
-            for (auto iterator = peers.begin(); iterator != peers.end();)
-            {
-                if (!(iterator->first == endpoint) &&
-                    iterator->second.actorId == actorId)
-                {
-                    iterator = peers.erase(iterator);
-                    peerSetChanged = true;
-                    continue;
-                }
-                ++iterator;
-            }
-
-            const auto [connectedIterator, inserted] =
-                peers.try_emplace(endpoint);
-            peerSetChanged = peerSetChanged || inserted;
-            Peer& connected = connectedIterator->second;
-            connected.endpoint = sender;
-            connected.actorId = actorId;
-            connected.lastReceivedAt = GetTickCount64();
-            if (peerSetChanged)
-            {
-                peerSetRevision.fetch_add(1, std::memory_order_acq_rel);
-            }
-            peerKnown.store(!peers.empty(), std::memory_order_release);
-            return true;
+            const int sent = sendto(
+                socket,
+                reinterpret_cast<const char*>(packet.data()),
+                static_cast<int>(packetSize),
+                0,
+                reinterpret_cast<const sockaddr*>(&endpoint),
+                sizeof(endpoint));
+            return sent == static_cast<int>(packetSize) ||
+                (sent == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK);
         }
 
         bool SendPeerHelloIfNeeded(ULONGLONG now)
@@ -430,10 +204,31 @@ namespace fable::multiplayer
             {
                 return true;
             }
+            if (sessions.HasGuestSession() &&
+                !sessions.HasPendingGuestConfirmation())
+            {
+                return true;
+            }
 
             std::array<std::uint8_t, protocol::MaximumDatagramBytes> packet = {};
             std::size_t packetSize = 0;
-            if (!EncodePeerHello(localActorId, packet, packetSize))
+            std::array<std::uint8_t, PeerSessionRegistry::ChallengeBytes>
+                confirmation = {};
+            const std::uint8_t* payload = nullptr;
+            std::size_t payloadSize = 0;
+            if (sessions.HasPendingGuestConfirmation())
+            {
+                confirmation = sessions.GuestConfirmation();
+                payload = confirmation.data();
+                payloadSize = confirmation.size();
+            }
+            if (!EncodePeerHello(
+                    localActorId,
+                    localConnectionNonce,
+                    payload,
+                    payloadSize,
+                    packet,
+                    packetSize))
             {
                 Fail("Multiplayer: peer discovery datagram could not be encoded.");
                 return false;
@@ -473,12 +268,17 @@ namespace fable::multiplayer
 
         bool SendAcknowledgement(
             const sockaddr_in& endpoint,
+            ReliableStreamId streamId,
+            std::uint64_t streamIncarnation,
             std::uint32_t sequence)
         {
             std::array<std::uint8_t, protocol::MaximumDatagramBytes> packet = {};
             std::size_t packetSize = 0;
             if (!EncodeAcknowledgement(
                     localActorId,
+                    localConnectionNonce,
+                    streamId,
+                    streamIncarnation,
                     sequence,
                     packet,
                     packetSize))
@@ -516,28 +316,51 @@ namespace fable::multiplayer
                 return true;
             }
             std::lock_guard<std::mutex> lock(stateMutex);
-            if (reliableOutbound.empty() ||
-                reliableOutbound.front().sequence !=
-                    packet.envelope.sequence)
-            {
-                return true;
-            }
             if (role == PeerRole::Host)
             {
-                const auto connected = peers.find(Key(sender));
-                if (connected == peers.end() ||
-                    connected->second.actorId !=
-                        packet.envelope.sourceActorId)
+                PeerSessionRegistry::Peer* connected =
+                    sessions.Find(sender);
+                if (connected == nullptr ||
+                    !sessions.ValidatePeer(
+                        sender,
+                        packet.envelope.sourceActorId,
+                        packet.envelope.connectionNonce,
+                        true))
                 {
                     return true;
                 }
-                connected->second.lastReceivedAt = GetTickCount64();
-                connected->second.lastAcknowledgedReliableSequence =
-                    packet.envelope.sequence;
+                const ReliableStreamId streamId = {
+                    static_cast<ReliableStreamKind>(
+                        packet.envelope.streamKind),
+                    packet.envelope.streamId};
+                if (!connected->reliable.AcceptAcknowledgement(
+                        streamId,
+                        packet.envelope.streamIncarnation,
+                        packet.envelope.sequence))
+                {
+                    return true;
+                }
+                connected->lastReceivedAt = GetTickCount64();
             }
-            else if (IsHostEndpoint(sender))
+            else if (sessions.IsHostEndpoint(sender))
             {
-                lastAcknowledgedReliableSequence = packet.envelope.sequence;
+                if (sessions.RemoteNonce() != 0 &&
+                    sessions.RemoteNonce() != packet.envelope.connectionNonce)
+                {
+                    return true;
+                }
+                const ReliableStreamId streamId = {
+                    static_cast<ReliableStreamKind>(
+                        packet.envelope.streamKind),
+                    packet.envelope.streamId};
+                if (!reliable.AcceptAcknowledgement(
+                        streamId,
+                        packet.envelope.streamIncarnation,
+                        packet.envelope.sequence))
+                {
+                    return true;
+                }
+                sessions.TouchGuest();
             }
             return true;
         }
@@ -554,58 +377,65 @@ namespace fable::multiplayer
             }
 
             bool acknowledge = false;
+            ReliableStreamId streamId = reliable_stream::Control;
+            ReliableReceiveResult receiveResult =
+                ReliableReceiveResult::Rejected;
             {
                 std::lock_guard<std::mutex> lock(stateMutex);
-                std::uint32_t* previous = nullptr;
+                ReliableStreamTransport* receiver = &reliable;
                 if (role == PeerRole::Host)
                 {
-                    const auto connected = peers.find(Key(sender));
-                    if (connected == peers.end() ||
-                        connected->second.actorId !=
-                            packet.envelope.sourceActorId)
+                    PeerSessionRegistry::Peer* connected =
+                        sessions.Find(sender);
+                    if (!sessions.ValidatePeer(
+                            sender,
+                            packet.envelope.sourceActorId,
+                            packet.envelope.connectionNonce,
+                            true))
                     {
                         return true;
                     }
-                    connected->second.lastReceivedAt = GetTickCount64();
-                    previous =
-                        &connected->second.lastReceivedReliableSequence;
+                    receiver = &connected->inboundReliable;
                 }
                 else
                 {
-                    if (!IsHostEndpoint(sender))
+                    if (!sessions.IsHostEndpoint(sender))
                     {
                         return true;
                     }
-                    previous = &lastReceivedReliableSequence;
+                    if (sessions.RemoteNonce() != 0 &&
+                        sessions.RemoteNonce() !=
+                            packet.envelope.connectionNonce)
+                    {
+                        return true;
+                    }
+                    sessions.TouchGuest();
                 }
 
-                if (packet.envelope.sequence == *previous)
-                {
-                    acknowledge = true;
-                }
-                else if (
-                    (*previous == 0 ||
-                        packet.envelope.sequence ==
-                            NextReliableSequence(*previous)) &&
-                    reliableInbound.size() < kReliableQueueLimit)
-                {
-                    TransportMessage message;
-                    message.type = packet.envelope.type;
-                    message.sourceActorId =
-                        packet.envelope.sourceActorId;
-                    message.sequence = packet.envelope.sequence;
-                    message.payloadSize = packet.payloadSize;
-                    std::memcpy(
-                        message.payload.data(),
-                        packet.payload,
-                        packet.payloadSize);
-                    reliableInbound.push_back(std::move(message));
-                    *previous = packet.envelope.sequence;
-                    acknowledge = true;
-                }
+                TransportMessage message;
+                message.type = packet.envelope.type;
+                message.sourceActorId = packet.envelope.sourceActorId;
+                message.connectionNonce = packet.envelope.connectionNonce;
+                streamId = {
+                    static_cast<ReliableStreamKind>(
+                        packet.envelope.streamKind),
+                    packet.envelope.streamId};
+                message.streamIncarnation = packet.envelope.streamIncarnation;
+                message.streamId = streamId;
+                message.sequence = packet.envelope.sequence;
+                message.payloadSize = packet.payloadSize;
+                std::memcpy(
+                    message.payload.data(), packet.payload, packet.payloadSize);
+                receiveResult = receiver->AcceptIncoming(std::move(message));
+                acknowledge = receiveResult == ReliableReceiveResult::Accepted ||
+                    receiveResult == ReliableReceiveResult::Duplicate;
             }
             return !acknowledge ||
-                (SendAcknowledgement(sender, packet.envelope.sequence) &&
+                (SendAcknowledgement(
+                    sender,
+                    streamId,
+                    packet.envelope.streamIncarnation,
+                    packet.envelope.sequence) &&
                     ReportReliableReceive());
         }
 
@@ -630,6 +460,7 @@ namespace fable::multiplayer
             if (!EncodeReliablePacket(
                     message,
                     localActorId,
+                    localConnectionNonce,
                     packet,
                     packetSize))
             {
@@ -674,7 +505,11 @@ namespace fable::multiplayer
         {
             std::array<std::uint8_t, protocol::MaximumDatagramBytes> packet = {};
             std::size_t packetSize = 0;
-            if (!EncodeUnreliablePacket(message, packet, packetSize))
+            if (!EncodeUnreliablePacket(
+                    message,
+                    localConnectionNonce,
+                    packet,
+                    packetSize))
             {
                 Fail("Multiplayer: entity movement message could not be encoded.");
                 return false;
@@ -709,16 +544,14 @@ namespace fable::multiplayer
             std::vector<Datagram> datagrams;
             {
                 std::lock_guard<std::mutex> lock(stateMutex);
-                while (!unreliableOutbound.empty())
+                for (TransportMessage& message : movement.TakeEntityOutbound())
                 {
-                    TransportMessage message = std::move(
-                        unreliableOutbound.front());
-                    unreliableOutbound.pop_front();
                     if (role == PeerRole::Host)
                     {
-                        for (const auto& entry : peers)
+                        for (const auto& entry : sessions.Peers())
                         {
-                            const Peer& connected = entry.second;
+                            const PeerSessionRegistry::Peer& connected =
+                                entry.second;
                             if (connected.actorId == message.sourceActorId)
                             {
                                 continue;
@@ -745,6 +578,85 @@ namespace fable::multiplayer
             return true;
         }
 
+        void DistributeReliableBroadcasts()
+        {
+            // Visit every logical stream once per dispatch pass. A stream
+            // that is blocked for one peer rotates behind the other streams,
+            // while later messages in that stream may still advance for
+            // peers that have capacity.
+            const std::size_t scheduledStreams =
+                reliableBroadcastOrder.size();
+            for (std::size_t attempt = 0;
+                 attempt < scheduledStreams; ++attempt)
+            {
+                const ReliableStreamId streamId =
+                    reliableBroadcastOrder.front();
+                reliableBroadcastOrder.pop_front();
+                const auto stream = reliableBroadcasts.find(streamId);
+                if (stream == reliableBroadcasts.end())
+                {
+                    continue;
+                }
+                std::deque<ReliableBroadcast>& broadcasts = stream->second;
+                for (auto broadcast = broadcasts.begin();
+                     broadcast != broadcasts.end();)
+                {
+                    for (auto pending = broadcast->pending.begin();
+                         pending != broadcast->pending.end();)
+                    {
+                        const auto peerIterator =
+                            sessions.Peers().find(pending->endpoint);
+                        if (peerIterator == sessions.Peers().end() ||
+                            peerIterator->second.connectionNonce !=
+                                pending->connectionNonce)
+                        {
+                            pending = broadcast->pending.erase(pending);
+                            continue;
+                        }
+                        PeerSessionRegistry::Peer& connected =
+                            peerIterator->second;
+                        if (!connected.reliable.CanEnqueueMessage(
+                                broadcast->streamId,
+                                broadcast->type,
+                                broadcast->payload.data(),
+                                broadcast->payloadSize))
+                        {
+                            ++pending;
+                            continue;
+                        }
+                        if (!connected.reliable.Enqueue(
+                                broadcast->streamId,
+                                broadcast->type,
+                                broadcast->sourceActorId,
+                                broadcast->payload.data(),
+                                broadcast->payloadSize))
+                        {
+                            ++pending;
+                            continue;
+                        }
+                        pending = broadcast->pending.erase(pending);
+                    }
+                    if (broadcast->pending.empty())
+                    {
+                        broadcast = broadcasts.erase(broadcast);
+                        --reliableBroadcastCount;
+                    }
+                    else
+                    {
+                        ++broadcast;
+                    }
+                }
+                if (broadcasts.empty())
+                {
+                    reliableBroadcasts.erase(stream);
+                }
+                else
+                {
+                    reliableBroadcastOrder.push_back(streamId);
+                }
+            }
+        }
+
         bool SendReliableIfNeeded(ULONGLONG now)
         {
             struct Datagram final
@@ -755,63 +667,27 @@ namespace fable::multiplayer
             std::vector<Datagram> datagrams;
             {
                 std::lock_guard<std::mutex> lock(stateMutex);
-                while (!reliableOutbound.empty())
+                if (role == PeerRole::Host)
                 {
-                    const TransportMessage& message = reliableOutbound.front();
-                    if (role == PeerRole::Host)
+                    DistributeReliableBroadcasts();
+                    for (auto& [endpointKey, connected] : sessions.Peers())
                     {
-                        if (peers.empty())
+                        (void)endpointKey;
+                        for (TransportMessage& message : connected.reliable.Due(
+                                 now, kReliableResendMilliseconds))
                         {
-                            reliableOutbound.pop_front();
-                            continue;
-                        }
-                        bool allAcknowledged = true;
-                        for (auto& [endpointKey, connected] : peers)
-                        {
-                            (void)endpointKey;
-                            if (connected.lastAcknowledgedReliableSequence ==
-                                message.sequence)
-                            {
-                                continue;
-                            }
-                            allAcknowledged = false;
-                            const bool due =
-                                connected.lastReliableSequenceSent !=
-                                    message.sequence ||
-                                now - connected.lastReliableSentAt >=
-                                    kReliableResendMilliseconds;
-                            if (!due)
-                            {
-                                continue;
-                            }
                             datagrams.push_back(
-                                {message, connected.endpoint});
-                            connected.lastReliableSequenceSent =
-                                message.sequence;
-                            connected.lastReliableSentAt = now;
+                                {std::move(message), connected.endpoint});
                         }
-                        if (allAcknowledged)
-                        {
-                            reliableOutbound.pop_front();
-                            continue;
-                        }
-                        break;
                     }
-
-                    if (lastAcknowledgedReliableSequence == message.sequence)
+                }
+                else
+                {
+                    for (TransportMessage& message : reliable.Due(
+                             now, kReliableResendMilliseconds))
                     {
-                        reliableOutbound.pop_front();
-                        lastReliableSentAt = 0;
-                        continue;
+                        datagrams.push_back({std::move(message), peer});
                     }
-                    if (lastReliableSentAt == 0 ||
-                        now - lastReliableSentAt >=
-                            kReliableResendMilliseconds)
-                    {
-                        datagrams.push_back({message, peer});
-                        lastReliableSentAt = now;
-                    }
-                    break;
                 }
             }
             for (const Datagram& datagram : datagrams)
@@ -867,7 +743,7 @@ namespace fable::multiplayer
                 {
                     continue;
                 }
-                if (role == PeerRole::Guest && !IsHostEndpoint(sender))
+                if (role == PeerRole::Guest && !sessions.IsHostEndpoint(sender))
                 {
                     continue;
                 }
@@ -875,20 +751,160 @@ namespace fable::multiplayer
                 {
                     if (packet.envelope.flags != 0 ||
                         packet.envelope.sequence != 0 ||
-                        packet.payloadSize != 0 || role != PeerRole::Host ||
-                        !RegisterGuestEndpoint(
-                            sender,
-                            packet.envelope.sourceActorId))
+                        (packet.payloadSize != 0 &&
+                            packet.payloadSize !=
+                                PeerSessionRegistry::ChallengeBytes))
                     {
                         continue;
+                    }
+                    if (role == PeerRole::Host)
+                    {
+                        if (packet.payloadSize == 0)
+                        {
+                            std::array<
+                                std::uint8_t,
+                                PeerSessionRegistry::ChallengeBytes> challenge = {};
+                            bool active = false;
+                            {
+                                std::lock_guard<std::mutex> lock(stateMutex);
+                                active = sessions.ValidatePeer(
+                                    sender,
+                                    packet.envelope.sourceActorId,
+                                    packet.envelope.connectionNonce,
+                                    true);
+                                if (!active &&
+                                    !sessions.IssueGuestChallenge(
+                                        sender,
+                                        packet.envelope.sourceActorId,
+                                        packet.envelope.connectionNonce,
+                                        challenge))
+                                {
+                                    continue;
+                                }
+                            }
+                            if (!SendPeerHello(
+                                    sender,
+                                    active ? nullptr : challenge.data(),
+                                    active ? 0 : challenge.size()))
+                            {
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            std::array<
+                                std::uint8_t,
+                                PeerSessionRegistry::ChallengeBytes> challenge = {};
+                            if (!DecodePeerHelloChallenge(
+                                    packet.payload,
+                                    packet.payloadSize,
+                                    challenge))
+                            {
+                                continue;
+                            }
+                            std::vector<PeerSessionRegistry::RetiredSession>
+                                retired;
+                            std::lock_guard<std::mutex> lock(stateMutex);
+                            if (!sessions.ConfirmGuest(
+                                    sender,
+                                    packet.envelope.sourceActorId,
+                                    packet.envelope.connectionNonce,
+                                    challenge,
+                                    retired))
+                            {
+                                continue;
+                            }
+                            for (const auto& session : retired)
+                            {
+                                actors.erase(session.actorId);
+                                movement.ForgetActor(session.actorId);
+                            }
+                            peerSetRevision.store(
+                                sessions.Revision(),
+                                std::memory_order_release);
+                            peerKnown.store(
+                                sessions.HasPeers(),
+                                std::memory_order_release);
+                        }
+                            if (!SendPeerHello(sender, nullptr, 0))
+                            {
+                                return false;
+                            }
+                        }
+                    else
+                    {
+                        if (packet.payloadSize == 0)
+                        {
+                            std::lock_guard<std::mutex> lock(stateMutex);
+                            if (!sessions.CompleteGuestHandshake(
+                                    packet.envelope.connectionNonce))
+                            {
+                                continue;
+                            }
+                            peerSetRevision.store(
+                                sessions.Revision(),
+                                std::memory_order_release);
+                            peerKnown.store(true, std::memory_order_release);
+                            continue;
+                        }
+                        if (packet.payloadSize !=
+                            PeerSessionRegistry::ChallengeBytes)
+                        {
+                            continue;
+                        }
+                        std::array<
+                            std::uint8_t,
+                            PeerSessionRegistry::ChallengeBytes> challenge = {};
+                        if (!DecodePeerHelloChallenge(
+                                packet.payload,
+                                packet.payloadSize,
+                                challenge))
+                        {
+                            continue;
+                        }
+                        bool changed = false;
+                        {
+                            std::lock_guard<std::mutex> lock(stateMutex);
+                            if (!sessions.AcceptHostChallenge(
+                                    packet.envelope.connectionNonce,
+                                    localConnectionNonce,
+                                    challenge,
+                                    changed))
+                            {
+                                continue;
+                            }
+                            if (changed)
+                            {
+                                reliable.Clear();
+                                actors.clear();
+                                movement.Clear();
+                            }
+                            peerSetRevision.store(
+                                sessions.Revision(),
+                                std::memory_order_release);
+                            peerKnown.store(true, std::memory_order_release);
+                        }
+                        if (!SendPeerHello(
+                                sender,
+                                challenge.data(),
+                                challenge.size()))
+                        {
+                            return false;
+                        }
                     }
                     if (!peerHelloReceiveEventReported)
                     {
                         peerHelloReceiveEventReported = true;
                         diagnostics.Event(
                             "MultiplayerPeerDiscovered",
-                            "guest endpoint registered before its Hero channel opened");
+                            role == PeerRole::Host
+                                ? "guest challenge completed before its Hero channel opened"
+                                : "host challenge accepted before its Hero channel opened");
                     }
+                    continue;
+                }
+                if (role == PeerRole::Guest && !sessions.HasGuestSession())
+                {
                     continue;
                 }
                 if (packet.envelope.type ==
@@ -919,59 +935,108 @@ namespace fable::multiplayer
                     std::lock_guard<std::mutex> lock(stateMutex);
                     if (role == PeerRole::Host)
                     {
-                        const auto connected = peers.find(Key(sender));
-                        if (connected == peers.end() ||
-                            connected->second.actorId !=
-                                packet.envelope.sourceActorId)
+                        if (!sessions.ValidatePeer(
+                                sender,
+                                packet.envelope.sourceActorId,
+                                packet.envelope.connectionNonce,
+                                true))
                         {
                             continue;
                         }
-                        connected->second.lastReceivedAt = GetTickCount64();
                     }
-                    if (unreliableInbound.size() < kUnreliableQueueLimit)
+                    else if (sessions.RemoteNonce() != 0 &&
+                        sessions.RemoteNonce() != packet.envelope.connectionNonce)
                     {
-                        TransportMessage message;
-                        message.type = packet.envelope.type;
-                        message.sourceActorId =
-                            packet.envelope.sourceActorId;
-                        message.payloadSize = packet.payloadSize;
-                        std::memcpy(
-                            message.payload.data(),
-                            packet.payload,
-                            packet.payloadSize);
-                        unreliableInbound.push_back(std::move(message));
+                        continue;
+                    }
+                    else
+                    {
+                        sessions.TouchGuest();
+                    }
+                    TransportMessage message;
+                    message.type = packet.envelope.type;
+                    message.sourceActorId = packet.envelope.sourceActorId;
+                    message.connectionNonce = packet.envelope.connectionNonce;
+                    message.payloadSize = packet.payloadSize;
+                    std::memcpy(
+                        message.payload.data(),
+                        packet.payload,
+                        packet.payloadSize);
+                    const bool accepted = movement.AcceptEntity(
+                        std::move(message));
+                    if (accepted && !entityMovementReceiveEventReported)
+                    {
+                        entityMovementReceiveEventReported = true;
+                        char detail[256] = {};
+                        std::snprintf(
+                            detail,
+                            sizeof(detail),
+                            "source_actor_id=%llu payload_bytes=%zu role=%s",
+                            static_cast<unsigned long long>(
+                                packet.envelope.sourceActorId),
+                            packet.payloadSize,
+                            role == PeerRole::Host ? "host" : "guest");
+                        diagnostics.Event(
+                            "MultiplayerEntityMovementDatagramAccepted",
+                            detail);
                     }
                     continue;
                 }
 
-                PlayerState update;
+                protocol::PlayerMovementMessage playerMovement;
                 if (packet.envelope.type !=
-                        protocol::PacketType::PlayerState ||
+                        protocol::PacketType::PlayerMovement ||
                     packet.envelope.flags != 0 ||
-                    !protocol::DecodePlayerState(
+                    packet.envelope.sequence != 0 ||
+                    packet.envelope.sourceActorId == 0 ||
+                    !protocol::DecodePlayerMovementMessage(
                         packet.payload,
                         packet.payloadSize,
-                        update))
+                        playerMovement) ||
+                    playerMovement.actorId != packet.envelope.sourceActorId)
                 {
                     continue;
                 }
-
-                const PeerRole senderRole = update.role;
-                if (role == PeerRole::Host &&
-                    (senderRole != PeerRole::Guest ||
-                        packet.envelope.sourceActorId != update.actorId))
-                {
-                    continue;
-                }
-                if (role == PeerRole::Host)
-                {
-                    const std::uint64_t actorId =
-                        packet.envelope.sourceActorId;
-                    if (!RegisterGuestEndpoint(sender, actorId))
+                    if (role == PeerRole::Host)
+                    {
+                        const std::uint64_t actorId =
+                            packet.envelope.sourceActorId;
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    if (!sessions.ValidatePeer(
+                            sender,
+                            actorId,
+                            packet.envelope.connectionNonce,
+                            true))
                     {
                         continue;
                     }
                 }
+                else
+                {
+                    if (sessions.RemoteNonce() != 0 &&
+                        sessions.RemoteNonce() !=
+                            packet.envelope.connectionNonce)
+                    {
+                        continue;
+                    }
+                }
+
+                PlayerState update;
+                update.actorId = playerMovement.actorId;
+                update.authorityEpoch = playerMovement.authorityEpoch;
+                update.actorGeneration = playerMovement.actorGeneration;
+                update.mapEpoch = playerMovement.mapEpoch;
+                update.sequence = playerMovement.sequence;
+                update.mapId = playerMovement.mapId;
+                update.role = role == PeerRole::Host
+                    ? PeerRole::Guest
+                    : PeerRole::Host;
+                update.moving = playerMovement.moving;
+                update.position = playerMovement.position;
+                update.velocity = playerMovement.velocity;
+                update.facing = playerMovement.facing;
+                update.angularVelocity = playerMovement.angularVelocity;
+                update.changedProperties = player_property::Movement;
 
                 if (!receiveEventReported)
                 {
@@ -988,19 +1053,52 @@ namespace fable::multiplayer
                 }
                 {
                     std::lock_guard<std::mutex> lock(stateMutex);
-                    std::uint32_t& previous = lastRemoteSequence[update.actorId];
-                    if (!IsNewerSequence(update.sequence, previous))
+                    if (role == PeerRole::Guest)
+                    {
+                        sessions.TouchGuest();
+                    }
+                    if (!movement.AcceptPlayer(update))
                     {
                         continue;
                     }
-                    previous = update.sequence;
-                    ActorRecord& actor = actors[update.actorId];
-                    MergeActor(actor, update);
-                    actor.retiredAt = 0;
-                    if (role == PeerRole::Host ||
-                        update.actorId != outbound.actorId)
+                    if (update.moving && !movingReceiveEventReported)
                     {
-                        QueueInbound(actor.state);
+                        movingReceiveEventReported = true;
+                        char detail[320] = {};
+                        std::snprintf(
+                            detail,
+                            sizeof(detail),
+                            "actor_id=%llu generation=%u map_epoch=%u sequence=%u position=(%.3f,%.3f,%.3f) velocity=(%.3f,%.3f,%.3f)",
+                            static_cast<unsigned long long>(update.actorId),
+                            update.actorGeneration,
+                            update.mapEpoch,
+                            update.sequence,
+                            update.position.x,
+                            update.position.y,
+                            update.position.z,
+                            update.velocity.x,
+                            update.velocity.y,
+                            update.velocity.z);
+                        diagnostics.Event(
+                            "MultiplayerPlayerMovementAccepted", detail);
+                    }
+                    ActorRecord& actor = actors[update.actorId];
+                    const bool newRelayIncarnation =
+                        actor.state.actorId != 0 &&
+                        (actor.state.authorityEpoch != update.authorityEpoch ||
+                            actor.state.actorGeneration !=
+                                update.actorGeneration ||
+                            actor.state.mapEpoch != update.mapEpoch ||
+                            actor.state.mapId != update.mapId);
+                    MergeActor(actor, update);
+                    if (newRelayIncarnation && role == PeerRole::Host)
+                    {
+                        for (auto& [endpoint, connected] : sessions.Peers())
+                        {
+                            (void)endpoint;
+                            connected.lastSentSequence.erase(update.actorId);
+                            connected.lastSentAt.erase(update.actorId);
+                        }
                     }
                 }
                 if (!peerEventReported)
@@ -1008,7 +1106,9 @@ namespace fable::multiplayer
                     peerEventReported = true;
                     diagnostics.Event(
                         "MultiplayerPeerConnected",
-                        update.playerId.c_str());
+                        role == PeerRole::Host
+                            ? "guest movement actor"
+                            : "host movement actor");
                 }
             }
         }
@@ -1020,6 +1120,29 @@ namespace fable::multiplayer
                 return true;
             }
             const ULONGLONG now = GetTickCount64();
+            if (role == PeerRole::Guest)
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                if (sessions.GuestLeaseExpired(
+                        now, kPeerLeaseMilliseconds))
+                {
+                    sessions.ResetGuestSession();
+                    localConnectionNonce =
+                        ConnectionNonceRegistry::GenerateLocal();
+                    sessions.SetLocalGuestNonce(localConnectionNonce);
+                    reliable.Clear();
+                    actors.clear();
+                    movement.Clear();
+                    lastPeerHelloSentAt = 0;
+                    peerSetRevision.store(
+                        sessions.Revision(),
+                        std::memory_order_release);
+                }
+            }
+            if (role == PeerRole::Guest && !sessions.HasGuestSession())
+            {
+                return SendPeerHelloIfNeeded(now);
+            }
             if (role == PeerRole::Host)
             {
                 return SendHostRoster(now) && SendReliableIfNeeded(now) &&
@@ -1045,6 +1168,10 @@ namespace fable::multiplayer
                     if (shouldSend)
                     {
                         state = outbound;
+                        // A keepalive reuses the latest transform snapshot.
+                        // Dirty tracking remains local bookkeeping; every
+                        // player datagram on the wire is a Movement message.
+                        state.changedProperties = player_property::Movement;
                     }
                 }
             }
@@ -1059,6 +1186,7 @@ namespace fable::multiplayer
             if (!EncodePlayerPacket(
                     state,
                     state.actorId,
+                    localConnectionNonce,
                     packet,
                     packetSize))
             {
@@ -1092,6 +1220,8 @@ namespace fable::multiplayer
                 std::lock_guard<std::mutex> lock(stateMutex);
                 if (hasOutbound && outbound.actorId == state.actorId &&
                     outbound.authorityEpoch == state.authorityEpoch &&
+                    outbound.actorGeneration == state.actorGeneration &&
+                    outbound.mapEpoch == state.mapEpoch &&
                     outbound.sequence == state.sequence)
                 {
                     outbound.changedProperties &=
@@ -1118,7 +1248,8 @@ namespace fable::multiplayer
             std::size_t packetSize = 0;
             if (!EncodePlayerPacket(
                     state,
-                    localActorId,
+                    state.actorId,
+                    localConnectionNonce,
                     packet,
                     packetSize))
             {
@@ -1153,44 +1284,47 @@ namespace fable::multiplayer
                 sockaddr_in endpoint = {};
             };
             std::vector<Datagram> datagrams;
+            std::vector<sockaddr_in> helloEndpoints;
             {
                 std::lock_guard<std::mutex> lock(stateMutex);
                 if (hasOutbound)
                 {
                     ActorRecord& local = actors[outbound.actorId];
+                    const bool newRelayIncarnation =
+                        local.state.actorId != 0 &&
+                        (local.state.authorityEpoch != outbound.authorityEpoch ||
+                            local.state.actorGeneration !=
+                                outbound.actorGeneration ||
+                            local.state.mapEpoch != outbound.mapEpoch ||
+                            local.state.mapId != outbound.mapId);
                     MergeActor(local, outbound);
-                }
-                bool peerSetChanged = false;
-                for (auto peerIterator = peers.begin();
-                     peerIterator != peers.end();)
-                {
-                    if (now - peerIterator->second.lastReceivedAt >
-                        kPeerLeaseMilliseconds)
+                    if (newRelayIncarnation)
                     {
-                        const std::uint64_t retiredActorId =
-                            peerIterator->second.actorId;
-                        auto actor = actors.find(retiredActorId);
-                        if (actor != actors.end() && !actor->second.retired)
+                        for (auto& [endpoint, connected] : sessions.Peers())
                         {
-                            actor->second.retired = true;
-                            actor->second.retiredAt = now;
-                            ++actor->second.state.sequence;
-                            actor->second.state.changedProperties =
-                                player_property::Retired;
-                            QueueInbound(actor->second.state);
+                            (void)endpoint;
+                            connected.lastSentSequence.erase(outbound.actorId);
+                            connected.lastSentAt.erase(outbound.actorId);
                         }
-                        peerIterator = peers.erase(peerIterator);
-                        peerSetChanged = true;
-                        continue;
                     }
-                    ++peerIterator;
                 }
-                if (peerSetChanged)
+                for (const auto& session : sessions.Expire(
+                         now, kPeerLeaseMilliseconds))
                 {
-                    peerSetRevision.fetch_add(1, std::memory_order_acq_rel);
+                    actors.erase(session.actorId);
+                    movement.ForgetActor(session.actorId);
+                    for (auto& [endpoint, connected] : sessions.Peers())
+                    {
+                        (void)endpoint;
+                        connected.lastSentSequence.erase(session.actorId);
+                        connected.lastSentAt.erase(session.actorId);
+                    }
                 }
-                peerKnown.store(!peers.empty(), std::memory_order_release);
-                for (auto& [endpointKey, connected] : peers)
+                peerSetRevision.store(
+                    sessions.Revision(), std::memory_order_release);
+                peerKnown.store(
+                    sessions.HasPeers(), std::memory_order_release);
+                for (auto& [endpointKey, connected] : sessions.Peers())
                 {
                     (void)endpointKey;
                     for (const auto& [actorId, actor] : actors)
@@ -1213,37 +1347,17 @@ namespace fable::multiplayer
                             continue;
                         }
                         PlayerState relay = actor.state;
-                        relay.changedProperties = actor.retired
-                            ? player_property::Retired
-                            : player_property::Identity |
-                                player_property::Map |
-                                player_property::Movement |
-                                (relay.heroMorph.IsSane() &&
-                                        relay.heroClothing.IsSane() &&
-                                        relay.heroBoneScales.IsSane() &&
-                                        relay.heroAppearanceModifiers.IsSane()
-                                    ? player_property::Appearance
-                                    : 0u) |
-                                (relay.heroEquipment.IsSane()
-                                    ? player_property::Equipment
-                                    : 0u);
+                        relay.changedProperties = player_property::Movement;
                         datagrams.push_back({relay, connected.endpoint});
                         connected.lastSentSequence[actorId] =
                             actor.state.sequence;
                         connected.lastSentAt[actorId] = now;
                     }
-                }
-                for (auto actor = actors.begin(); actor != actors.end();)
-                {
-                    if (actor->second.retired &&
-                        now - actor->second.retiredAt >
-                            kRetiredActorRetentionMilliseconds)
+                    if (now - connected.lastHelloSentAt >=
+                        kKeepAliveIntervalMilliseconds)
                     {
-                        actor = actors.erase(actor);
-                    }
-                    else
-                    {
-                        ++actor;
+                        connected.lastHelloSentAt = now;
+                        helloEndpoints.push_back(connected.endpoint);
                     }
                 }
                 if (hasOutbound)
@@ -1254,6 +1368,13 @@ namespace fable::multiplayer
             for (const Datagram& datagram : datagrams)
             {
                 if (!SendPacket(datagram.state, datagram.endpoint))
+                {
+                    return false;
+                }
+            }
+            for (const sockaddr_in& endpoint : helloEndpoints)
+            {
+                if (!SendPeerHello(endpoint, nullptr, 0))
                 {
                     return false;
                 }
@@ -1317,6 +1438,8 @@ namespace fable::multiplayer
         implementation.diagnostics = diagnostics;
         implementation.role = PeerRole::Host;
         implementation.localActorId = localActorId;
+        implementation.localConnectionNonce =
+            ConnectionNonceRegistry::GenerateLocal();
 
         WSADATA data = {};
         if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
@@ -1386,6 +1509,10 @@ namespace fable::multiplayer
         implementation.diagnostics = diagnostics;
         implementation.role = PeerRole::Guest;
         implementation.localActorId = localActorId;
+        implementation.localConnectionNonce =
+            ConnectionNonceRegistry::GenerateLocal();
+        implementation.sessions.SetLocalGuestNonce(
+            implementation.localConnectionNonce);
 
         WSADATA data = {};
         if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
@@ -1434,6 +1561,7 @@ namespace fable::multiplayer
             Shutdown();
             return false;
         }
+        implementation.sessions.SetGuestEndpoint(implementation.peer);
         implementation.peerKnown.store(true, std::memory_order_release);
         implementation.started.store(true, std::memory_order_release);
         implementation.worker = std::thread([&implementation]
@@ -1458,14 +1586,9 @@ namespace fable::multiplayer
         if (!IsStarted() || HasFailed() || localUpdate.actorId == 0 ||
             localUpdate.actorId != implementation_->localActorId ||
             localUpdate.authorityEpoch == 0 ||
-            (localUpdate.changedProperties & ~player_property::All) != 0 ||
-            (((localUpdate.changedProperties & player_property::Appearance) != 0) &&
-                (!localUpdate.heroMorph.IsSane() ||
-                    !localUpdate.heroClothing.IsSane() ||
-                    !localUpdate.heroBoneScales.IsSane() ||
-                    !localUpdate.heroAppearanceModifiers.IsSane())) ||
-            (((localUpdate.changedProperties & player_property::Equipment) != 0) &&
-                !localUpdate.heroEquipment.IsSane()))
+            localUpdate.actorGeneration == 0 || localUpdate.mapEpoch == 0 ||
+            localUpdate.mapId == 0 || localUpdate.sequence == 0 ||
+            localUpdate.changedProperties != player_property::Movement)
         {
             return false;
         }
@@ -1474,12 +1597,17 @@ namespace fable::multiplayer
             std::lock_guard<std::mutex> lock(implementation.stateMutex);
             const bool sameChannel = implementation.hasOutbound &&
                 implementation.outbound.actorId == localUpdate.actorId &&
-                implementation.outbound.authorityEpoch == localUpdate.authorityEpoch;
+                implementation.outbound.authorityEpoch == localUpdate.authorityEpoch &&
+                implementation.outbound.actorGeneration ==
+                    localUpdate.actorGeneration &&
+                implementation.outbound.mapEpoch == localUpdate.mapEpoch &&
+                implementation.outbound.mapId == localUpdate.mapId;
             const std::uint32_t pending = sameChannel
                 ? implementation.outbound.changedProperties
                 : 0;
             implementation.outbound = localUpdate;
-            implementation.outbound.changedProperties |= pending;
+            implementation.outbound.changedProperties =
+                pending | player_property::Movement;
             implementation.hasOutbound = true;
         }
         implementation.wake.notify_one();
@@ -1493,16 +1621,11 @@ namespace fable::multiplayer
             return false;
         }
         std::lock_guard<std::mutex> lock(implementation_->stateMutex);
-        if (implementation_->inbound.empty())
-        {
-            return false;
-        }
-        remoteUpdate = std::move(implementation_->inbound.front());
-        implementation_->inbound.pop_front();
-        return true;
+        return implementation_->movement.TryConsumePlayer(remoteUpdate);
     }
 
     bool UdpPeer::SubmitReliable(
+        const ReliableStreamId streamId,
         protocol::PacketType type,
         const std::uint8_t* payload,
         std::size_t payloadSize)
@@ -1522,19 +1645,73 @@ namespace fable::multiplayer
         }
         {
             std::lock_guard<std::mutex> lock(implementation.stateMutex);
-            if (implementation.reliableOutbound.size() >= kReliableQueueLimit)
+            if (implementation.role == PeerRole::Host)
             {
-                return false;
+                if (!implementation.sessions.HasPeers())
+                {
+                    return true;
+                }
+                if (implementation.reliableBroadcastCount >=
+                    Implementation::ReliableBroadcastLimit)
+                {
+                    return false;
+                }
+                if (!ReliableStreamTransport::IsMessageValid(
+                        streamId, type, payload, payloadSize))
+                {
+                    return false;
+                }
+                auto broadcasts =
+                    implementation.reliableBroadcasts.find(streamId);
+                if (broadcasts !=
+                        implementation.reliableBroadcasts.end() &&
+                    broadcasts->second.size() >=
+                        Implementation::ReliableBroadcastPerStreamLimit)
+                {
+                    return false;
+                }
+                if (broadcasts ==
+                    implementation.reliableBroadcasts.end())
+                {
+                    if (implementation.reliableBroadcasts.size() >=
+                        ReliableStreamTransport::StreamMetadataLimit)
+                    {
+                        return false;
+                    }
+                    broadcasts = implementation.reliableBroadcasts.emplace(
+                        streamId,
+                        std::deque<Implementation::ReliableBroadcast>{}).first;
+                    implementation.reliableBroadcastOrder.push_back(streamId);
+                }
+                Implementation::ReliableBroadcast broadcast;
+                broadcast.streamId = streamId;
+                broadcast.type = type;
+                broadcast.sourceActorId = implementation.localActorId;
+                broadcast.payloadSize = payloadSize;
+                std::memcpy(
+                    broadcast.payload.data(), payload, payloadSize);
+                for (const auto& [endpoint, peer] :
+                     implementation.sessions.Peers())
+                {
+                    broadcast.pending.insert({
+                        endpoint,
+                        peer.connectionNonce});
+                }
+                broadcasts->second.push_back(std::move(broadcast));
+                ++implementation.reliableBroadcastCount;
             }
-            TransportMessage message;
-            message.type = type;
-            message.sourceActorId = implementation.localActorId;
-            message.sequence = implementation.nextReliableSequence;
-            implementation.nextReliableSequence = NextReliableSequence(
-                implementation.nextReliableSequence);
-            message.payloadSize = payloadSize;
-            std::memcpy(message.payload.data(), payload, payloadSize);
-            implementation.reliableOutbound.push_back(std::move(message));
+            else
+            {
+                if (!implementation.reliable.Enqueue(
+                        streamId,
+                        type,
+                        implementation.localActorId,
+                        payload,
+                        payloadSize))
+                {
+                    return false;
+                }
+            }
         }
         implementation.wake.notify_one();
         return true;
@@ -1547,13 +1724,19 @@ namespace fable::multiplayer
             return false;
         }
         std::lock_guard<std::mutex> lock(implementation_->stateMutex);
-        if (implementation_->reliableInbound.empty())
+        if (implementation_->role == PeerRole::Host)
         {
+            for (auto& [endpoint, peer] : implementation_->sessions.Peers())
+            {
+                (void)endpoint;
+                if (peer.inboundReliable.TryConsume(message))
+                {
+                    return true;
+                }
+            }
             return false;
         }
-        message = std::move(implementation_->reliableInbound.front());
-        implementation_->reliableInbound.pop_front();
-        return true;
+        return implementation_->reliable.TryConsume(message);
     }
 
     bool UdpPeer::SubmitUnreliable(
@@ -1592,19 +1775,11 @@ namespace fable::multiplayer
             return true;
         }
         std::lock_guard<std::mutex> lock(implementation.stateMutex);
-        if (implementation.unreliableOutbound.size() >=
-            kUnreliableQueueLimit)
+        if (!implementation.movement.QueueEntity(
+                sourceActorId, type, payload, payloadSize))
         {
-            // This lane carries current movement only. Prefer the newest
-            // sample over preserving an obsolete datagram under congestion.
-            implementation.unreliableOutbound.pop_front();
+            return false;
         }
-        TransportMessage message;
-        message.type = type;
-        message.sourceActorId = sourceActorId;
-        message.payloadSize = payloadSize;
-        std::memcpy(message.payload.data(), payload, payloadSize);
-        implementation.unreliableOutbound.push_back(std::move(message));
         implementation.wake.notify_one();
         return true;
     }
@@ -1616,13 +1791,7 @@ namespace fable::multiplayer
             return false;
         }
         std::lock_guard<std::mutex> lock(implementation_->stateMutex);
-        if (implementation_->unreliableInbound.empty())
-        {
-            return false;
-        }
-        message = std::move(implementation_->unreliableInbound.front());
-        implementation_->unreliableInbound.pop_front();
-        return true;
+        return implementation_->movement.TryConsumeEntity(message);
     }
 
     void UdpPeer::Shutdown() noexcept
@@ -1678,7 +1847,7 @@ namespace fable::multiplayer
         }
         std::lock_guard<std::mutex> lock(implementation_->stateMutex);
         return implementation_->role == PeerRole::Host
-            ? implementation_->peers.size()
+            ? implementation_->sessions.Peers().size()
             : (implementation_->peerKnown.load(std::memory_order_acquire)
                 ? 1u
                 : 0u);
@@ -1689,5 +1858,35 @@ namespace fable::multiplayer
         return implementation_ != nullptr
             ? implementation_->peerSetRevision.load(std::memory_order_acquire)
             : 0;
+    }
+
+    std::uint64_t UdpPeer::ConnectionNonce() const noexcept
+    {
+        return implementation_ != nullptr
+            ? implementation_->localConnectionNonce
+            : 0;
+    }
+
+    std::vector<std::uint64_t> UdpPeer::ConnectedActorIds() const
+    {
+        std::vector<std::uint64_t> result;
+        if (implementation_ == nullptr)
+        {
+            return result;
+        }
+        std::lock_guard<std::mutex> lock(implementation_->stateMutex);
+        if (implementation_->role == PeerRole::Host)
+        {
+            result.reserve(implementation_->sessions.Peers().size());
+            for (const auto& [endpoint, peer] : implementation_->sessions.Peers())
+            {
+                (void)endpoint;
+                if (peer.actorId != 0)
+                {
+                    result.push_back(peer.actorId);
+                }
+            }
+        }
+        return result;
     }
 }

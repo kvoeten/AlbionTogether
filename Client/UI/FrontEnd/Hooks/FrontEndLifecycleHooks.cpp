@@ -330,6 +330,14 @@ namespace fable::ui::front_end
             callbacks.frontEndStartDoInit,
             callbacks.frontEndStartDoTick,
         }};
+        targets_ = targets;
+        for (std::size_t index = 0; index < BoundaryCount; ++index)
+        {
+            std::memcpy(
+                originalBytes_[index].data(),
+                targets[index],
+                originalBytes_[index].size());
+        }
         for (std::size_t index = 0; index < BoundaryCount; ++index)
         {
             *g_resumeSlots[index] = reinterpret_cast<std::uintptr_t>(
@@ -371,6 +379,32 @@ namespace fable::ui::front_end
             "ui-begin ui-init start-play load-map-movie front-end-start");
         return true;
 #endif
+    }
+
+    void FrontEndLifecycleHooks::Shutdown() noexcept
+    {
+#if defined(_M_IX86)
+        for (std::size_t index = BoundaryCount; index > 0; --index)
+        {
+            const std::size_t targetIndex = index - 1;
+            std::uint8_t* target = targets_[targetIndex];
+            if (target == nullptr) continue;
+            DWORD protection = 0;
+            if (VirtualProtect(target, originalBytes_[targetIndex].size(), PAGE_EXECUTE_READWRITE, &protection))
+            {
+                std::memcpy(target, originalBytes_[targetIndex].data(), originalBytes_[targetIndex].size());
+                FlushInstructionCache(GetCurrentProcess(), target, originalBytes_[targetIndex].size());
+                DWORD discarded = 0;
+                VirtualProtect(target, originalBytes_[targetIndex].size(), protection, &discarded);
+            }
+        }
+#endif
+        if (active_ == this) active_ = nullptr;
+        callbacks_ = {};
+        targets_ = {};
+        originalBytes_ = {};
+        installed_ = false;
+        diagnostics_ = {};
     }
 
     bool FrontEndLifecycleHooks::IsInstalled() const noexcept

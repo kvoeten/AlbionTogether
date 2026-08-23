@@ -91,10 +91,18 @@ namespace fable::ui
 {
     MainWindowHook* MainWindowHook::active_ = nullptr;
 
-    HWND MainWindowHook::WaitForWindow(const core::Diagnostics& diagnostics)
+    HWND MainWindowHook::WaitForWindow(
+        const core::Diagnostics& diagnostics,
+        HANDLE cancelEvent)
     {
         for (unsigned int attempt = 0;; ++attempt)
         {
+            if (cancelEvent != nullptr &&
+                WaitForSingleObject(cancelEvent, 0) == WAIT_OBJECT_0)
+            {
+                diagnostics.Log("Startup: game-window wait cancelled.");
+                return nullptr;
+            }
             WindowSearch search;
             if (attempt >= 120)
             {
@@ -136,7 +144,18 @@ namespace fable::ui
                     search.minimumHeight);
                 diagnostics.Log(message);
             }
-            Sleep(250);
+            if (cancelEvent != nullptr)
+            {
+                if (WaitForSingleObject(cancelEvent, 250) == WAIT_OBJECT_0)
+                {
+                    diagnostics.Log("Startup: game-window wait cancelled.");
+                    return nullptr;
+                }
+            }
+            else
+            {
+                Sleep(250);
+            }
         }
     }
 
@@ -201,6 +220,25 @@ namespace fable::ui
             diagnostics_.Log(timerMessage);
         }
         return true;
+    }
+
+    void MainWindowHook::Shutdown() noexcept
+    {
+        if (window_ != nullptr)
+        {
+            if (timerId_ != 0) KillTimer(window_, timerId_);
+            if (originalProcedure_ != nullptr && IsWindow(window_))
+            {
+                SetWindowLongPtrW(window_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(originalProcedure_));
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        window_ = nullptr;
+        threadId_ = 0;
+        originalProcedure_ = nullptr;
+        timerId_ = 0;
+        callbacks_ = {};
+        diagnostics_ = {};
     }
 
     LRESULT CALLBACK MainWindowHook::WindowProcedure(

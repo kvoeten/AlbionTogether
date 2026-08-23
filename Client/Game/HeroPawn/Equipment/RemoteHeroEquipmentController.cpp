@@ -18,6 +18,7 @@ namespace
     using fable::game::hero_pawn::equipment::native::HeroWeaponInspection;
 
     constexpr std::uint64_t ActionEquipmentLeaseMilliseconds = 4'000;
+    constexpr std::uint64_t TransitionEquipmentLeaseMilliseconds = 1'200;
 
     const char* WeaponFamilyName(CreatureWeaponFamily family) noexcept
     {
@@ -95,6 +96,47 @@ namespace
             (requiresMelee || !actual.meleePresent) &&
             (requiresRanged || !actual.rangedPresent);
     }
+
+    HeroEquipmentState MergeTransitionCarryState(
+        const HeroEquipmentState& transition,
+        const HeroEquipmentState& current) noexcept
+    {
+        if (!transition.IsSane() || !current.IsSane())
+        {
+            return transition;
+        }
+
+        HeroEquipmentState merged = transition;
+        // A draw action can be observed after the new active weapon is
+        // attached but before the previously stowed weapon is reattached.
+        // Preserve only an already-inactive family here; switching away from
+        // an active family must remain free to clear its old hand slot.
+        if (transition.activeFamily == CreatureWeaponFamily::Ranged &&
+            current.activeFamily != CreatureWeaponFamily::Melee &&
+            current.meleeDefinitionIndex > 0 &&
+            current.meleeAttachmentSlot != 0 &&
+            (transition.meleeDefinitionIndex <= 0 ||
+                (transition.meleeDefinitionIndex ==
+                     current.meleeDefinitionIndex &&
+                 transition.meleeAttachmentSlot == 0)))
+        {
+            merged.meleeDefinitionIndex = current.meleeDefinitionIndex;
+            merged.meleeAttachmentSlot = current.meleeAttachmentSlot;
+        }
+        else if (transition.activeFamily == CreatureWeaponFamily::Melee &&
+            current.activeFamily != CreatureWeaponFamily::Ranged &&
+            current.rangedDefinitionIndex > 0 &&
+            current.rangedAttachmentSlot != 0 &&
+            (transition.rangedDefinitionIndex <= 0 ||
+                (transition.rangedDefinitionIndex ==
+                     current.rangedDefinitionIndex &&
+                 transition.rangedAttachmentSlot == 0)))
+        {
+            merged.rangedDefinitionIndex = current.rangedDefinitionIndex;
+            merged.rangedAttachmentSlot = current.rangedAttachmentSlot;
+        }
+        return merged;
+    }
 }
 
 namespace fable::game::hero_pawn::equipment
@@ -152,19 +194,24 @@ namespace fable::game::hero_pawn::equipment
         const std::string& sourceActionType,
         std::uint32_t animationId)
     {
+        const HeroEquipmentState& current = attempted_.IsSane()
+            ? attempted_
+            : applied_;
+        const HeroEquipmentState transitionState =
+            MergeTransitionCarryState(finalState, current);
         if (!transitions_.Submit(
-                finalState, sourceActionType, animationId))
+                transitionState, sourceActionType, animationId))
         {
             return false;
         }
 
         const std::uint64_t now = GetTickCount64();
-        actionOverrideWeapons_ = finalState.WeaponDefinitions();
-        actionOverrideFamily_ = finalState.activeFamily;
-        actionOverrideMeleeSlot_ = finalState.meleeAttachmentSlot;
-        actionOverrideRangedSlot_ = finalState.rangedAttachmentSlot;
-        actionOverrideUntil_ = now + ActionEquipmentLeaseMilliseconds;
-        attempted_ = finalState;
+        actionOverrideWeapons_ = transitionState.WeaponDefinitions();
+        actionOverrideFamily_ = transitionState.activeFamily;
+        actionOverrideMeleeSlot_ = transitionState.meleeAttachmentSlot;
+        actionOverrideRangedSlot_ = transitionState.rangedAttachmentSlot;
+        actionOverrideUntil_ = now + TransitionEquipmentLeaseMilliseconds;
+        attempted_ = transitionState;
         preparedWeapons_ = {};
         activeWeaponReady_ = false;
         nextAttemptAt_ = 0;
@@ -224,7 +271,7 @@ namespace fable::game::hero_pawn::equipment
             nativeHero_, heroInspection);
         usesHeroInventory_ = heroInspected &&
             heroInspection.component != nullptr &&
-            heroInspection.functionsResolved;
+            heroInspection.functionsResolved && heroInspection.readable;
         if (usesHeroInventory_ && entities_ != nullptr)
         {
             if (heroInspection.readable &&
@@ -249,7 +296,11 @@ namespace fable::game::hero_pawn::equipment
                     return true;
                 }
             }
-            return false;
+            // A promoted presentation can expose the Hero inventory API while
+            // still rejecting inventory mutations. Preserve that Hero path for
+            // real local pawns, but let this remote presentation use the native
+            // creature carrying stack that already owns visible attachments.
+            usesHeroInventory_ = false;
         }
 
         const std::int32_t preparationMeleeDefinition =
@@ -345,6 +396,7 @@ namespace fable::game::hero_pawn::equipment
             attemptCount_ = 0;
             nextAttemptAt_ = 0;
             pendingReported_ = false;
+            actionOverrideUntil_ = 0;
         }
         HeroEquipmentState desired = state;
         if (now < actionOverrideUntil_ &&
@@ -445,7 +497,7 @@ namespace fable::game::hero_pawn::equipment
             nativeHero_, heroInspection);
         usesHeroInventory_ = heroInspected &&
             heroInspection.component != nullptr &&
-            heroInspection.functionsResolved;
+            heroInspection.functionsResolved && heroInspection.readable;
         if (usesHeroInventory_)
         {
             bool matches = heroInspection.readable &&
@@ -462,14 +514,7 @@ namespace fable::game::hero_pawn::equipment
                 markApplied(true);
                 return;
             }
-            if (!pendingReported_)
-            {
-                pendingReported_ = true;
-                diagnostics_.Event(
-                    "MultiplayerRemoteHeroEquipmentPending",
-                    "Hero inventory state is not ready for direct reconciliation");
-            }
-            return;
+            usesHeroInventory_ = false;
         }
 
         const bool requireMelee = desired.meleeDefinitionIndex > 0 &&
@@ -571,6 +616,12 @@ namespace fable::game::hero_pawn::equipment
         pendingReported_ = false;
         usesHeroInventory_ = false;
         activeWeaponReady_ = false;
+    }
+
+    bool RemoteHeroEquipmentController::IsReady() const noexcept
+    {
+        return hero_ != nullptr && hero_->IsValid() && nativeHero_ != nullptr &&
+            applied_.IsSane() && activeWeaponReady_;
     }
 
     void RemoteHeroEquipmentController::Shutdown() noexcept

@@ -1,4 +1,6 @@
 #include "PopulationSimulationAuthority.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/NPC/Population/Hooks/PopulationSimulationHook.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
@@ -349,8 +351,26 @@ namespace fable::multiplayer::population
                 protocol::MaximumPayloadBytes(),
                 payloadSize) &&
             transport_->SubmitReliable(
+                reliable_stream::Control,
                 protocol::PacketType::PopulationState,
                 payload.data(),
                 payloadSize);
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolvePopulationSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.world.populationSimulation;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkPopulation,
+    0x1007u,
+    "population-state",
+    700u,
+    "multiplayer-population-state-dispatch",
+    ResolvePopulationSink);

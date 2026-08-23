@@ -17,19 +17,36 @@ namespace fable::game::creature::locomotion
 {
     CreatureLocomotionService::~CreatureLocomotionService()
     {
+        Shutdown();
+    }
+
+    void CreatureLocomotionService::Shutdown() noexcept
+    {
         ClearHeroShadow();
+        ClearAnimationMotionMirror();
+        frameInputRouterHook_.Shutdown();
+        worldPositionMirrorHook_.Shutdown();
+        entities_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool CreatureLocomotionService::Initialize(
         EntityService& entities,
         const core::Diagnostics& diagnostics)
     {
+        Shutdown();
         entities_ = &entities;
         gameModule_ = entities.GameModule();
         diagnostics_ = diagnostics;
-        return gameModule_ != nullptr &&
-            worldPositionMirrorHook_.Install(gameModule_, diagnostics_) &&
-            frameInputRouterHook_.Install(gameModule_, diagnostics_);
+        if (gameModule_ == nullptr ||
+            !worldPositionMirrorHook_.Install(gameModule_, diagnostics_) ||
+            !frameInputRouterHook_.Install(gameModule_, diagnostics_))
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
     }
 
     CreatureLocomotionState* CreatureLocomotionService::Inspect(Entity* entity) const

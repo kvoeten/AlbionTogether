@@ -31,6 +31,7 @@ namespace fable::game::creature::combat
         bool Initialize(
             EntityService& entities,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool RoutePlayerCombat(Entity* hero, Entity* puppet);
         bool ResolvePlayerAttackCreature(
             void* sourceCreature,

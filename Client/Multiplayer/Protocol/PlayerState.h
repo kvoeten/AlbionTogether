@@ -34,6 +34,8 @@ namespace fable::multiplayer
         std::uint32_t sequence = 0;
         std::uint32_t changedProperties = 0;
         std::uint32_t authorityEpoch = 0;
+        std::uint32_t actorGeneration = 0;
+        std::uint32_t mapEpoch = 0;
         std::uint64_t actorId = 0;
         PeerRole role = PeerRole::Guest;
         bool moving = false;

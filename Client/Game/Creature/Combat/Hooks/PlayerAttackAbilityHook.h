@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <array>
 
 namespace fable::game::creature::combat
 {
@@ -18,6 +19,7 @@ namespace fable::game::creature::combat
             HMODULE gameModule,
             CreatureCombatService& service,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] unsigned int InterceptedAttackCount() const noexcept;
@@ -40,6 +42,10 @@ namespace fable::game::creature::combat
         HMODULE gameModule_ = nullptr;
         native::CreatureAbilitySubmissionFunction::Pointer original_ = nullptr;
         void* trampoline_ = nullptr;
+        std::uint8_t* target_ = nullptr;
+        std::array<std::uint8_t,
+            native::CreatureAbilitySubmissionFunction::DisplacedBytes>
+                originalBytes_ = {};
         std::atomic_uint interceptedAttackCount_{0};
     };
 }

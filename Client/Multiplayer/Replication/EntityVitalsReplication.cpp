@@ -1,4 +1,6 @@
 #include "EntityVitalsReplication.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
@@ -9,6 +11,7 @@
 #include "Multiplayer/Protocol/EntityVitalsMessageCodec.h"
 #include "Multiplayer/Protocol/PacketEnvelope.h"
 #include "Multiplayer/Replication/LocalHeroReplication.h"
+#include "Multiplayer/Replication/RemotePlayerChannels.h"
 #include "Multiplayer/Transport/UdpPeer.h"
 
 #include <Windows.h>
@@ -29,6 +32,7 @@ namespace fable::multiplayer::replication
         authority::AuthorityReplication& authority,
         entities::EntityLifecycleReplication& lifecycle,
         entities::EntityNetworkIdentityRegistry& identities,
+        RemotePlayerChannels& remotePlayers,
         game::creature::combat::CreatureCombatService& combat,
         const core::Diagnostics& diagnostics)
     {
@@ -39,6 +43,7 @@ namespace fable::multiplayer::replication
         authority_ = &authority;
         lifecycle_ = &lifecycle;
         identities_ = &identities;
+        remotePlayerChannels_ = &remotePlayers;
         combat_ = &combat;
         diagnostics_ = diagnostics;
         initialized_ = true;
@@ -122,10 +127,21 @@ namespace fable::multiplayer::replication
     bool EntityVitalsReplication::AuthorPlayer(
         const game::creature::combat::CombatHealthMutationEvent& event)
     {
+        const PlayerState* const state = processingLocalHero_ != nullptr
+            ? processingLocalHero_->CurrentState()
+            : nullptr;
+        if (state == nullptr || state->actorId != localActorId_ ||
+            state->actorGeneration == 0 || state->mapEpoch == 0)
+        {
+            return true;
+        }
         protocol::EntityVitalsMessage message;
         message.subject = protocol::EntityVitalsSubject::Player;
         message.playerActorId = localActorId_;
         message.ownerActorId = localActorId_;
+        message.playerAuthorityEpoch = state->authorityEpoch;
+        message.playerActorGeneration = state->actorGeneration;
+        message.playerMapEpoch = state->mapEpoch;
         message.revision = NextLocalRevision();
         message.currentHealth = event.currentHealth;
         message.maximumHealth = event.maximumHealth;
@@ -133,6 +149,8 @@ namespace fable::multiplayer::replication
         {
             message.revision = NextHostRevision(message);
             latestPlayers_[localActorId_] = message;
+            latestPlayerConnectionNonces_[localActorId_] =
+                transport_ != nullptr ? transport_->ConnectionNonce() : 0;
         }
         const float publishedCurrent = message.currentHealth;
         const float publishedMaximum = message.maximumHealth;
@@ -402,14 +420,17 @@ namespace fable::multiplayer::replication
             return HostAccept(
                 std::move(message),
                 transportMessage.sourceActorId,
+                transportMessage.connectionNonce,
                 processingLiveEntities_) && PublishPending();
         }
-        return AcceptAuthoritative(message);
+        return AcceptAuthoritative(
+            message, transportMessage.connectionNonce);
     }
 
     bool EntityVitalsReplication::HostAccept(
         protocol::EntityVitalsMessage message,
         std::uint64_t sourceActorId,
+        const std::uint64_t sourceConnectionNonce,
         const entities::LiveEntityRegistry*)
     {
         if (sourceActorId == 0 || sourceActorId == localActorId_ ||
@@ -423,8 +444,63 @@ namespace fable::multiplayer::replication
             {
                 return true;
             }
+            const PlayerState* const player =
+                remotePlayerChannels_ != nullptr
+                    ? remotePlayerChannels_->Find(message.playerActorId)
+                    : nullptr;
+            const RemotePlayerLifecycle* const playerLifecycle =
+                remotePlayerChannels_ != nullptr
+                    ? remotePlayerChannels_->FindLifecycle(
+                        message.playerActorId)
+                    : nullptr;
+            if (player == nullptr ||
+                player->authorityEpoch != message.playerAuthorityEpoch ||
+                playerLifecycle == nullptr ||
+                (playerLifecycle->connectionNonce != 0 &&
+                    sourceConnectionNonce !=
+                        playerLifecycle->connectionNonce) ||
+                !remotePlayerChannels_->IsLifecycleActive(
+                    message.playerActorId,
+                    message.playerActorGeneration,
+                    message.playerMapEpoch))
+            {
+                diagnostics_.Event(
+                    "MultiplayerEntityVitalsRejected",
+                    "player health mutation was fenced by actor lifecycle");
+                return true;
+            }
+            auto existing = latestPlayers_.find(message.playerActorId);
+            const auto existingSession = latestPlayerConnectionNonces_.find(
+                message.playerActorId);
+            if (existing != latestPlayers_.end() &&
+                existingSession != latestPlayerConnectionNonces_.end() &&
+                existingSession->second != 0 &&
+                existingSession->second != sourceConnectionNonce)
+            {
+                latestPlayers_.erase(existing);
+                latestPlayerConnectionNonces_.erase(existingSession);
+                hostPlayerRevisions_.erase(message.playerActorId);
+                existing = latestPlayers_.end();
+            }
+            if (existing != latestPlayers_.end() &&
+                message.playerAuthorityEpoch ==
+                    existing->second.playerAuthorityEpoch &&
+                (message.playerActorGeneration <
+                        existing->second.playerActorGeneration ||
+                    (message.playerActorGeneration ==
+                            existing->second.playerActorGeneration &&
+                        message.playerMapEpoch <
+                            existing->second.playerMapEpoch)))
+            {
+                diagnostics_.Event(
+                    "MultiplayerEntityVitalsRejected",
+                    "player health mutation was from a stale actor lifecycle");
+                return true;
+            }
             message.revision = NextHostRevision(message);
             latestPlayers_[message.playerActorId] = message;
+            latestPlayerConnectionNonces_[message.playerActorId] =
+                sourceConnectionNonce;
             char detail[224] = {};
             std::snprintf(
                 detail,
@@ -477,15 +553,66 @@ namespace fable::multiplayer::replication
     }
 
     bool EntityVitalsReplication::AcceptAuthoritative(
-        const protocol::EntityVitalsMessage& message)
+        const protocol::EntityVitalsMessage& message,
+        const std::uint64_t sourceConnectionNonce)
     {
         if (message.subject == protocol::EntityVitalsSubject::Player)
         {
-            const auto existing = latestPlayers_.find(message.playerActorId);
+            if (message.playerActorId != localActorId_)
+            {
+                const RemotePlayerLifecycle* const lifecycle =
+                    remotePlayerChannels_ != nullptr
+                        ? remotePlayerChannels_->FindLifecycle(
+                            message.playerActorId)
+                        : nullptr;
+                if (lifecycle == nullptr ||
+                    (lifecycle->connectionNonce != 0 &&
+                        lifecycle->connectionNonce != sourceConnectionNonce))
+                {
+                    diagnostics_.Event(
+                        "MultiplayerEntityVitalsRejected",
+                        "authoritative player health was from a stale transport session");
+                    return true;
+                }
+            }
+            auto existing = latestPlayers_.find(message.playerActorId);
+            const auto existingSession = latestPlayerConnectionNonces_.find(
+                message.playerActorId);
+            if (existing != latestPlayers_.end() &&
+                existingSession != latestPlayerConnectionNonces_.end() &&
+                existingSession->second != 0 &&
+                existingSession->second != sourceConnectionNonce)
+            {
+                latestPlayers_.erase(existing);
+                latestPlayerConnectionNonces_.erase(existingSession);
+                existing = latestPlayers_.end();
+            }
+            if (existing != latestPlayers_.end() &&
+                message.playerAuthorityEpoch ==
+                    existing->second.playerAuthorityEpoch &&
+                (message.playerActorGeneration <
+                        existing->second.playerActorGeneration ||
+                    (message.playerActorGeneration ==
+                            existing->second.playerActorGeneration &&
+                        message.playerMapEpoch <
+                            existing->second.playerMapEpoch)))
+            {
+                diagnostics_.Event(
+                    "MultiplayerEntityVitalsRejected",
+                    "authoritative player health was from a stale actor lifecycle");
+                return true;
+            }
             if (existing == latestPlayers_.end() ||
+                message.playerAuthorityEpoch !=
+                    existing->second.playerAuthorityEpoch ||
+                message.playerActorGeneration !=
+                    existing->second.playerActorGeneration ||
+                message.playerMapEpoch != existing->second.playerMapEpoch ||
                 IsNewer(message.revision, existing->second.revision))
             {
                 latestPlayers_[message.playerActorId] = message;
+                latestPlayerConnectionNonces_[message.playerActorId] =
+                    sourceConnectionNonce;
             }
             return true;
         }
@@ -513,6 +640,47 @@ namespace fable::multiplayer::replication
     bool EntityVitalsReplication::Publish(
         protocol::EntityVitalsMessage message)
     {
+        const std::uint64_t actorId = message.subject ==
+                protocol::EntityVitalsSubject::Player
+            ? message.playerActorId
+            : message.ownerActorId;
+        std::size_t actorMessages = 0;
+        for (auto& pending : pending_)
+        {
+            const std::uint64_t pendingActorId = pending.subject ==
+                    protocol::EntityVitalsSubject::Player
+                ? pending.playerActorId
+                : pending.ownerActorId;
+            if (pendingActorId == actorId)
+            {
+                ++actorMessages;
+            }
+            const bool samePlayer = message.subject ==
+                    protocol::EntityVitalsSubject::Player &&
+                pending.subject == protocol::EntityVitalsSubject::Player &&
+                pending.playerActorId == message.playerActorId &&
+                pending.playerAuthorityEpoch == message.playerAuthorityEpoch &&
+                pending.playerActorGeneration ==
+                    message.playerActorGeneration &&
+                pending.playerMapEpoch == message.playerMapEpoch;
+            const bool sameEntity = message.subject ==
+                    protocol::EntityVitalsSubject::WorldEntity &&
+                pending.subject == protocol::EntityVitalsSubject::WorldEntity &&
+                pending.entityUid == message.entityUid &&
+                pending.entityGeneration == message.entityGeneration;
+            if (samePlayer || sameEntity)
+            {
+                pending = std::move(message);
+                return PublishPending();
+            }
+        }
+        if (actorMessages >= MessageCapacity / 4)
+        {
+            diagnostics_.Event(
+                "MultiplayerEntityVitalsOverflow",
+                "bounded health publication queue is full for actor lifecycle");
+            return false;
+        }
         if (pending_.size() >= MessageCapacity)
         {
             return false;
@@ -523,8 +691,49 @@ namespace fable::multiplayer::replication
 
     bool EntityVitalsReplication::PublishPending()
     {
-        while (!pending_.empty())
+        const std::size_t scheduled = pending_.size();
+        std::unordered_set<ReliableStreamId> attemptedStreams;
+        bool deferred = false;
+        for (std::size_t attempt = 0;
+             attempt < scheduled && !pending_.empty(); ++attempt)
         {
+            const protocol::EntityVitalsMessage& queued = pending_.front();
+            if (queued.subject == protocol::EntityVitalsSubject::Player)
+            {
+                const auto latest = latestPlayers_.find(
+                    queued.playerActorId);
+                const PlayerState* const local =
+                    queued.playerActorId == localActorId_ &&
+                        processingLocalHero_ != nullptr
+                    ? processingLocalHero_->CurrentState()
+                    : nullptr;
+                const bool latestMismatch = latest != latestPlayers_.end() &&
+                    (latest->second.playerActorGeneration !=
+                            queued.playerActorGeneration ||
+                        latest->second.playerAuthorityEpoch !=
+                            queued.playerAuthorityEpoch ||
+                        latest->second.playerMapEpoch !=
+                            queued.playerMapEpoch);
+                const bool localMismatch = local != nullptr &&
+                    (local->authorityEpoch != queued.playerAuthorityEpoch ||
+                        local->actorGeneration != queued.playerActorGeneration ||
+                        local->mapEpoch != queued.playerMapEpoch);
+                if (latestMismatch || localMismatch)
+                {
+                    pending_.pop_front();
+                    continue;
+                }
+            }
+            const ReliableStreamId streamId = queued.subject ==
+                    protocol::EntityVitalsSubject::Player
+                ? reliable_stream::Actor(queued.playerActorId)
+                : reliable_stream::Entity(queued.entityUid);
+            if (!attemptedStreams.insert(streamId).second)
+            {
+                pending_.push_back(std::move(pending_.front()));
+                pending_.pop_front();
+                continue;
+            }
             std::array<std::uint8_t, protocol::MaximumDatagramBytes> payload = {};
             std::size_t payloadSize = 0;
             if (!protocol::EncodeEntityVitalsMessage(
@@ -536,6 +745,7 @@ namespace fable::multiplayer::replication
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    streamId,
                     protocol::PacketType::EntityVitals,
                     payload.data(),
                     payloadSize))
@@ -544,18 +754,21 @@ namespace fable::multiplayer::replication
                 {
                     return false;
                 }
-                if (!publishBackpressured_)
-                {
-                    diagnostics_.Event(
-                        "MultiplayerEntityVitalsPublishDeferred",
-                        "ordered baseline traffic is draining before queued health state");
-                    publishBackpressured_ = true;
-                }
-                return true;
+                deferred = true;
+                pending_.push_back(std::move(pending_.front()));
+                pending_.pop_front();
+                continue;
             }
             pending_.pop_front();
         }
-        if (publishBackpressured_)
+        if (deferred && !publishBackpressured_)
+        {
+            diagnostics_.Event(
+                "MultiplayerEntityVitalsPublishDeferred",
+                "one or more health streams are waiting for transport capacity");
+            publishBackpressured_ = true;
+        }
+        else if (!deferred && publishBackpressured_)
         {
             diagnostics_.Event(
                 "MultiplayerEntityVitalsPublishResumed",
@@ -607,24 +820,116 @@ namespace fable::multiplayer::replication
         {
             return;
         }
+        const auto latest = latestPlayers_.find(actorId);
+        const auto sourceSession = latestPlayerConnectionNonces_.find(actorId);
+        const RemotePlayerLifecycle* const lifecycle =
+            remotePlayerChannels_ != nullptr
+                ? remotePlayerChannels_->FindLifecycle(actorId)
+                : nullptr;
+        if (latest != latestPlayers_.end() &&
+            sourceSession != latestPlayerConnectionNonces_.end() &&
+            lifecycle != nullptr && lifecycle->active &&
+            latest->second.playerActorGeneration ==
+                lifecycle->actorGeneration &&
+            latest->second.playerMapEpoch == lifecycle->mapEpoch &&
+            (lifecycle->connectionNonce == 0 ||
+                (sourceSession->second != 0 &&
+                    sourceSession->second == lifecycle->connectionNonce)))
+        {
+            return;
+        }
         latestPlayers_.erase(actorId);
+        latestPlayerConnectionNonces_.erase(actorId);
         hostPlayerRevisions_.erase(actorId);
+        for (auto pending = pending_.begin(); pending != pending_.end();)
+        {
+            if (pending->subject == protocol::EntityVitalsSubject::Player &&
+                pending->playerActorId == actorId)
+            {
+                pending = pending_.erase(pending);
+            }
+            else
+            {
+                ++pending;
+            }
+        }
+    }
+
+    void EntityVitalsReplication::ClearRemotePlayers() noexcept
+    {
+        for (auto player = latestPlayers_.begin();
+             player != latestPlayers_.end();)
+        {
+            if (player->first == localActorId_)
+            {
+                ++player;
+            }
+            else
+            {
+                latestPlayerConnectionNonces_.erase(player->first);
+                hostPlayerRevisions_.erase(player->first);
+                player = latestPlayers_.erase(player);
+            }
+        }
+        for (auto pending = pending_.begin(); pending != pending_.end();)
+        {
+            if (pending->subject == protocol::EntityVitalsSubject::Player &&
+                pending->playerActorId != localActorId_)
+            {
+                pending = pending_.erase(pending);
+            }
+            else
+            {
+                ++pending;
+            }
+        }
     }
 
     void EntityVitalsReplication::ApplyLatest(
         const entities::LiveEntityRegistry& liveEntities,
         presentation::RemotePlayerRegistry& remotePlayers)
     {
+        std::vector<std::uint64_t> stalePlayers;
         for (const auto& [actorId, message] : latestPlayers_)
         {
-            if (actorId != localActorId_)
+            if (actorId == localActorId_)
             {
-                remotePlayers.ApplyHealth(
-                    actorId,
-                    message.currentHealth,
-                    message.maximumHealth,
-                    message.revision);
+                continue;
             }
+            const PlayerState* const player =
+                remotePlayerChannels_ != nullptr
+                    ? remotePlayerChannels_->Find(actorId)
+                    : nullptr;
+            const RemotePlayerLifecycle* const lifecycle =
+                remotePlayerChannels_ != nullptr
+                    ? remotePlayerChannels_->FindLifecycle(actorId)
+                    : nullptr;
+            const auto sourceSession =
+                latestPlayerConnectionNonces_.find(actorId);
+            if (player == nullptr ||
+                player->authorityEpoch != message.playerAuthorityEpoch ||
+                lifecycle == nullptr ||
+                (sourceSession != latestPlayerConnectionNonces_.end() &&
+                    sourceSession->second != 0 &&
+                    lifecycle->connectionNonce != 0 &&
+                    sourceSession->second != lifecycle->connectionNonce) ||
+                !remotePlayerChannels_->IsLifecycleActive(
+                    actorId,
+                    message.playerActorGeneration,
+                    message.playerMapEpoch))
+            {
+                stalePlayers.push_back(actorId);
+                continue;
+            }
+            remotePlayers.ApplyHealth(
+                actorId,
+                message.currentHealth,
+                message.maximumHealth,
+                message.revision);
+        }
+        for (const std::uint64_t actorId : stalePlayers)
+        {
+            RetirePlayer(actorId);
         }
         std::vector<std::uint64_t> stale;
         for (const auto& [entityUid, message] : latestEntities_)
@@ -751,6 +1056,7 @@ namespace fable::multiplayer::replication
         deferred_.clear();
         pending_.clear();
         latestPlayers_.clear();
+        latestPlayerConnectionNonces_.clear();
         latestEntities_.clear();
         hostPlayerRevisions_.clear();
         hostEntityRevisions_.clear();
@@ -760,6 +1066,7 @@ namespace fable::multiplayer::replication
         authority_ = nullptr;
         lifecycle_ = nullptr;
         identities_ = nullptr;
+        remotePlayerChannels_ = nullptr;
         combat_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
@@ -775,3 +1082,20 @@ namespace fable::multiplayer::replication
         initialized_ = false;
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolveEntityVitalsSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.actions.entityVitals;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkEntityVitals,
+    0x1005u,
+    "entity-vitals",
+    500u,
+    "multiplayer-entity-vitals-dispatch",
+    ResolveEntityVitalsSink);

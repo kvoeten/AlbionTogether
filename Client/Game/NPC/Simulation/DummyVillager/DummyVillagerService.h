@@ -13,6 +13,7 @@ namespace fable::game::npc::simulation
         using ProjectionSink = DummyVillagerMutationHook::ProjectionSink;
 
         bool Initialize(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetMutationSink(MutationSink sink, void* context) noexcept;
         void SetProjectionSink(ProjectionSink sink, void* context) noexcept;
         bool Read(void* thing, DummyVillagerState& state) const noexcept;

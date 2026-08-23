@@ -27,6 +27,7 @@ namespace fable::game::creature::locomotion
         bool Initialize(
             EntityService& entities,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         [[nodiscard]] CreatureLocomotionState* Inspect(Entity* entity) const;
         bool MirrorPhysicsWorldPosition(Entity* source, Entity* target);

@@ -1,4 +1,5 @@
 #include "StorageBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
 
 #include "PersistentStore.h"
 
@@ -68,6 +69,14 @@ namespace
 
 namespace fable::scripting::bindings
 {
+    bool RegisterStorageBindingGroup(BindingContext& context)
+    {
+        return context.Storage != nullptr &&
+            RegisterStorageBindings(context.Engine, *context.Storage);
+    }
+
+    FABLE_SCRIPT_BINDING_GROUP(Storage, 420, &RegisterStorageBindingGroup);
+
     bool RegisterStorageBindings(asIScriptEngine& engine, PersistentStore& storage)
     {
         g_storage = &storage;

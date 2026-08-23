@@ -1,4 +1,6 @@
 #include "NpcBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/NPC/NpcService.h"
 
@@ -25,6 +27,16 @@ namespace
         return g_npcs != nullptr ? g_npcs->TakeControl(npc, priority) : nullptr;
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterNpcBindingGroup(BindingContext& context)
+    {
+        return RegisterNpcBindings(context.Engine, context.Services.Npcs());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(Npc, 310, &fable::scripting::bindings::RegisterNpcBindingGroup);
 
 namespace fable::scripting::bindings
 {

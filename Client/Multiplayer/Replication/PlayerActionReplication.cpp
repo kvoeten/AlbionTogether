@@ -1,4 +1,6 @@
 #include "PlayerActionReplication.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
@@ -39,6 +41,23 @@ namespace
     }
 }
 
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolvePlayerActionSink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.actions.playerActions;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkPlayerAction,
+    0x1004u,
+    "player-action",
+    400u,
+    "multiplayer-player-action-dispatch",
+    ResolvePlayerActionSink);
+
 namespace fable::multiplayer::replication
 {
     void PlayerActionReplication::Initialize(
@@ -68,7 +87,7 @@ namespace fable::multiplayer::replication
         combat_ = &combat;
         abilities_ = &abilities;
         diagnostics_ = diagnostics;
-        acceptingEvents_.store(true, std::memory_order_release);
+        eventQueue_.SetAccepting(true);
         if (!combat_->AddAbilitySink(
                 &PlayerActionReplication::CaptureAbility, this))
         {
@@ -146,7 +165,8 @@ namespace fable::multiplayer::replication
         }
         const PlayerState* const state = localHero_->CurrentState();
         if (state == nullptr || state->actorId != localActorId_ ||
-            state->authorityEpoch == 0 || state->mapName.empty())
+            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
+            state->mapEpoch == 0 || state->mapName.empty())
         {
             return true;
         }
@@ -159,6 +179,8 @@ namespace fable::multiplayer::replication
         message.ownerActorId = localActorId_;
         message.actionId = NextActionId();
         message.authorityEpoch = state->authorityEpoch;
+        message.actorGeneration = state->actorGeneration;
+        message.mapEpoch = state->mapEpoch;
         message.abilityId = event.abilityId;
         message.charge = event.charge;
         game::hero_pawn::equipment::HeroEquipmentState liveEquipment;
@@ -243,6 +265,7 @@ namespace fable::multiplayer::replication
             action.creature != localHero_->NativeHero() ||
             !equipment.IsSane() || state == nullptr ||
             state->actorId != localActorId_ || state->authorityEpoch == 0 ||
+            state->actorGeneration == 0 || state->mapEpoch == 0 ||
             state->mapName.empty())
         {
             return true;
@@ -256,6 +279,8 @@ namespace fable::multiplayer::replication
         message.ownerActorId = localActorId_;
         message.actionId = NextActionId();
         message.authorityEpoch = state->authorityEpoch;
+        message.actorGeneration = state->actorGeneration;
+        message.mapEpoch = state->mapEpoch;
         message.weaponFamily = equipment.activeFamily;
         message.requiredWeapons = equipment.WeaponDefinitions();
         message.requiredMeleeAttachmentSlot =
@@ -302,7 +327,8 @@ namespace fable::multiplayer::replication
         }
         const PlayerState* const state = localHero_->CurrentState();
         if (state == nullptr || state->actorId != localActorId_ ||
-            state->authorityEpoch == 0 || state->mapName.empty())
+            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
+            state->mapEpoch == 0 || state->mapName.empty())
         {
             return true;
         }
@@ -315,6 +341,8 @@ namespace fable::multiplayer::replication
         message.ownerActorId = localActorId_;
         message.actionId = NextActionId();
         message.authorityEpoch = state->authorityEpoch;
+        message.actorGeneration = state->actorGeneration;
+        message.mapEpoch = state->mapEpoch;
         message.abilityId = static_cast<std::uint32_t>(event.ability);
         message.heroAbilityCommand = event.command;
         message.heroAbilityProgressionState = event.progressionState;
@@ -413,7 +441,9 @@ namespace fable::multiplayer::replication
                 return true;
             }
             return AcceptIntent(
-                std::move(message), transportMessage.sourceActorId);
+                std::move(message),
+                transportMessage.sourceActorId,
+                transportMessage.connectionNonce);
         }
         if (message.phase != protocol::PlayerActionPhase::Perform)
         {
@@ -422,16 +452,25 @@ namespace fable::multiplayer::replication
                 "guest received a non-authoritative player action");
             return true;
         }
-        return AcceptAuthoritative(std::move(message));
+        return AcceptAuthoritative(
+            std::move(message), transportMessage.connectionNonce);
     }
 
     bool PlayerActionReplication::AcceptIntent(
         protocol::PlayerActionMessage message,
-        std::uint64_t sourceActorId)
+        std::uint64_t sourceActorId,
+        const std::uint64_t sourceConnectionNonce)
     {
         const PlayerState* const owner = remoteChannels_->Find(sourceActorId);
+        const RemotePlayerLifecycle* const lifecycle =
+            remoteChannels_->FindLifecycle(sourceActorId);
         if (owner == nullptr || owner->actorId != message.ownerActorId ||
             owner->authorityEpoch != message.authorityEpoch ||
+            lifecycle == nullptr || !lifecycle->active ||
+            (lifecycle->connectionNonce != 0 &&
+                lifecycle->connectionNonce != sourceConnectionNonce) ||
+            lifecycle->actorGeneration != message.actorGeneration ||
+            lifecycle->mapEpoch != message.mapEpoch ||
             owner->mapName != message.mapName)
         {
             diagnostics_.Event(
@@ -440,7 +479,8 @@ namespace fable::multiplayer::replication
             return true;
         }
         message.phase = protocol::PlayerActionPhase::Perform;
-        if (!Queue(message) || !QueueReplay(std::move(message)))
+        if (!Queue(message, sourceConnectionNonce) || !QueueReplay(
+                std::move(message), sourceConnectionNonce))
         {
             return false;
         }
@@ -448,18 +488,50 @@ namespace fable::multiplayer::replication
     }
 
     bool PlayerActionReplication::AcceptAuthoritative(
-        protocol::PlayerActionMessage message)
+        protocol::PlayerActionMessage message,
+        const std::uint64_t sourceConnectionNonce)
     {
         if (message.ownerActorId == localActorId_)
         {
             return true;
         }
-        return QueueReplay(std::move(message));
+        const RemotePlayerLifecycle* const lifecycle =
+            remoteChannels_->FindLifecycle(message.ownerActorId);
+        if (lifecycle != nullptr &&
+            (!lifecycle->active ||
+                (lifecycle->connectionNonce != 0 &&
+                    lifecycle->connectionNonce != sourceConnectionNonce) ||
+                lifecycle->actorGeneration !=
+                message.actorGeneration || lifecycle->mapEpoch !=
+                message.mapEpoch))
+        {
+            diagnostics_.Event(
+                "MultiplayerPlayerActionStale",
+                "authoritative player action did not match its lifecycle channel");
+            return true;
+        }
+        return QueueReplay(std::move(message), sourceConnectionNonce);
     }
 
     bool PlayerActionReplication::Queue(
-        protocol::PlayerActionMessage message)
+        protocol::PlayerActionMessage message,
+        const std::uint64_t sourceConnectionNonce)
     {
+        std::size_t actorMessages = 0;
+        for (const auto& pending : pendingMessages_)
+        {
+            if (pending.message.ownerActorId == message.ownerActorId)
+            {
+                ++actorMessages;
+            }
+        }
+        if (actorMessages >= PendingMessageCapacity / 4)
+        {
+            diagnostics_.Event(
+                "MultiplayerPlayerActionOverflow",
+                "bounded player action publication queue is full for actor lifecycle");
+            return false;
+        }
         if (pendingMessages_.size() >= PendingMessageCapacity)
         {
             diagnostics_.Event(
@@ -467,13 +539,30 @@ namespace fable::multiplayer::replication
                 "bounded player action publication queue is full");
             return false;
         }
-        pendingMessages_.push_back(std::move(message));
+        pendingMessages_.push_back({
+            std::move(message), sourceConnectionNonce});
         return true;
     }
 
     bool PlayerActionReplication::QueueReplay(
-        protocol::PlayerActionMessage message)
+        protocol::PlayerActionMessage message,
+        const std::uint64_t sourceConnectionNonce)
     {
+        std::size_t actorReplays = 0;
+        for (const auto& pending : pendingReplays_)
+        {
+            if (pending.message.ownerActorId == message.ownerActorId)
+            {
+                ++actorReplays;
+            }
+        }
+        if (actorReplays >= PendingReplayCapacity / 4)
+        {
+            diagnostics_.Event(
+                "MultiplayerPlayerActionOverflow",
+                "bounded player native-action queue is full for actor lifecycle");
+            return false;
+        }
         if (pendingReplays_.size() >= PendingReplayCapacity)
         {
             diagnostics_.Event(
@@ -482,18 +571,56 @@ namespace fable::multiplayer::replication
             return false;
         }
         pendingReplays_.push_back({
-            std::move(message), GetTickCount64(), 0});
+            std::move(message),
+            GetTickCount64(),
+            0,
+            0,
+            sourceConnectionNonce});
         return true;
     }
 
     bool PlayerActionReplication::PublishPending()
     {
-        while (!pendingMessages_.empty())
+        const std::size_t scheduled = pendingMessages_.size();
+        std::unordered_set<std::uint64_t> attemptedActors;
+        bool deferred = false;
+        for (std::size_t attempt = 0;
+             attempt < scheduled && !pendingMessages_.empty(); ++attempt)
         {
+            const protocol::PlayerActionMessage& queued =
+                pendingMessages_.front().message;
+            const PlayerState* owner = queued.ownerActorId == localActorId_
+                ? localHero_->CurrentState()
+                : remoteChannels_->Find(queued.ownerActorId);
+            const RemotePlayerLifecycle* lifecycle =
+                queued.ownerActorId == localActorId_
+                ? nullptr
+                : remoteChannels_->FindLifecycle(queued.ownerActorId);
+            const bool lifecycleMatches = queued.ownerActorId == localActorId_
+                ? owner != nullptr && owner->actorGeneration ==
+                        queued.actorGeneration && owner->mapEpoch ==
+                        queued.mapEpoch
+                : lifecycle != nullptr && lifecycle->active &&
+                    lifecycle->actorGeneration == queued.actorGeneration &&
+                    lifecycle->mapEpoch == queued.mapEpoch;
+            if (owner == nullptr || owner->authorityEpoch !=
+                    queued.authorityEpoch || !lifecycleMatches ||
+                owner->mapName != queued.mapName)
+            {
+                pendingMessages_.pop_front();
+                continue;
+            }
+            if (!attemptedActors.insert(queued.ownerActorId).second)
+            {
+                pendingMessages_.push_back(
+                    std::move(pendingMessages_.front()));
+                pendingMessages_.pop_front();
+                continue;
+            }
             std::array<std::uint8_t, protocol::MaximumDatagramBytes> payload = {};
             std::size_t payloadSize = 0;
             if (!protocol::EncodePlayerActionMessage(
-                    pendingMessages_.front(),
+                    pendingMessages_.front().message,
                     payload.data(),
                     protocol::MaximumPayloadBytes(),
                     payloadSize))
@@ -501,6 +628,7 @@ namespace fable::multiplayer::replication
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    reliable_stream::Actor(queued.ownerActorId),
                     protocol::PacketType::PlayerAction,
                     payload.data(),
                     payloadSize))
@@ -509,16 +637,13 @@ namespace fable::multiplayer::replication
                 {
                     return false;
                 }
-                if (!publishBackpressured_)
-                {
-                    diagnostics_.Event(
-                        "MultiplayerPlayerActionPublishDeferred",
-                        "ordered traffic is draining before queued player actions");
-                    publishBackpressured_ = true;
-                }
-                return true;
+                deferred = true;
+                pendingMessages_.push_back(
+                    std::move(pendingMessages_.front()));
+                pendingMessages_.pop_front();
+                continue;
             }
-            if (pendingMessages_.front().kind ==
+            if (pendingMessages_.front().message.kind ==
                 protocol::PlayerActionKind::HeroAbility)
             {
                 char detail[160] = {};
@@ -527,18 +652,25 @@ namespace fable::multiplayer::replication
                     sizeof(detail),
                     "actor_id=%llu action_id=%llu ability_id=%u command=%u",
                     static_cast<unsigned long long>(
-                        pendingMessages_.front().ownerActorId),
+                        pendingMessages_.front().message.ownerActorId),
                     static_cast<unsigned long long>(
-                        pendingMessages_.front().actionId),
-                    pendingMessages_.front().abilityId,
+                        pendingMessages_.front().message.actionId),
+                    pendingMessages_.front().message.abilityId,
                     static_cast<unsigned int>(
-                        pendingMessages_.front().heroAbilityCommand));
+                        pendingMessages_.front().message.heroAbilityCommand));
                 diagnostics_.Event(
                     "MultiplayerLocalHeroAbilityPublished", detail);
             }
             pendingMessages_.pop_front();
         }
-        if (publishBackpressured_)
+        if (deferred && !publishBackpressured_)
+        {
+            diagnostics_.Event(
+                "MultiplayerPlayerActionPublishDeferred",
+                "one or more actor action streams are waiting for transport capacity");
+            publishBackpressured_ = true;
+        }
+        else if (!deferred && publishBackpressured_)
         {
             diagnostics_.Event(
                 "MultiplayerPlayerActionPublishResumed",
@@ -550,17 +682,11 @@ namespace fable::multiplayer::replication
 
     bool PlayerActionReplication::PairAcceptedLocalActions()
     {
-        std::deque<game::creature::combat::CreatureAbilityEvent> abilities;
-        std::deque<game::creature::actions::CreatureActionLifecycleEvent>
-            actions;
-        std::deque<game::hero_pawn::abilities::HeroAbilityEvent>
-            heroAbilities;
-        {
-            std::lock_guard<std::mutex> lock(eventMutex_);
-            abilities.swap(inboundAbilities_);
-            actions.swap(inboundActions_);
-            heroAbilities.swap(inboundHeroAbilities_);
-        }
+        PlayerActionEventQueue::Batch batch;
+        eventQueue_.Drain(batch);
+        auto& abilities = batch.abilities;
+        auto& actions = batch.actions;
+        auto& heroAbilities = batch.heroAbilities;
         while (!heroAbilities.empty())
         {
             if (!CaptureLocalHeroAbility(heroAbilities.front()))
@@ -589,17 +715,14 @@ namespace fable::multiplayer::replication
         while (unmatchedAbilities_.size() > PendingEventCapacity)
         {
             unmatchedAbilities_.pop_front();
-            droppedEvents_.fetch_add(1, std::memory_order_acq_rel);
         }
         while (unmatchedActions_.size() > PendingEventCapacity)
         {
             unmatchedActions_.pop_front();
-            droppedEvents_.fetch_add(1, std::memory_order_acq_rel);
         }
         while (pendingWeaponTransitions_.size() > PendingEventCapacity)
         {
             pendingWeaponTransitions_.pop_front();
-            droppedEvents_.fetch_add(1, std::memory_order_acq_rel);
         }
 
         const std::uint64_t now = GetTickCount64();
@@ -613,6 +736,13 @@ namespace fable::multiplayer::replication
                 transition->creature != localHero || !transition->accepted)
             {
                 transition = pendingWeaponTransitions_.erase(transition);
+                continue;
+            }
+            if (transition->observedAt != 0 &&
+                now < transition->observedAt +
+                    WeaponTransitionMutationSettleMilliseconds)
+            {
+                ++transition;
                 continue;
             }
             game::hero_pawn::equipment::HeroEquipmentState equipment;
@@ -748,233 +878,6 @@ namespace fable::multiplayer::replication
         return true;
     }
 
-    bool PlayerActionReplication::ReplayPending()
-    {
-        const std::uint64_t now = GetTickCount64();
-        std::unordered_set<std::uint64_t> blockedActors;
-        for (auto iterator = pendingReplays_.begin();
-             iterator != pendingReplays_.end();)
-        {
-            PendingReplay& replay = *iterator;
-            const protocol::PlayerActionMessage& message = iterator->message;
-            if (blockedActors.find(message.ownerActorId) !=
-                blockedActors.end())
-            {
-                ++iterator;
-                continue;
-            }
-            const PlayerState* const owner = remoteChannels_->Find(
-                message.ownerActorId);
-            if (owner != nullptr &&
-                (owner->authorityEpoch != message.authorityEpoch ||
-                    owner->mapName != message.mapName))
-            {
-                iterator = pendingReplays_.erase(iterator);
-                continue;
-            }
-            const bool sameMap = localHero_->IsWorldReady() &&
-                localHero_->MapName() == message.mapName;
-            void* targetCreature = nullptr;
-            bool targetReady = message.targetPlayerActorId == 0 &&
-                message.targetThingUid == 0;
-            if (message.targetPlayerActorId != 0 && combatants_ != nullptr)
-            {
-                targetCreature = combatants_->FindCreature(
-                    message.targetPlayerActorId);
-                targetReady = targetCreature != nullptr;
-            }
-            else if (!targetReady && presence_ != nullptr)
-            {
-                const entities::LiveEntityRecord* const target =
-                    presence_->LiveEntities().Find(message.targetThingUid);
-                if (target != nullptr && target->thing != nullptr &&
-                    target->creature)
-                {
-                    targetCreature = target->thing;
-                    targetReady = true;
-                }
-            }
-            const std::uint64_t age = replay.queuedAt != 0 &&
-                    now >= replay.queuedAt
-                ? now - replay.queuedAt
-                : 0;
-            const bool targetExpired = !targetReady &&
-                age >= TargetResolutionGraceMilliseconds;
-            if (!sameMap || targetExpired)
-            {
-                char detail[384] = {};
-                const char* const reason = !sameMap
-                    ? "map-no-longer-active"
-                    : "target-no-longer-available";
-                std::snprintf(
-                    detail,
-                    sizeof(detail),
-                    "actor_id=%llu action_id=%llu ability_id=%u target_player=%llu target_uid=%016llX age_ms=%llu reason=%s",
-                    static_cast<unsigned long long>(message.ownerActorId),
-                    static_cast<unsigned long long>(message.actionId),
-                    message.abilityId,
-                    static_cast<unsigned long long>(
-                        message.targetPlayerActorId),
-                    static_cast<unsigned long long>(message.targetThingUid),
-                    static_cast<unsigned long long>(age),
-                    reason);
-                diagnostics_.Event(
-                    "MultiplayerRemotePlayerActionRetired", detail);
-                iterator = pendingReplays_.erase(iterator);
-                continue;
-            }
-            if (replay.nextAttemptAt != 0 && now < replay.nextAttemptAt)
-            {
-                blockedActors.insert(message.ownerActorId);
-                ++iterator;
-                continue;
-            }
-            const bool heroAbilityReady = owner != nullptr && sameMap &&
-                targetReady &&
-                message.kind == protocol::PlayerActionKind::HeroAbility;
-            bool heroAbilityAccepted = false;
-            if (heroAbilityReady)
-            {
-                heroAbilityAccepted = remotePlayers_->PerformHeroAbility(
-                    message.ownerActorId,
-                    static_cast<game::hero_pawn::abilities::HeroAbility>(
-                        message.abilityId),
-                    message.heroAbilityCommand,
-                    message.heroAbilityProgressionState,
-                    targetCreature);
-            }
-            if (message.kind == protocol::PlayerActionKind::HeroAbility &&
-                !replay.diagnosticEmitted)
-            {
-                replay.diagnosticEmitted = true;
-                char attempt[384] = {};
-                std::snprintf(
-                    attempt,
-                    sizeof(attempt),
-                    "actor_id=%llu action_id=%llu owner_found=%s same_map=%s target_ready=%s target=%p attempted=%s accepted=%s age_ms=%llu",
-                    static_cast<unsigned long long>(message.ownerActorId),
-                    static_cast<unsigned long long>(message.actionId),
-                    owner != nullptr ? "true" : "false",
-                    sameMap ? "true" : "false",
-                    targetReady ? "true" : "false",
-                    targetCreature,
-                    heroAbilityReady ? "true" : "false",
-                    heroAbilityAccepted ? "true" : "false",
-                    static_cast<unsigned long long>(age));
-                diagnostics_.Event(
-                    "MultiplayerRemoteHeroAbilityReplayAttempt", attempt);
-            }
-            if (heroAbilityAccepted)
-            {
-                char detail[320] = {};
-                std::snprintf(
-                    detail,
-                    sizeof(detail),
-                    "actor_id=%llu action_id=%llu ability_id=%u name=%s command=%u target=%p",
-                    static_cast<unsigned long long>(message.ownerActorId),
-                    static_cast<unsigned long long>(message.actionId),
-                    message.abilityId,
-                    game::hero_pawn::abilities::Name(
-                        static_cast<game::hero_pawn::abilities::HeroAbility>(
-                            message.abilityId)),
-                    static_cast<unsigned int>(message.heroAbilityCommand),
-                    targetCreature);
-                diagnostics_.Event(
-                    "MultiplayerRemoteHeroAbilityReplayed", detail);
-                iterator = pendingReplays_.erase(iterator);
-                continue;
-            }
-            if (heroAbilityReady &&
-                age >= NativeReplayFailureGraceMilliseconds)
-            {
-                char detail[320] = {};
-                std::snprintf(
-                    detail,
-                    sizeof(detail),
-                    "actor_id=%llu action_id=%llu ability_id=%u command=%u progression_state=%d age_ms=%llu reason=native-replay-rejected",
-                    static_cast<unsigned long long>(message.ownerActorId),
-                    static_cast<unsigned long long>(message.actionId),
-                    message.abilityId,
-                    static_cast<unsigned int>(message.heroAbilityCommand),
-                    message.heroAbilityProgressionState,
-                    static_cast<unsigned long long>(age));
-                diagnostics_.Event(
-                    "MultiplayerRemotePlayerActionRetired", detail);
-                blockedActors.insert(message.ownerActorId);
-                iterator = pendingReplays_.erase(iterator);
-                continue;
-            }
-            if (owner != nullptr && sameMap && targetReady &&
-                message.kind == protocol::PlayerActionKind::AbilityRequest &&
-                remotePlayers_->PerformAbility(
-                    message.ownerActorId,
-                    message.weaponFamily,
-                    message.requiredWeapons,
-                    message.requiredMeleeAttachmentSlot,
-                    message.requiredRangedAttachmentSlot,
-                    message.abilityId,
-                    message.charge,
-                    targetCreature,
-                    message.resolvedActionType,
-                    message.resolvedAnimationId))
-            {
-                char detail[320] = {};
-                std::snprintf(
-                    detail,
-                    sizeof(detail),
-                    "actor_id=%llu action_id=%llu ability_id=%u charge=%.3f semantic=%s native_action=%s source_animation_id=%u",
-                    static_cast<unsigned long long>(message.ownerActorId),
-                    static_cast<unsigned long long>(message.actionId),
-                    message.abilityId,
-                    message.charge,
-                    message.semanticName.c_str(),
-                    message.resolvedActionType.empty()
-                        ? "<unresolved>"
-                        : message.resolvedActionType.c_str(),
-                    message.resolvedAnimationId);
-                diagnostics_.Event(
-                    "MultiplayerRemotePlayerAbilitySubmitted", detail);
-                iterator = pendingReplays_.erase(iterator);
-                continue;
-            }
-            if (owner != nullptr && sameMap && targetReady &&
-                message.kind ==
-                    protocol::PlayerActionKind::WeaponTransition &&
-                remotePlayers_->PerformWeaponTransition(
-                    message.ownerActorId,
-                    message.weaponFamily,
-                    message.requiredWeapons,
-                    message.requiredMeleeAttachmentSlot,
-                    message.requiredRangedAttachmentSlot,
-                    message.resolvedActionType,
-                    message.resolvedAnimationId))
-            {
-                char detail[384] = {};
-                std::snprintf(
-                    detail,
-                    sizeof(detail),
-                    "actor_id=%llu action_id=%llu family=%u melee=%d melee_slot=%u ranged=%d ranged_slot=%u native_action=%s animation_id=%u",
-                    static_cast<unsigned long long>(message.ownerActorId),
-                    static_cast<unsigned long long>(message.actionId),
-                    static_cast<unsigned int>(message.weaponFamily),
-                    message.requiredWeapons.meleeDefinitionIndex,
-                    message.requiredMeleeAttachmentSlot,
-                    message.requiredWeapons.rangedDefinitionIndex,
-                    message.requiredRangedAttachmentSlot,
-                    message.resolvedActionType.c_str(),
-                    message.resolvedAnimationId);
-                diagnostics_.Event(
-                    "MultiplayerRemoteWeaponTransitionSubmitted", detail);
-                iterator = pendingReplays_.erase(iterator);
-                continue;
-            }
-            replay.nextAttemptAt = now + ReplayRetryMilliseconds;
-            blockedActors.insert(message.ownerActorId);
-            ++iterator;
-        }
-        return true;
-    }
-
     std::uint64_t PlayerActionReplication::NextActionId() noexcept
     {
         ++nextActionId_;
@@ -991,8 +894,8 @@ namespace fable::multiplayer::replication
     {
         if (context != nullptr)
         {
-            static_cast<PlayerActionReplication*>(context)->EnqueueAbility(
-                event);
+            static_cast<PlayerActionReplication*>(context)->eventQueue_.
+                Enqueue(event);
         }
     }
 
@@ -1002,8 +905,8 @@ namespace fable::multiplayer::replication
     {
         if (context != nullptr)
         {
-            static_cast<PlayerActionReplication*>(context)->EnqueueAction(
-                event);
+            static_cast<PlayerActionReplication*>(context)->eventQueue_.
+                Enqueue(event);
         }
     }
 
@@ -1013,83 +916,106 @@ namespace fable::multiplayer::replication
     {
         if (context != nullptr)
         {
-            static_cast<PlayerActionReplication*>(context)->
-                EnqueueHeroAbility(event);
+            static_cast<PlayerActionReplication*>(context)->eventQueue_.
+                Enqueue(event);
         }
     }
 
-    void PlayerActionReplication::EnqueueAbility(
-        const game::creature::combat::CreatureAbilityEvent& event)
-        noexcept
+    void PlayerActionReplication::InvalidateActor(
+        const std::uint64_t actorId) noexcept
     {
-        if (!acceptingEvents_.load(std::memory_order_acquire))
+        if (actorId == 0)
         {
             return;
         }
-        std::lock_guard<std::mutex> lock(eventMutex_);
-        if (!acceptingEvents_.load(std::memory_order_relaxed))
+        const PlayerState* const current = remoteChannels_ != nullptr
+            ? remoteChannels_->Find(actorId)
+            : nullptr;
+        const RemotePlayerLifecycle* const lifecycle =
+            remoteChannels_ != nullptr
+                ? remoteChannels_->FindLifecycle(actorId)
+                : nullptr;
+        const auto isCurrentOwner = [&](
+            const protocol::PlayerActionMessage& message,
+            const std::uint64_t sourceConnectionNonce) noexcept
         {
-            return;
-        }
-        if (inboundAbilities_.size() >= PendingEventCapacity)
+            return current != nullptr && lifecycle != nullptr &&
+                lifecycle->active &&
+                current->authorityEpoch == message.authorityEpoch &&
+                lifecycle->actorGeneration == message.actorGeneration &&
+                lifecycle->mapEpoch == message.mapEpoch &&
+                (lifecycle->connectionNonce == 0 ||
+                    (sourceConnectionNonce != 0 &&
+                        lifecycle->connectionNonce ==
+                            sourceConnectionNonce));
+        };
+        for (auto pending = pendingMessages_.begin();
+             pending != pendingMessages_.end();)
         {
-            droppedEvents_.fetch_add(1, std::memory_order_acq_rel);
-            return;
+            if ((pending->message.ownerActorId == actorId &&
+                    !isCurrentOwner(
+                        pending->message,
+                        pending->sourceConnectionNonce)) ||
+                pending->message.targetPlayerActorId == actorId)
+            {
+                pending = pendingMessages_.erase(pending);
+            }
+            else
+            {
+                ++pending;
+            }
         }
-        inboundAbilities_.push_back(event);
+        for (auto replay = pendingReplays_.begin();
+             replay != pendingReplays_.end();)
+        {
+            if ((replay->message.ownerActorId == actorId &&
+                    !isCurrentOwner(
+                        replay->message,
+                        replay->sourceConnectionNonce)) ||
+                replay->message.targetPlayerActorId == actorId)
+            {
+                replay = pendingReplays_.erase(replay);
+            }
+            else
+            {
+                ++replay;
+            }
+        }
     }
 
-    void PlayerActionReplication::EnqueueAction(
-        const game::creature::actions::CreatureActionLifecycleEvent& event)
-        noexcept
+    void PlayerActionReplication::InvalidateAllRemote() noexcept
     {
-        if (!acceptingEvents_.load(std::memory_order_acquire) ||
-            event.phase != game::creature::actions::
-                CreatureActionLifecyclePhase::Submitted ||
-            (std::strstr(event.actionType, "InterruptableMidAttack") ==
-                    nullptr &&
-                std::strstr(event.actionType, "InterruptableNearAttack") ==
-                    nullptr &&
-                !IsWeaponTransitionAction(event.actionType)))
+        for (auto pending = pendingMessages_.begin();
+             pending != pendingMessages_.end();)
         {
-            return;
+            if (pending->message.ownerActorId != localActorId_ ||
+                pending->message.targetPlayerActorId != 0)
+            {
+                pending = pendingMessages_.erase(pending);
+            }
+            else
+            {
+                ++pending;
+            }
         }
-        std::lock_guard<std::mutex> lock(eventMutex_);
-        if (!acceptingEvents_.load(std::memory_order_relaxed))
+        for (auto replay = pendingReplays_.begin();
+             replay != pendingReplays_.end();)
         {
-            return;
+            if (replay->message.ownerActorId != localActorId_ ||
+                replay->message.targetPlayerActorId != 0)
+            {
+                replay = pendingReplays_.erase(replay);
+            }
+            else
+            {
+                ++replay;
+            }
         }
-        if (inboundActions_.size() >= PendingEventCapacity)
-        {
-            droppedEvents_.fetch_add(1, std::memory_order_acq_rel);
-            return;
-        }
-        inboundActions_.push_back(event);
-    }
-
-    void PlayerActionReplication::EnqueueHeroAbility(
-        const game::hero_pawn::abilities::HeroAbilityEvent& event) noexcept
-    {
-        if (!acceptingEvents_.load(std::memory_order_acquire))
-        {
-            return;
-        }
-        std::lock_guard<std::mutex> lock(eventMutex_);
-        if (!acceptingEvents_.load(std::memory_order_relaxed))
-        {
-            return;
-        }
-        if (inboundHeroAbilities_.size() >= PendingEventCapacity)
-        {
-            droppedEvents_.fetch_add(1, std::memory_order_acq_rel);
-            return;
-        }
-        inboundHeroAbilities_.push_back(event);
     }
 
     void PlayerActionReplication::Shutdown() noexcept
     {
-        acceptingEvents_.store(false, std::memory_order_release);
+        eventQueue_.SetAccepting(false);
         if (actionObserver_ != nullptr)
         {
             actionObserver_->RemoveEventSink(
@@ -1105,12 +1031,7 @@ namespace fable::multiplayer::replication
             abilities_->RemoveEventSink(
                 &PlayerActionReplication::CaptureHeroAbility, this);
         }
-        {
-            std::lock_guard<std::mutex> lock(eventMutex_);
-            inboundAbilities_.clear();
-            inboundActions_.clear();
-            inboundHeroAbilities_.clear();
-        }
+        eventQueue_.Clear();
         unmatchedAbilities_.clear();
         unmatchedActions_.clear();
         pendingWeaponTransitions_.clear();
@@ -1130,7 +1051,6 @@ namespace fable::multiplayer::replication
         role_ = PeerRole::Guest;
         localActorId_ = 0;
         nextActionId_ = 0;
-        droppedEvents_.store(0, std::memory_order_release);
         publishBackpressured_ = false;
         initialized_ = false;
     }

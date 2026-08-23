@@ -115,6 +115,7 @@ namespace fable::ui::front_end
         }
 
         trampoline_ = trampoline;
+        target_ = target;
         original_ = reinterpret_cast<native::FrontEndStartInitializer::Pointer>(
             trampoline_);
         initializedCallback_ = initializedCallback;
@@ -147,6 +148,31 @@ namespace fable::ui::front_end
             detail);
         return true;
 #endif
+    }
+
+    void FrontEndStartInitializerHook::Shutdown() noexcept
+    {
+#if defined(_M_IX86)
+        if (target_ != nullptr && trampoline_ != nullptr)
+        {
+            constexpr std::size_t bytes = native::FrontEndStartInitializer::DisplacedBytes;
+            DWORD protection = 0;
+            if (VirtualProtect(target_, bytes, PAGE_EXECUTE_READWRITE, &protection))
+            {
+                std::memcpy(target_, trampoline_, bytes);
+                FlushInstructionCache(GetCurrentProcess(), target_, bytes);
+                DWORD discarded = 0;
+                VirtualProtect(target_, bytes, protection, &discarded);
+            }
+        }
+#endif
+        if (active_ == this) active_ = nullptr;
+        original_ = nullptr;
+        initializedCallback_ = nullptr;
+        target_ = nullptr;
+        if (trampoline_ != nullptr) VirtualFree(trampoline_, 0, MEM_RELEASE);
+        trampoline_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool FrontEndStartInitializerHook::IsInstalled() const noexcept

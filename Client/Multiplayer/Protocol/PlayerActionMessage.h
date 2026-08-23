@@ -37,6 +37,8 @@ namespace fable::multiplayer::protocol
         std::uint64_t ownerActorId = 0;
         std::uint64_t actionId = 0;
         std::uint32_t authorityEpoch = 0;
+        std::uint32_t actorGeneration = 0;
+        std::uint32_t mapEpoch = 0;
         std::uint32_t abilityId = 0;
         game::hero_pawn::abilities::HeroAbilityCommand heroAbilityCommand =
             game::hero_pawn::abilities::HeroAbilityCommand::None;

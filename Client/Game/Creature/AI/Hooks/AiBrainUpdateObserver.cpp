@@ -76,6 +76,27 @@ namespace fable::game::creature::ai
         return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
     }
 
+    void AiBrainUpdateObserver::Shutdown() noexcept
+    {
+        SetExecutionSink(nullptr, nullptr);
+        if (vtableSlot_ != nullptr && original_ != nullptr)
+        {
+            DWORD protection = 0;
+            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &protection))
+            {
+                if (*vtableSlot_ == reinterpret_cast<void*>(&AiBrainUpdateObserver::Observe))
+                    *vtableSlot_ = reinterpret_cast<void*>(original_);
+                DWORD discarded = 0;
+                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), protection, &discarded);
+                FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        vtableSlot_ = nullptr;
+        original_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void AiBrainUpdateObserver::SetExecutionSink(
         ExecutionSink sink,
         void* context) noexcept

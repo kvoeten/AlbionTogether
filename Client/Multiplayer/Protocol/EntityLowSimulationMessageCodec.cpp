@@ -1,6 +1,7 @@
 #include "EntityLowSimulationMessageCodec.h"
 
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -23,6 +24,10 @@ namespace
         char mapName[96] = {};
     };
 #pragma pack(pop)
+
+    static_assert(
+        std::is_trivially_copyable_v<WireEntityLowSimulationMessage>);
+    static_assert(sizeof(WireEntityLowSimulationMessage) == 136);
 
     bool IsSane(
         const fable::multiplayer::protocol::EntityLowSimulationMessage&

@@ -19,7 +19,7 @@ namespace fable::multiplayer
     {
         const std::size_t index = static_cast<std::size_t>(type);
         if (index >= sinks_.size() ||
-            type == protocol::PacketType::PlayerState ||
+            type == protocol::PacketType::PlayerMovement ||
             type == protocol::PacketType::EntityMovement ||
             type == protocol::PacketType::Acknowledgement ||
             sinks_[index] != nullptr)
@@ -27,6 +27,51 @@ namespace fable::multiplayer
             return false;
         }
         sinks_[index] = &sink;
+        return true;
+    }
+
+    bool ReliableMessageDispatcher::RegisterAll(
+        const ReliableMessageSinkBinding* bindings,
+        const std::size_t count) noexcept
+    {
+        if (bindings == nullptr)
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const ReliableMessageSinkBinding& binding = bindings[i];
+            if (binding.sink == nullptr)
+            {
+                sinks_.fill(nullptr);
+                return false;
+            }
+            const ReliableMessageTypeSet types =
+                binding.sink->HandledPacketTypes();
+            if (types.values == nullptr || types.count == 0)
+            {
+                sinks_.fill(nullptr);
+                if (binding.failureDetail != nullptr)
+                {
+                    diagnostics_.Event("ClientFailed", binding.failureDetail);
+                }
+                return false;
+            }
+            for (std::size_t typeIndex = 0; typeIndex < types.count;
+                 ++typeIndex)
+            {
+                if (!Register(types.values[typeIndex], *binding.sink))
+                {
+                    sinks_.fill(nullptr);
+                    if (binding.failureDetail != nullptr)
+                    {
+                        diagnostics_.Event(
+                            "ClientFailed", binding.failureDetail);
+                    }
+                    return false;
+                }
+            }
+        }
         return true;
     }
 

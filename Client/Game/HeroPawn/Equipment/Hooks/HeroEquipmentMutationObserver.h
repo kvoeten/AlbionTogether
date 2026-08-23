@@ -16,6 +16,7 @@ namespace fable::game::hero_pawn::equipment::hooks
         using EventSink = void(*)(void* context, void* component);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
 

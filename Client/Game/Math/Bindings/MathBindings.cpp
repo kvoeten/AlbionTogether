@@ -1,4 +1,5 @@
 #include "MathBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
 
 #include "Game/Math/Vector3.h"
 
@@ -22,6 +23,16 @@ namespace
         new(value) fable::game::Vector3{x, y, z};
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterMathBindingGroup(BindingContext& context)
+    {
+        return RegisterMathBindings(context.Engine);
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(Math, 100, &fable::scripting::bindings::RegisterMathBindingGroup);
 
 namespace fable::scripting::bindings
 {

@@ -15,6 +15,7 @@ namespace fable::game::creature::locomotion
         using FrameObserver = void(*)(void* context, void* playerCreature);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         bool Bind(void* sourcePlayerCreature, void* targetPhysicsNavigator);
         void Clear() noexcept;
         void SetFrameObserver(FrameObserver observer, void* context) noexcept;

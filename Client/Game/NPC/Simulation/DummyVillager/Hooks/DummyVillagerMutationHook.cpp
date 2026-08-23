@@ -478,6 +478,24 @@ namespace fable::game::npc::simulation
         return true;
     }
 
+    void DummyVillagerMutationHook::Shutdown() noexcept
+    {
+        SetEventSink(nullptr, nullptr);
+        SetProjectionSink(nullptr, nullptr);
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        RestoreDetour(scheduleDetour_);
+        RestoreDetour(serializeDetour_);
+        RestoreDetour(materializeDetour_);
+        originalSchedule_ = nullptr;
+        originalSerialize_ = nullptr;
+        originalMaterialize_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void DummyVillagerMutationHook::RestoreDetour(Detour& detour) noexcept
     {
         if (detour.target == nullptr || detour.displacedBytes == 0)

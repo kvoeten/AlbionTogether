@@ -5,12 +5,6 @@
 
 namespace
 {
-    std::uint32_t NextSequence(std::uint32_t sequence) noexcept
-    {
-        ++sequence;
-        return sequence == 0 ? 1 : sequence;
-    }
-
     float NormalizeFacing(float facing) noexcept
     {
         if (!std::isfinite(facing))
@@ -69,19 +63,26 @@ namespace fable::multiplayer::replication
         float facing,
         std::uint64_t capturedAtMilliseconds)
     {
-        // A world transition rebinds the same authoritative actor channel; it
-        // does not create a new actor. Keep its sequence monotonic so peers do
-        // not reject the destination baseline as older than the source-map
-        // movement stream.
-        const bool reopeningSameActor = open_ &&
-            state_.actorId == actorId &&
-            state_.authorityEpoch == authorityEpoch;
-        const std::uint32_t sequence = reopeningSameActor
-            ? NextSequence(state_.sequence)
-            : 1;
+        // Every successful native Hero bind is a new actor incarnation. This
+        // includes re-entering the same map after a level reload: old movement,
+        // actions, and vitals must never target the replacement native actor.
+        ++actorGeneration_;
+        if (actorGeneration_ == 0)
+        {
+            actorGeneration_ = 1;
+        }
+        ++mapEpoch_;
+        if (mapEpoch_ == 0)
+        {
+            mapEpoch_ = 1;
+        }
         state_ = {};
-        state_.sequence = sequence;
+        actorId_ = actorId;
+        authorityEpoch_ = authorityEpoch;
+        state_.sequence = 1;
         state_.authorityEpoch = authorityEpoch;
+        state_.actorGeneration = actorGeneration_;
+        state_.mapEpoch = mapEpoch_;
         state_.actorId = actorId;
         state_.role = role;
         state_.playerId = playerId;
@@ -105,10 +106,9 @@ namespace fable::multiplayer::replication
         {
             state_.heroEquipment = heroEquipment;
         }
-        dirtyProperties_ = player_property::Identity | player_property::Map |
-            player_property::Movement |
-            (appearanceReady ? player_property::Appearance : 0u) |
-            (equipmentReady ? player_property::Equipment : 0u);
+        // Structural state is published by PlayerActorStateReplication. This
+        // dirty mask is exclusively the replace-in-place movement lane.
+        dirtyProperties_ = player_property::Movement;
         lastCaptureAt_ = capturedAtMilliseconds;
         open_ = true;
     }
@@ -119,7 +119,8 @@ namespace fable::multiplayer::replication
         float facing,
         std::uint64_t capturedAtMilliseconds)
     {
-        if (!open_ || !std::isfinite(position.x) ||
+        if (!open_ || mapName != state_.mapName ||
+            !std::isfinite(position.x) ||
             !std::isfinite(position.y) || !std::isfinite(position.z))
         {
             return false;
@@ -128,12 +129,11 @@ namespace fable::multiplayer::replication
         const bool positionChanged = PositionChanged(state_.position, position);
         const bool facingChanged =
             FacingDistance(state_.facing, normalizedFacing) >= 0.0005f;
-        const bool mapChanged = state_.mapName != mapName;
         const bool wasMoving = state_.moving;
         const float previousAngularVelocity = state_.angularVelocity;
         game::Vector3 velocity = {};
         float angularVelocity = 0.0f;
-        if (!mapChanged && capturedAtMilliseconds > lastCaptureAt_)
+        if (capturedAtMilliseconds > lastCaptureAt_)
         {
             const float seconds = static_cast<float>(
                 capturedAtMilliseconds - lastCaptureAt_) / 1000.0f;
@@ -155,7 +155,6 @@ namespace fable::multiplayer::replication
         constexpr float kLinearMotionThresholdSquared = 0.0025f;
         const bool moving = velocity.x * velocity.x +
             velocity.y * velocity.y >= kLinearMotionThresholdSquared;
-        state_.mapName = mapName;
         state_.position = position;
         state_.velocity = velocity;
         state_.facing = normalizedFacing;
@@ -165,10 +164,6 @@ namespace fable::multiplayer::replication
         const bool angularVelocityChanged = std::fabs(
             previousAngularVelocity - angularVelocity) >= 0.0005f;
         std::uint32_t changed = 0;
-        if (mapChanged)
-        {
-            changed |= player_property::Map | player_property::Movement;
-        }
         if (positionChanged || facingChanged || angularVelocityChanged ||
             wasMoving != state_.moving)
         {
@@ -211,8 +206,6 @@ namespace fable::multiplayer::replication
         state_.heroBoneScales = heroBoneScales;
         state_.heroAppearanceModifiers = modifiers;
         ++state_.sequence;
-        dirtyProperties_ |= player_property::Appearance |
-            (definitionChanged ? player_property::Identity : 0u);
         return true;
     }
 
@@ -229,7 +222,6 @@ namespace fable::multiplayer::replication
         }
         state_.heroEquipment = equipment;
         ++state_.sequence;
-        dirtyProperties_ |= player_property::Equipment;
         return true;
     }
 

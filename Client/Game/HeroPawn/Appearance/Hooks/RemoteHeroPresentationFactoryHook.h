@@ -5,6 +5,7 @@
 
 #include <Windows.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -16,6 +17,7 @@ namespace fable::game::hero_pawn::appearance::hooks
         bool Install(
             HMODULE gameModule,
             const core::Diagnostics& diagnostics) noexcept;
+        void Shutdown() noexcept;
 
         using ArmToken = std::uint64_t;
 
@@ -38,7 +40,9 @@ namespace fable::game::hero_pawn::appearance::hooks
         static RemoteHeroPresentationFactoryHook* active_;
 
         FactoryFunction original_ = nullptr;
+        std::uint8_t* target_ = nullptr;
         void* trampoline_ = nullptr;
+        std::array<std::uint8_t, 7> originalBytes_ = {};
         core::Diagnostics diagnostics_ = {};
         std::atomic_uint32_t expectedX_{0};
         std::atomic_uint32_t expectedY_{0};

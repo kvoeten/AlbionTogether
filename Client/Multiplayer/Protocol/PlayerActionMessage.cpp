@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -16,6 +17,8 @@ namespace
         std::uint64_t ownerActorId = 0;
         std::uint64_t actionId = 0;
         std::uint32_t authorityEpoch = 0;
+        std::uint32_t actorGeneration = 0;
+        std::uint32_t mapEpoch = 0;
         std::uint32_t abilityId = 0;
         std::int32_t requiredMeleeDefinitionIndex = -1;
         std::int32_t requiredRangedDefinitionIndex = -1;
@@ -30,6 +33,9 @@ namespace
         char resolvedActionType[128] = {};
     };
 #pragma pack(pop)
+
+    static_assert(std::is_trivially_copyable_v<WirePlayerActionMessage>);
+    static_assert(sizeof(WirePlayerActionMessage) == 432);
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept
@@ -77,7 +83,8 @@ namespace
                 message.requiredWeapons.rangedDefinitionIndex,
                 message.requiredRangedAttachmentSlot) &&
             message.ownerActorId != 0 && message.actionId != 0 &&
-            message.authorityEpoch != 0 &&
+            message.authorityEpoch != 0 && message.actorGeneration != 0 &&
+            message.mapEpoch != 0 &&
             ((ability && message.abilityId != 0 &&
                     message.abilityId < 1'000'000) ||
                 (heroAbility && message.abilityId >= 1 &&
@@ -124,6 +131,8 @@ namespace fable::multiplayer::protocol
         wire.ownerActorId = message.ownerActorId;
         wire.actionId = message.actionId;
         wire.authorityEpoch = message.authorityEpoch;
+        wire.actorGeneration = message.actorGeneration;
+        wire.mapEpoch = message.mapEpoch;
         wire.abilityId = message.abilityId;
         wire.requiredMeleeDefinitionIndex =
             message.requiredWeapons.meleeDefinitionIndex;
@@ -178,6 +187,8 @@ namespace fable::multiplayer::protocol
         message.ownerActorId = wire.ownerActorId;
         message.actionId = wire.actionId;
         message.authorityEpoch = wire.authorityEpoch;
+        message.actorGeneration = wire.actorGeneration;
+        message.mapEpoch = wire.mapEpoch;
         message.abilityId = wire.abilityId;
         message.requiredWeapons.meleeDefinitionIndex =
             wire.requiredMeleeDefinitionIndex;

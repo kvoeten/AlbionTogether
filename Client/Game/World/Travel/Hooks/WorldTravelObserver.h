@@ -29,6 +29,7 @@ namespace fable::game::world::travel
             const WorldTravelPreparation& preparation) noexcept;
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetPreparationSink(
             PreparationSink sink,
             void* context) noexcept;

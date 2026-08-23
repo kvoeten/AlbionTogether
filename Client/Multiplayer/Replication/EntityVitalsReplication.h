@@ -44,6 +44,7 @@ namespace fable::multiplayer::presentation
 namespace fable::multiplayer::replication
 {
     class LocalHeroReplication;
+    class RemotePlayerChannels;
 
     // Reliable, mutation-driven health replication. Only the latest revision
     // for each player or current entity generation is retained; dormant
@@ -51,6 +52,14 @@ namespace fable::multiplayer::replication
     class EntityVitalsReplication final : public ReliableMessageSink
     {
     public:
+        [[nodiscard]] ReliableMessageTypeSet HandledPacketTypes()
+            const noexcept override
+        {
+            static constexpr protocol::PacketType types[] = {
+                protocol::PacketType::EntityVitals};
+            return {types, sizeof(types) / sizeof(types[0])};
+        }
+
         void Initialize(
             PeerRole role,
             std::uint64_t localActorId,
@@ -58,6 +67,7 @@ namespace fable::multiplayer::replication
             authority::AuthorityReplication& authority,
             entities::EntityLifecycleReplication& lifecycle,
             entities::EntityNetworkIdentityRegistry& identities,
+            RemotePlayerChannels& remotePlayers,
             game::creature::combat::CreatureCombatService& combat,
             const core::Diagnostics& diagnostics);
         bool Process(
@@ -67,6 +77,7 @@ namespace fable::multiplayer::replication
         bool HandleReliableMessage(
             const TransportMessage& message) override;
         void RetirePlayer(std::uint64_t actorId) noexcept;
+        void ClearRemotePlayers() noexcept;
         void Shutdown() noexcept;
 
     private:
@@ -107,9 +118,11 @@ namespace fable::multiplayer::replication
         bool HostAccept(
             protocol::EntityVitalsMessage message,
             std::uint64_t sourceActorId,
+            std::uint64_t sourceConnectionNonce,
             const entities::LiveEntityRegistry* liveEntities);
         bool AcceptAuthoritative(
-            const protocol::EntityVitalsMessage& message);
+            const protocol::EntityVitalsMessage& message,
+            std::uint64_t sourceConnectionNonce);
         bool Publish(protocol::EntityVitalsMessage message);
         bool PublishPending();
         bool PublishPeerBaseline();
@@ -127,6 +140,7 @@ namespace fable::multiplayer::replication
         authority::AuthorityReplication* authority_ = nullptr;
         entities::EntityLifecycleReplication* lifecycle_ = nullptr;
         entities::EntityNetworkIdentityRegistry* identities_ = nullptr;
+        RemotePlayerChannels* remotePlayerChannels_ = nullptr;
         game::creature::combat::CreatureCombatService* combat_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;
@@ -139,6 +153,8 @@ namespace fable::multiplayer::replication
         std::deque<protocol::EntityVitalsMessage> pending_;
         std::unordered_map<std::uint64_t, protocol::EntityVitalsMessage>
             latestPlayers_;
+        std::unordered_map<std::uint64_t, std::uint64_t>
+            latestPlayerConnectionNonces_;
         std::unordered_map<std::uint64_t, protocol::EntityVitalsMessage>
             latestEntities_;
         std::unordered_map<std::uint64_t, std::uint32_t> hostPlayerRevisions_;

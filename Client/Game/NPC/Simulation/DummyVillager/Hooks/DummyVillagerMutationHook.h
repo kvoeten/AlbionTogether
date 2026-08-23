@@ -25,6 +25,7 @@ namespace fable::game::npc::simulation
             DummyVillagerState& state);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         void SetProjectionSink(ProjectionSink sink, void* context) noexcept;
         bool Read(void* thing, DummyVillagerState& state) const noexcept;

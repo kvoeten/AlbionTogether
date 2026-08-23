@@ -19,6 +19,13 @@ namespace fable::automation::appearance_cycle
         initialized_.store(true, std::memory_order_release);
     }
 
+    void AppearanceCycleScenario::Shutdown() noexcept
+    {
+        initialized_.store(false, std::memory_order_release);
+        scriptHost_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void AppearanceCycleScenario::ObserveScriptEvent(const char* state)
     {
         if (!initialized_.load(std::memory_order_acquire) || state == nullptr)

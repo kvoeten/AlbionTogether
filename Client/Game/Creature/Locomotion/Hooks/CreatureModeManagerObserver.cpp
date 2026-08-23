@@ -241,6 +241,9 @@ namespace fable::game::creature::locomotion
         addSourceTrampoline_ = addTrampoline;
         removeSourceTrampoline_ = removeTrampoline;
         evaluateLocomotionTrampoline_ = evaluateTrampoline;
+        addSourceTarget_ = addTarget;
+        removeSourceTarget_ = removeTarget;
+        evaluateLocomotionTarget_ = evaluateTarget;
         originalAddSource_ = reinterpret_cast<
             native::CreatureModeManagerFunctions::AddSourcePointer>(
                 addSourceTrampoline_);
@@ -311,6 +314,49 @@ namespace fable::game::creature::locomotion
             originalEvaluateLocomotion_ != nullptr &&
             addSourceTrampoline_ != nullptr && removeSourceTrampoline_ != nullptr &&
             evaluateLocomotionTrampoline_ != nullptr;
+    }
+
+    void CreatureModeManagerObserver::Shutdown() noexcept
+    {
+        ClearReplicatedAnimationMotions();
+        ClearAnimationMotionSource();
+#if defined(_M_IX86)
+        if (addSourceTarget_ != nullptr && removeSourceTarget_ != nullptr &&
+            evaluateLocomotionTarget_ != nullptr)
+        {
+            auto restore = [](std::uint8_t* target, void* trampoline) noexcept
+            {
+                constexpr std::size_t bytes = native::CreatureModeManagerFunctions::DisplacedBytes;
+                if (target == nullptr || trampoline == nullptr) return;
+                DWORD protection = 0;
+                if (VirtualProtect(target, bytes, PAGE_EXECUTE_READWRITE, &protection))
+                {
+                    std::memcpy(target, trampoline, bytes);
+                    FlushInstructionCache(GetCurrentProcess(), target, bytes);
+                    DWORD discarded = 0;
+                    VirtualProtect(target, bytes, protection, &discarded);
+                }
+            };
+            restore(evaluateLocomotionTarget_, evaluateLocomotionTrampoline_);
+            restore(removeSourceTarget_, removeSourceTrampoline_);
+            restore(addSourceTarget_, addSourceTrampoline_);
+        }
+#endif
+        if (active_ == this) active_ = nullptr;
+        originalAddSource_ = nullptr;
+        originalRemoveSource_ = nullptr;
+        originalEvaluateLocomotion_ = nullptr;
+        if (addSourceTrampoline_ != nullptr) VirtualFree(addSourceTrampoline_, 0, MEM_RELEASE);
+        if (removeSourceTrampoline_ != nullptr) VirtualFree(removeSourceTrampoline_, 0, MEM_RELEASE);
+        if (evaluateLocomotionTrampoline_ != nullptr) VirtualFree(evaluateLocomotionTrampoline_, 0, MEM_RELEASE);
+        addSourceTrampoline_ = nullptr;
+        removeSourceTrampoline_ = nullptr;
+        evaluateLocomotionTrampoline_ = nullptr;
+        addSourceTarget_ = nullptr;
+        removeSourceTarget_ = nullptr;
+        evaluateLocomotionTarget_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool CreatureModeManagerObserver::WatchOwner(void* nativeThing) noexcept

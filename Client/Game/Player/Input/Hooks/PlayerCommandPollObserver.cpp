@@ -80,6 +80,30 @@ namespace fable::game::player::input
         return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
     }
 
+    void PlayerCommandPollObserver::Shutdown() noexcept
+    {
+        if (active_ == this && vtableSlot_ != nullptr && original_ != nullptr)
+        {
+            DWORD previousProtection = 0;
+            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &previousProtection))
+            {
+                if (*vtableSlot_ == reinterpret_cast<void*>(&Intercept))
+                {
+                    *vtableSlot_ = reinterpret_cast<void*>(original_);
+                    FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
+                }
+                DWORD discarded = 0;
+                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), previousProtection, &discarded);
+            }
+            active_ = nullptr;
+        }
+        original_ = nullptr;
+        vtableSlot_ = nullptr;
+        gameModule_ = nullptr;
+        observedCommandCount_.store(0, std::memory_order_release);
+        diagnostics_ = {};
+    }
+
     bool __fastcall PlayerCommandPollObserver::Intercept(
         void* gamePlayerInterface,
         void*,

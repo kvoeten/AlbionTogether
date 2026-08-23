@@ -28,6 +28,7 @@ namespace fable::automation::appearance_cycle
         void Initialize(
             scripting::ScriptHost& scriptHost,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
 
         void ObserveScriptEvent(const char* state);
         void Tick(const CharacterSnapshot& character);

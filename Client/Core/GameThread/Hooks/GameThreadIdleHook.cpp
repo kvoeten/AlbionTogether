@@ -51,6 +51,7 @@ namespace fable::core::game_thread
         }
 
         original_ = imported.importedFunction;
+        slot_ = imported.slot;
         idleCallback_ = idleCallback;
         gameThreadId_ = gameThreadId;
         active_ = this;
@@ -80,6 +81,27 @@ namespace fable::core::game_thread
         diagnostics_.Log("Hook: game-thread idle boundary installed.");
         diagnostics_.Event("GameThreadQueueReady", detail);
         return true;
+    }
+
+    void GameThreadIdleHook::Shutdown() noexcept
+    {
+        if (slot_ != nullptr && original_ != nullptr)
+        {
+            DWORD protection = 0;
+            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
+            {
+                if (*slot_ == &GameThreadIdleHook::PeekMessage) *slot_ = original_;
+                DWORD discarded = 0;
+                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
+                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        installed_ = false;
+        slot_ = nullptr;
+        original_ = nullptr;
+        idleCallback_ = nullptr;
+        gameThreadId_ = 0;
     }
 
     bool GameThreadIdleHook::IsInstalled() const noexcept

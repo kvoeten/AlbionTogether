@@ -19,6 +19,9 @@ namespace fable::multiplayer::protocol
         std::uint64_t entityUid = 0;
         std::uint32_t entityGeneration = 0;
         std::uint64_t ownerActorId = 0;
+        std::uint32_t playerAuthorityEpoch = 0;
+        std::uint32_t playerActorGeneration = 0;
+        std::uint32_t playerMapEpoch = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t revision = 0;
         float currentHealth = 0.0f;

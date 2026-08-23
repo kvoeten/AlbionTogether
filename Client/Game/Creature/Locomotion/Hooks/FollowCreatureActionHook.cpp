@@ -86,6 +86,7 @@ namespace fable::game::creature::locomotion
             return true;
         }
         diagnostics_ = diagnostics;
+        gameModule_ = gameModule;
 
 #if !defined(_M_IX86)
         diagnostics_.Log(
@@ -176,6 +177,8 @@ namespace fable::game::creature::locomotion
 
         startTrampoline_ = startTrampoline;
         tickTrampoline_ = tickTrampoline;
+        startTarget_ = startTarget;
+        tickTarget_ = tickTarget;
         originalStart_ = reinterpret_cast<
             native::FollowCreatureActionFunctions::ActionMethodPointer>(
                 startTrampoline_);
@@ -223,6 +226,41 @@ namespace fable::game::creature::locomotion
         diagnostics_.Event("FollowActionHooksReady", detail);
         return true;
 #endif
+    }
+
+    void FollowCreatureActionHook::Shutdown() noexcept
+    {
+#if defined(_M_IX86)
+        if (startTarget_ != nullptr && tickTarget_ != nullptr)
+        {
+            auto restore = [](std::uint8_t* target, void* trampoline) noexcept
+            {
+                constexpr std::size_t bytes = native::FollowCreatureActionFunctions::DisplacedBytes;
+                if (target == nullptr || trampoline == nullptr) return;
+                DWORD protection = 0;
+                if (VirtualProtect(target, bytes, PAGE_EXECUTE_READWRITE, &protection))
+                {
+                    std::memcpy(target, trampoline, bytes);
+                    FlushInstructionCache(GetCurrentProcess(), target, bytes);
+                    DWORD discarded = 0;
+                    VirtualProtect(target, bytes, protection, &discarded);
+                }
+            };
+            restore(tickTarget_, tickTrampoline_);
+            restore(startTarget_, startTrampoline_);
+        }
+#endif
+        if (active_ == this) active_ = nullptr;
+        originalStart_ = nullptr;
+        originalTick_ = nullptr;
+        if (startTrampoline_ != nullptr) VirtualFree(startTrampoline_, 0, MEM_RELEASE);
+        if (tickTrampoline_ != nullptr) VirtualFree(tickTrampoline_, 0, MEM_RELEASE);
+        startTrampoline_ = nullptr;
+        tickTrampoline_ = nullptr;
+        startTarget_ = nullptr;
+        tickTarget_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool FollowCreatureActionHook::IsInstalled() const noexcept

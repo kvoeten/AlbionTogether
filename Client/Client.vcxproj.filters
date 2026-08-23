@@ -5,6 +5,7 @@
     <Filter Include="Automation"><UniqueIdentifier>{2B101883-4812-449E-B961-083ABEF8D7AB}</UniqueIdentifier></Filter>
     <Filter Include="Automation\AppearanceCycle"><UniqueIdentifier>{A528C059-F0F9-4450-9DD0-A68C699E6C56}</UniqueIdentifier></Filter>
     <Filter Include="Automation\CharacterSnapshot"><UniqueIdentifier>{B5F1AA34-F8A6-449F-9EB6-D0F7E08A9A5A}</UniqueIdentifier></Filter>
+    <Filter Include="Automation\FrontEnd"><UniqueIdentifier>{E1A4C31D-5C72-4688-9F9C-7B9D9F6A6E41}</UniqueIdentifier></Filter>
     <Filter Include="Automation\FixtureDocuments"><UniqueIdentifier>{418EECF7-E1F0-40B4-8970-EE6C7974D427}</UniqueIdentifier></Filter>
     <Filter Include="Automation\FixtureDocuments\Hooks"><UniqueIdentifier>{479F4F46-41D7-4326-935E-D7F374978AD8}</UniqueIdentifier></Filter>
     <Filter Include="Automation\FixtureDocuments\Native"><UniqueIdentifier>{0C3C854B-D81F-47F8-BEBD-B70D88FC61E3}</UniqueIdentifier></Filter>
@@ -15,13 +16,17 @@
     <Filter Include="Automation\Multiplayer\Combat"><UniqueIdentifier>{E7CE0FE3-CF60-45B0-8CDD-5175324167B8}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Multiplayer\Transition"><UniqueIdentifier>{5B282DB8-DB8E-4A4B-A4DF-46EF1B806A83}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Runtime"><UniqueIdentifier>{9A87905D-F8F4-4D54-A3E8-534742B7D5B4}</UniqueIdentifier></Filter>
+    <Filter Include="Automation\TransformProbe"><UniqueIdentifier>{B6E201C9-2D3A-4A0F-9D89-7F0D7A6A4A27}</UniqueIdentifier></Filter>
     <Filter Include="Core"><UniqueIdentifier>{1221615B-6A1D-4BEB-9E47-F97342CF645F}</UniqueIdentifier></Filter>
+    <Filter Include="Core\Bootstrap"><UniqueIdentifier>{5B5D3C87-7F7A-4CF8-AD4D-8CE4D8AB0A21}</UniqueIdentifier></Filter>
     <Filter Include="Core\Capabilities"><UniqueIdentifier>{D47B069E-6DF2-4F83-A162-5DD12EFFFAF6}</UniqueIdentifier></Filter>
     <Filter Include="Core\Diagnostics"><UniqueIdentifier>{616263A2-6815-43FD-A1F6-BED028E9AC52}</UniqueIdentifier></Filter>
+    <Filter Include="Core\Target"><UniqueIdentifier>{26A2B8D7-8D71-46E5-962A-DBA0E6B4B1A8}</UniqueIdentifier></Filter>
     <Filter Include="Core\GameThread"><UniqueIdentifier>{430EAD3A-A5E2-486E-97A0-490CB9B48B9E}</UniqueIdentifier></Filter>
     <Filter Include="Core\GameThread\Hooks"><UniqueIdentifier>{4A55B6B8-E047-4A10-969F-694FBACD34B8}</UniqueIdentifier></Filter>
     <Filter Include="Core\GameThread\Native"><UniqueIdentifier>{B7466AF1-68EE-448A-A133-F63BF8FD0B1F}</UniqueIdentifier></Filter>
     <Filter Include="Game"><UniqueIdentifier>{8A8460FE-EC0C-4004-9B02-92F3EB78D035}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Runtime"><UniqueIdentifier>{F5D04D59-5A83-436C-8BC8-F02B94949A3B}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature"><UniqueIdentifier>{AB8E12B9-ABA8-4387-A46B-27B55A94FF60}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Actions"><UniqueIdentifier>{901A3156-BE17-4C47-A332-1342CC16893E}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Actions\Hooks"><UniqueIdentifier>{A93C2EC8-0753-4328-961F-6B1454F7DA57}</UniqueIdentifier></Filter>
@@ -142,6 +147,7 @@
     <Filter Include="UI\Hud"><UniqueIdentifier>{FAA8D291-83AD-48CA-B222-CA89045086AE}</UniqueIdentifier></Filter>
     <Filter Include="UI\Hud\Bindings"><UniqueIdentifier>{C8F740E1-02D9-4567-871A-8325DA614FED}</UniqueIdentifier></Filter>
     <Filter Include="UI\MainWindow"><UniqueIdentifier>{5B994E2F-6F57-4798-9BF3-64431D499A3E}</UniqueIdentifier></Filter>
+    <Filter Include="UI\Runtime"><UniqueIdentifier>{4E13EE90-1D68-469C-8F52-66F64DDC8D0B}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Abilities</Filter></ClCompile>
@@ -287,12 +293,13 @@
     <ClCompile Include="Multiplayer\Protocol\AuthorityMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityActionMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\PlayerActionMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Protocol\PlayerActorStateCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityLifecycleMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityMovementMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityVitalsMessageCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityLowSimulationMessageCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\PacketEnvelope.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
-    <ClCompile Include="Multiplayer\Protocol\PlayerStateCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Protocol\PlayerMovementCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp"><Filter>Game\HeroPawn\Remote</Filter></ClCompile>
@@ -300,6 +307,10 @@
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\PlayerActionEventQueue.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\PlayerActionReplay.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\PlayerActorStateReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\PlayerActorStatePublicationQueue.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityVitalsReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityLowSimulationReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalPlayerChannel.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
@@ -307,6 +318,11 @@
     <ClCompile Include="Multiplayer\Replication\VillageMembershipReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Runtime\MultiplayerSession.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\ReliableMessageDispatcher.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\ConnectionNonceRegistry.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\MovementTransport.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\PeerDatagramCodec.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\PeerSessionRegistry.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\ReliableStreamTransport.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\UdpPeer.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\World\MapIdentityRegistry.cpp"><Filter>Multiplayer\World</Filter></ClCompile>
     <ClCompile Include="Multiplayer\World\MapTransitionAuthorityService.cpp"><Filter>Multiplayer\World</Filter></ClCompile>
@@ -328,6 +344,24 @@
     <ClCompile Include="UI\FrontEnd\Native\FrontEndLifecycleFunctions.cpp"><Filter>UI\FrontEnd\Native</Filter></ClCompile>
     <ClCompile Include="UI\MainWindow\MainWindowHook.cpp"><Filter>UI\MainWindow</Filter></ClCompile>
     <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Automation\CharacterSnapshot\CharacterSnapshotScenario.cpp"><Filter>Automation\CharacterSnapshot</Filter></ClCompile>
+    <ClCompile Include="Automation\FrontEnd\FrontEndAutomationScenario.cpp"><Filter>Automation\FrontEnd</Filter></ClCompile>
+    <ClCompile Include="Automation\Runtime\AutomationRunner.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
+    <ClCompile Include="Automation\TransformProbe\TransformProbeScenario.cpp"><Filter>Automation\TransformProbe</Filter></ClCompile>
+    <ClCompile Include="Core\Bootstrap\ClientRuntime.cpp"><Filter>Core\Bootstrap</Filter></ClCompile>
+    <ClCompile Include="Core\Bootstrap\ClientRuntimeStartup.cpp"><Filter>Core\Bootstrap</Filter></ClCompile>
+    <ClCompile Include="Core\Bootstrap\FeatureRegistry.cpp"><Filter>Core\Bootstrap</Filter></ClCompile>
+    <ClCompile Include="Core\Bootstrap\NativeRuntimeFeatures.cpp"><Filter>Core\Bootstrap</Filter></ClCompile>
+    <ClCompile Include="Core\Diagnostics\ProcessExceptionObserver.cpp"><Filter>Core\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Core\Target\ExecutableValidator.cpp"><Filter>Core\Target</Filter></ClCompile>
+    <ClCompile Include="Game\Runtime\GameServiceRuntime.cpp"><Filter>Game\Runtime</Filter></ClCompile>
+    <ClCompile Include="Game\Runtime\GameplayRuntime.cpp"><Filter>Game\Runtime</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Runtime\MultiplayerRuntimeGraph.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Runtime\PresentationLifecycleCoordinator.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\ReliableSinkDescriptorRegistry.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Scripting\Bindings\Registry\ScriptBindingRegistry.cpp"><Filter>Scripting\Bindings\Registry</Filter></ClCompile>
+    <ClCompile Include="UI\Runtime\GameWindowRuntime.cpp"><Filter>UI\Runtime</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.h"><Filter>Automation\Multiplayer\Abilities</Filter></ClInclude>
@@ -497,6 +531,8 @@
     <ClInclude Include="Multiplayer\Protocol\AuthorityMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityActionMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PlayerActionMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\PlayerActorStateCodec.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\PlayerActorStateMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityLifecycleMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityMovementMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityVitalsMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
@@ -505,12 +541,16 @@
     <ClInclude Include="Multiplayer\Protocol\EntityLowSimulationMessageCodec.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PacketEnvelope.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PlayerState.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
-    <ClInclude Include="Multiplayer\Protocol\PlayerStateCodec.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\PlayerMovementCodec.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\PlayerMovementMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PopulationStateMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActionEventQueue.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActorStateReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActorStatePublicationQueue.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityVitalsReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityLowSimulationReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalPlayerChannel.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
@@ -518,6 +558,12 @@
     <ClInclude Include="Multiplayer\Replication\VillageMembershipReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Runtime\MultiplayerSession.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\ReliableMessageDispatcher.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\ConnectionNonceRegistry.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\MovementTransport.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\PeerDatagramCodec.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\PeerSessionRegistry.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\ReliableStream.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\ReliableStreamTransport.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\UdpPeer.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\TransportMessage.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\World\MapIdentityRegistry.h"><Filter>Multiplayer\World</Filter></ClInclude>
@@ -539,6 +585,27 @@
     <ClInclude Include="UI\FrontEnd\Native\FrontEndStartInitializer.h"><Filter>UI\FrontEnd\Native</Filter></ClInclude>
     <ClInclude Include="UI\FrontEnd\Native\FrontEndLifecycleFunctions.h"><Filter>UI\FrontEnd\Native</Filter></ClInclude>
     <ClInclude Include="UI\MainWindow\MainWindowHook.h"><Filter>UI\MainWindow</Filter></ClInclude>
+    <ClInclude Include="Automation\CharacterSnapshot\CharacterSnapshotScenario.h"><Filter>Automation\CharacterSnapshot</Filter></ClInclude>
+    <ClInclude Include="Automation\FrontEnd\FrontEndAutomationScenario.h"><Filter>Automation\FrontEnd</Filter></ClInclude>
+    <ClInclude Include="Automation\Runtime\AutomationRunner.h"><Filter>Automation\Runtime</Filter></ClInclude>
+    <ClInclude Include="Automation\TransformProbe\TransformProbeScenario.h"><Filter>Automation\TransformProbe</Filter></ClInclude>
+    <ClInclude Include="Core\Bootstrap\ClientRuntime.h"><Filter>Core\Bootstrap</Filter></ClInclude>
+    <ClInclude Include="Core\Bootstrap\ClientRuntimeServices.h"><Filter>Core\Bootstrap</Filter></ClInclude>
+    <ClInclude Include="Core\Bootstrap\ClientRuntimeStartup.h"><Filter>Core\Bootstrap</Filter></ClInclude>
+    <ClInclude Include="Core\Bootstrap\ClientRuntimeState.h"><Filter>Core\Bootstrap</Filter></ClInclude>
+    <ClInclude Include="Core\Bootstrap\FeatureRegistry.h"><Filter>Core\Bootstrap</Filter></ClInclude>
+    <ClInclude Include="Core\Diagnostics\ProcessExceptionObserver.h"><Filter>Core\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Core\Target\ExecutableValidator.h"><Filter>Core\Target</Filter></ClInclude>
+    <ClInclude Include="Core\Target\FableNativeLayout.h"><Filter>Core\Target</Filter></ClInclude>
+    <ClInclude Include="Game\Runtime\GameServiceRuntime.h"><Filter>Game\Runtime</Filter></ClInclude>
+    <ClInclude Include="Game\Runtime\GameplayRuntime.h"><Filter>Game\Runtime</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Runtime\MultiplayerRuntimeGraph.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Runtime\MultiplayerSessionContexts.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Runtime\PresentationLifecycleCoordinator.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\ReliableSinkDescriptorRegistry.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Scripting\Bindings\Registry\ScriptBindingRegistry.h"><Filter>Scripting\Bindings\Registry</Filter></ClInclude>
+    <ClInclude Include="UI\Runtime\GameWindowRuntime.h"><Filter>UI\Runtime</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="Scripts\Debug\AppearanceCycle.as"><Filter>Scripts\Debug</Filter></None>

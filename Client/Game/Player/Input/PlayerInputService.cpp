@@ -6,6 +6,17 @@ namespace fable::game::player::input
         HMODULE gameModule,
         const core::Diagnostics& diagnostics)
     {
-        return commandPollObserver_.Install(gameModule, diagnostics);
+        Shutdown();
+        if (!commandPollObserver_.Install(gameModule, diagnostics))
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
+    }
+
+    void PlayerInputService::Shutdown() noexcept
+    {
+        commandPollObserver_.Shutdown();
     }
 }

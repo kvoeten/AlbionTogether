@@ -306,6 +306,27 @@ namespace fable::game::hero_pawn::abilities::hooks
         return true;
     }
 
+    void HeroWillAbilityHook::Shutdown() noexcept
+    {
+        if (active_ == this)
+        {
+            active_ = nullptr;
+        }
+        turncoatState_.Reset();
+        eligibility_.Reset();
+        cancel_.Reset();
+        toggle_.Reset();
+        use_.Reset();
+        originalUse_ = nullptr;
+        originalToggle_ = nullptr;
+        originalCancel_ = nullptr;
+        originalEligibility_ = nullptr;
+        originalTurncoatState_ = nullptr;
+        service_ = nullptr;
+        gameModule_ = nullptr;
+        diagnostics_ = {};
+    }
+
     bool HeroWillAbilityHook::IsInstalled() const noexcept
     {
         return active_ == this && service_ != nullptr && gameModule_ != nullptr &&

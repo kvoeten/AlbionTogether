@@ -1,4 +1,6 @@
 #include "AuthorityReplication.h"
+#include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Multiplayer/Protocol/AuthorityMessage.h"
 #include "Multiplayer/Protocol/PacketEnvelope.h"
@@ -380,6 +382,7 @@ namespace fable::multiplayer::authority
                 protocol::MaximumPayloadBytes(),
                 payloadSize) ||
             !transport_->SubmitReliable(
+                reliable_stream::Control,
                 protocol::PacketType::Authority,
                 payload.data(),
                 payloadSize))
@@ -483,6 +486,7 @@ namespace fable::multiplayer::authority
                     return false;
                 }
                 if (!transport_->SubmitReliable(
+                        reliable_stream::Control,
                         protocol::PacketType::Authority,
                         payload.data(),
                         payloadSize))
@@ -584,6 +588,7 @@ namespace fable::multiplayer::authority
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    reliable_stream::Control,
                     protocol::PacketType::Authority,
                     payload.data(),
                     payloadSize))
@@ -624,6 +629,7 @@ namespace fable::multiplayer::authority
                 return false;
             }
             if (!transport_->SubmitReliable(
+                    reliable_stream::Control,
                     protocol::PacketType::Authority,
                     payload.data(),
                     payloadSize))
@@ -740,3 +746,20 @@ namespace fable::multiplayer::authority
         initialized_ = false;
     }
 }
+
+namespace
+{
+    fable::multiplayer::ReliableMessageSink* ResolveAuthoritySink(
+        fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
+    {
+        return &contexts.world.authority;
+    }
+}
+
+FABLE_RELIABLE_SINK_DESCRIPTOR(
+    g_fableReliableSinkAuthority,
+    0x1001u,
+    "authority",
+    100u,
+    "multiplayer-authority-dispatch",
+    ResolveAuthoritySink);

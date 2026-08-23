@@ -53,6 +53,7 @@ namespace fable::game::hero_pawn::abilities
         game::EntityService& entities,
         const core::Diagnostics& diagnostics)
     {
+        Shutdown();
         entities_ = &entities;
         diagnostics_ = diagnostics;
         const bool installed =
@@ -62,7 +63,23 @@ namespace fable::game::hero_pawn::abilities
             installed
                 ? "native Use, Toggle, Cancel, and replay eligibility validated"
                 : "native Hero Will ability definitions failed validation");
-        return installed;
+        if (!installed)
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
+    }
+
+    void HeroWillAbilityService::Shutdown() noexcept
+    {
+        pillarLifecycleHook_.Shutdown();
+        hook_.Shutdown();
+        AcquireSRWLockExclusive(&sinkLock_);
+        sinks_ = {};
+        ReleaseSRWLockExclusive(&sinkLock_);
+        entities_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool HeroWillAbilityService::AttachActionLifecycleObserver(
@@ -78,6 +95,11 @@ namespace fable::game::hero_pawn::abilities
                 ? "pillar Cast-BuildUp-Release transitions use the observed native action stack"
                 : "pillar native action transition policy could not attach");
         return attached;
+    }
+
+    void HeroWillAbilityService::DetachActionLifecycleObserver() noexcept
+    {
+        pillarLifecycleHook_.Shutdown();
     }
 
     bool HeroWillAbilityService::AddEventSink(

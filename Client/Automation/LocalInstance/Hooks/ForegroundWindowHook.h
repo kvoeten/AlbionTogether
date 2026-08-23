@@ -20,6 +20,7 @@ namespace fable::automation::local_instance
             HMODULE gameModule,
             HWND localWindow,
             const core::Diagnostics& diagnostics) noexcept;
+        void Shutdown() noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] unsigned long RedirectCount() const noexcept;
@@ -30,6 +31,7 @@ namespace fable::automation::local_instance
         static ForegroundWindowHook* active_;
 
         native::ForegroundWindowImport::Function original_ = nullptr;
+        native::ForegroundWindowImport::Function* slot_ = nullptr;
         HWND localWindow_ = nullptr;
         std::atomic_ulong redirectCount_{0};
         bool installed_ = false;

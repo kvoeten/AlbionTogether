@@ -1,4 +1,6 @@
 #include "CreatureServiceBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "Game/Creature/CreatureService.h"
 
@@ -30,6 +32,16 @@ namespace
         return g_creatures != nullptr && g_creatures->SetHealth(entity, health);
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterCreatureServiceBindingGroup(BindingContext& context)
+    {
+        return RegisterCreatureServiceBindings(context.Engine, context.Services.Creatures());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(CreatureService, 210, &fable::scripting::bindings::RegisterCreatureServiceBindingGroup);
 
 namespace fable::scripting::bindings
 {

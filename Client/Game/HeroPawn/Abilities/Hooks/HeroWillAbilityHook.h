@@ -24,6 +24,7 @@ namespace fable::game::hero_pawn::abilities::hooks
             HMODULE gameModule,
             HeroWillAbilityService& service,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
         [[nodiscard]] bool SubmitReplicated(
             void* component,

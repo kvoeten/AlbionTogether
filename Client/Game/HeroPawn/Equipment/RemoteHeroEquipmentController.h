@@ -39,6 +39,9 @@ namespace fable::game::hero_pawn::equipment
             const HeroEquipmentState& finalState,
             const std::string& sourceActionType,
             std::uint32_t animationId);
+        // Explicit native readiness probe. A sane network baseline is not
+        // enough: the promoted Hero must expose the requested carry state.
+        [[nodiscard]] bool IsReady() const noexcept;
         void Unbind() noexcept;
         void Shutdown() noexcept;
 

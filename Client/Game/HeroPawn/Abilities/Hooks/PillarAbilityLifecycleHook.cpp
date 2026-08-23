@@ -28,6 +28,11 @@ namespace fable::game::hero_pawn::abilities::hooks
 {
     PillarAbilityLifecycleHook::~PillarAbilityLifecycleHook()
     {
+        Shutdown();
+    }
+
+    void PillarAbilityLifecycleHook::Shutdown() noexcept
+    {
         auto* const observer = observer_;
         observer_ = nullptr;
         if (observer != nullptr)
@@ -36,6 +41,7 @@ namespace fable::game::hero_pawn::abilities::hooks
             observer->RemoveEventSink(&OnActionEvent, this);
         }
         ReleaseAllPending();
+        diagnostics_ = {};
     }
 
     bool PillarAbilityLifecycleHook::Install(

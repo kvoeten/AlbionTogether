@@ -38,6 +38,7 @@ namespace fable::automation::local_instance
         }
 
         original_ = imported.importedFunction;
+        slot_ = imported.slot;
         localWindow_ = localWindow;
         active_ = this;
         *imported.slot = &ForegroundWindowHook::GetForegroundWindowRedirect;
@@ -64,6 +65,26 @@ namespace fable::automation::local_instance
             0x01B9F0A0u);
         diagnostics.Event("LocalInstanceForegroundWindowPinned", detail);
         return true;
+    }
+
+    void ForegroundWindowHook::Shutdown() noexcept
+    {
+        if (slot_ != nullptr && original_ != nullptr)
+        {
+            DWORD protection = 0;
+            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
+            {
+                if (*slot_ == &ForegroundWindowHook::GetForegroundWindowRedirect) *slot_ = original_;
+                DWORD discarded = 0;
+                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
+                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
+            }
+        }
+        if (active_ == this) active_ = nullptr;
+        installed_ = false;
+        slot_ = nullptr;
+        original_ = nullptr;
+        localWindow_ = nullptr;
     }
 
     bool ForegroundWindowHook::IsInstalled() const noexcept

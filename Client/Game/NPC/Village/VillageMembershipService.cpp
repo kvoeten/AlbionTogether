@@ -6,7 +6,18 @@ namespace fable::game::npc::village
         HMODULE gameModule,
         const core::Diagnostics& diagnostics)
     {
-        return hook_.Install(gameModule, diagnostics);
+        Shutdown();
+        if (!hook_.Install(gameModule, diagnostics))
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
+    }
+
+    void VillageMembershipService::Shutdown() noexcept
+    {
+        hook_.Shutdown();
     }
 
     void VillageMembershipService::SetMutationSink(

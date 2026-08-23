@@ -26,6 +26,7 @@ namespace fable::game::hero_pawn::abilities::hooks
         bool Install(
             game::creature::actions::CreatureActionLifecycleObserver& observer,
             const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
 
     private:

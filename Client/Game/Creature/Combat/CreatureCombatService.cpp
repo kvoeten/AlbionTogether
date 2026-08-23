@@ -54,13 +54,27 @@ namespace fable::game::creature::combat
 {
     CreatureCombatService::~CreatureCombatService()
     {
+        Shutdown();
+    }
+
+    void CreatureCombatService::Shutdown() noexcept
+    {
         ClearPlayerCombat();
+        SetHealthMutationSink(nullptr, nullptr);
+        AcquireSRWLockExclusive(&abilitySinkLock_);
+        abilitySinks_ = {};
+        ReleaseSRWLockExclusive(&abilitySinkLock_);
+        combatHealthMutationHook_.Shutdown();
+        playerAttackAbilityHook_.Shutdown();
+        entities_ = nullptr;
+        diagnostics_ = {};
     }
 
     bool CreatureCombatService::Initialize(
         EntityService& entities,
         const core::Diagnostics& diagnostics)
     {
+        Shutdown();
         entities_ = &entities;
         diagnostics_ = diagnostics;
         observedPlayerAttackCount_.store(0, std::memory_order_release);
@@ -80,7 +94,12 @@ namespace fable::game::creature::combat
         diagnostics_.Log(attackHookInstalled
             ? "Creature combat: deep native player ATTACK-to-creature ability routing validated."
             : "Creature combat: current-build player ATTACK ability routing definition failed validation.");
-        return attackHookInstalled && healthHookInstalled;
+        if (!attackHookInstalled || !healthHookInstalled)
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
     }
 
     bool CreatureCombatService::RoutePlayerCombat(Entity* hero, Entity* puppet)

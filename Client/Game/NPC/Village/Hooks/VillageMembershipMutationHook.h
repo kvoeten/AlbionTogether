@@ -7,6 +7,7 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <array>
 
 namespace fable::game::npc::village
 {
@@ -18,6 +19,7 @@ namespace fable::game::npc::village
             const VillageMembershipMutationEvent& event);
 
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
+        void Shutdown() noexcept;
         void SetEventSink(EventSink sink, void* context) noexcept;
         [[nodiscard]] bool Read(
             void* thing,
@@ -44,6 +46,10 @@ namespace fable::game::npc::village
         native::VillageMembershipFunctions::SetVillagePointer original_ =
             nullptr;
         void* trampoline_ = nullptr;
+        std::uint8_t* target_ = nullptr;
+        std::array<std::uint8_t,
+            native::VillageMembershipFunctions::SetVillagePointerDisplacedBytes>
+                originalBytes_ = {};
         HMODULE gameModule_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         std::atomic<EventSink> eventSink_{nullptr};

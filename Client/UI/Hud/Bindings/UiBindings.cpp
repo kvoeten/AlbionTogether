@@ -1,4 +1,6 @@
 #include "UiBindings.h"
+#include "Scripting/Bindings/Registry/ScriptBindingRegistry.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 
 #include "UI/Hud/HudService.h"
 
@@ -14,6 +16,16 @@ namespace
             g_hudService->ShowMessage(textGroup, selectionMethod);
     }
 }
+
+namespace fable::scripting::bindings
+{
+    bool RegisterUiBindingGroup(BindingContext& context)
+    {
+        return RegisterUiBindings(context.Engine, context.Services.Hud());
+    }
+}
+
+FABLE_SCRIPT_BINDING_GROUP(Ui, 350, &fable::scripting::bindings::RegisterUiBindingGroup);
 
 namespace fable::scripting::bindings
 {

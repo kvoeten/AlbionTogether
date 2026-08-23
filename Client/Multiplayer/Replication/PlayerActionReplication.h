@@ -6,13 +6,12 @@
 #include "Game/HeroPawn/Abilities/HeroAbilityEvent.h"
 #include "Multiplayer/Protocol/PlayerActionMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
+#include "Multiplayer/Replication/PlayerActionEventQueue.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <mutex>
 
 namespace fable::game::creature::combat
 {
@@ -62,6 +61,14 @@ namespace fable::multiplayer::replication
     class PlayerActionReplication final : public ReliableMessageSink
     {
     public:
+        [[nodiscard]] ReliableMessageTypeSet HandledPacketTypes()
+            const noexcept override
+        {
+            static constexpr protocol::PacketType types[] = {
+                protocol::PacketType::PlayerAction};
+            return {types, sizeof(types) / sizeof(types[0])};
+        }
+
         void Initialize(
             PeerRole role,
             std::uint64_t localActorId,
@@ -81,6 +88,8 @@ namespace fable::multiplayer::replication
         bool ProcessPending();
         bool HandleReliableMessage(
             const TransportMessage& message) override;
+        void InvalidateActor(std::uint64_t actorId) noexcept;
+        void InvalidateAllRemote() noexcept;
         void Shutdown() noexcept;
 
     private:
@@ -90,6 +99,12 @@ namespace fable::multiplayer::replication
         static constexpr std::uint64_t ActionPairWindowMilliseconds = 250;
         static constexpr std::uint64_t
             WeaponTransitionCaptureWindowMilliseconds = 1'500;
+        // Fable mutates CTCCarrying in several steps after accepting a
+        // draw/stow action. Sampling in the acceptance frame can observe the
+        // new active weapon before the inactive weapon has returned to its
+        // final carry slot.
+        static constexpr std::uint64_t
+            WeaponTransitionMutationSettleMilliseconds = 100;
         static constexpr std::uint64_t TargetResolutionGraceMilliseconds =
             1'000;
         static constexpr std::uint64_t NativeReplayFailureGraceMilliseconds =
@@ -99,8 +114,15 @@ namespace fable::multiplayer::replication
         {
             protocol::PlayerActionMessage message;
             std::uint64_t queuedAt = 0;
+            std::uint64_t nativeReadyAt = 0;
             std::uint64_t nextAttemptAt = 0;
+            std::uint64_t sourceConnectionNonce = 0;
             bool diagnosticEmitted = false;
+        };
+        struct PendingPublication final
+        {
+            protocol::PlayerActionMessage message;
+            std::uint64_t sourceConnectionNonce = 0;
         };
 
         static void CaptureAbility(
@@ -113,15 +135,6 @@ namespace fable::multiplayer::replication
         static void CaptureHeroAbility(
             void* context,
             const game::hero_pawn::abilities::HeroAbilityEvent& event);
-        void EnqueueAbility(
-            const game::creature::combat::CreatureAbilityEvent& event)
-            noexcept;
-        void EnqueueAction(
-            const game::creature::actions::CreatureActionLifecycleEvent&
-                event) noexcept;
-        void EnqueueHeroAbility(
-            const game::hero_pawn::abilities::HeroAbilityEvent& event)
-            noexcept;
         bool PairAcceptedLocalActions();
         bool CaptureLocal(
             const game::creature::combat::CreatureAbilityEvent& event,
@@ -135,11 +148,17 @@ namespace fable::multiplayer::replication
             const game::hero_pawn::abilities::HeroAbilityEvent& event);
         bool AcceptIntent(
             protocol::PlayerActionMessage message,
-            std::uint64_t sourceActorId);
+            std::uint64_t sourceActorId,
+            std::uint64_t sourceConnectionNonce);
         bool AcceptAuthoritative(
-            protocol::PlayerActionMessage message);
-        bool Queue(protocol::PlayerActionMessage message);
-        bool QueueReplay(protocol::PlayerActionMessage message);
+            protocol::PlayerActionMessage message,
+            std::uint64_t sourceConnectionNonce);
+        bool Queue(
+            protocol::PlayerActionMessage message,
+            std::uint64_t sourceConnectionNonce = 0);
+        bool QueueReplay(
+            protocol::PlayerActionMessage message,
+            std::uint64_t sourceConnectionNonce);
         bool PublishPending();
         bool ReplayPending();
         [[nodiscard]] std::uint64_t NextActionId() noexcept;
@@ -161,23 +180,15 @@ namespace fable::multiplayer::replication
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
         std::uint64_t nextActionId_ = 0;
-        std::mutex eventMutex_;
-        std::deque<game::creature::combat::CreatureAbilityEvent>
-            inboundAbilities_;
-        std::deque<game::creature::actions::CreatureActionLifecycleEvent>
-            inboundActions_;
-        std::deque<game::hero_pawn::abilities::HeroAbilityEvent>
-            inboundHeroAbilities_;
+        PlayerActionEventQueue eventQueue_;
         std::deque<game::creature::combat::CreatureAbilityEvent>
             unmatchedAbilities_;
         std::deque<game::creature::actions::CreatureActionLifecycleEvent>
             unmatchedActions_;
         std::deque<game::creature::actions::CreatureActionLifecycleEvent>
             pendingWeaponTransitions_;
-        std::deque<protocol::PlayerActionMessage> pendingMessages_;
+        std::deque<PendingPublication> pendingMessages_;
         std::deque<PendingReplay> pendingReplays_;
-        std::atomic_bool acceptingEvents_{false};
-        std::atomic_uint droppedEvents_{0};
         bool publishBackpressured_ = false;
         bool initialized_ = false;
     };

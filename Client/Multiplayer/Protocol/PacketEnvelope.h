@@ -6,11 +6,11 @@
 namespace fable::multiplayer::protocol
 {
     inline constexpr std::size_t MaximumDatagramBytes = 1'472;
-    inline constexpr std::size_t PacketHeaderBytes = 24;
+    inline constexpr std::size_t PacketHeaderBytes = 52;
 
     enum class PacketType : std::uint8_t
     {
-        PlayerState = 1,
+        PlayerMovement = 1,
         Authority = 2,
         EntityLifecycle = 3,
         EntityAction = 4,
@@ -24,6 +24,7 @@ namespace fable::multiplayer::protocol
         EntityVitals = 10,
         EntityLowSimulation = 11,
         PlayerAction = 12,
+        PlayerActorState = 13,
     };
 
     namespace packet_flag
@@ -34,9 +35,16 @@ namespace fable::multiplayer::protocol
 
     struct PacketEnvelope final
     {
-        PacketType type = PacketType::PlayerState;
+        PacketType type = PacketType::PlayerMovement;
         std::uint8_t flags = 0;
         std::uint64_t sourceActorId = 0;
+        // Transport connection fencing token. It changes for every local
+        // transport session and prevents delayed datagrams from an older
+        // endpoint incarnation from being accepted after reconnect.
+        std::uint64_t connectionNonce = 1;
+        std::uint64_t streamId = 0;
+        std::uint8_t streamKind = 0;
+        std::uint64_t streamIncarnation = 0;
         std::uint32_t sequence = 0;
     };
 

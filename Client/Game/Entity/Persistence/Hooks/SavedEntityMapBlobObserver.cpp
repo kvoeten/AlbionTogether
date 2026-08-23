@@ -102,6 +102,19 @@ namespace fable::game::entity::persistence
 #endif
     }
 
+    void SavedEntityMapBlobObserver::Shutdown() noexcept
+    {
+        SetPostLoadBarrierSink(nullptr, nullptr);
+        SetCollectionSink(nullptr, nullptr);
+        SetSnapshotSink(nullptr, nullptr);
+        RestoreDetour(loadBinaryDetour_);
+        RestoreDetour(loadTextDetour_);
+        if (active_ == this) active_ = nullptr;
+        originalLoadBinary_ = nullptr;
+        originalLoadText_ = nullptr;
+        diagnostics_ = {};
+    }
+
     void SavedEntityMapBlobObserver::SetSnapshotSink(
         SnapshotSink sink,
         void* context) noexcept

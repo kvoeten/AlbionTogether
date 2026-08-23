@@ -2,12 +2,14 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Multiplayer/Protocol/PlayerState.h"
+#include "Multiplayer/Transport/ReliableStream.h"
 #include "Multiplayer/Transport/TransportMessage.h"
 
 #include <cstdint>
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace fable::multiplayer
 {
@@ -31,7 +33,10 @@ namespace fable::multiplayer
             const core::Diagnostics& diagnostics);
         bool Submit(const PlayerState& localUpdate);
         bool TryConsume(PlayerState& remoteUpdate);
+        // Reliable ordering is independent per stream. Control is stream 0;
+        // actor/entity streams are supplied by the owning replication layer.
         bool SubmitReliable(
+            ReliableStreamId streamId,
             protocol::PacketType type,
             const std::uint8_t* payload,
             std::size_t payloadSize);
@@ -57,6 +62,10 @@ namespace fable::multiplayer
         // Consumers use this instead of peer counts so a reconnect replacing
         // one peer with another still receives a fresh bounded baseline.
         [[nodiscard]] std::uint64_t PeerSetRevision() const noexcept;
+        // Changes for every local transport start. Guests use this to
+        // re-open their reliable actor baseline after reconnecting.
+        [[nodiscard]] std::uint64_t ConnectionNonce() const noexcept;
+        [[nodiscard]] std::vector<std::uint64_t> ConnectedActorIds() const;
 
     private:
         struct Implementation;

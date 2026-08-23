@@ -1,39 +1,12 @@
 #include "ScriptHost.h"
 
-#include "Automation/LocalInstance/MapTransitionAcceptanceDriver.h"
-#include "Automation/Multiplayer/Abilities/HeroWillAbilityAcceptanceDriver.h"
-#include "Automation/Multiplayer/Combat/CombatTargetAcceptanceDriver.h"
-#include "Automation/Multiplayer/Combat/CombatVisualExchangeDriver.h"
-#include "Automation/Multiplayer/Transition/NpcTransferAcceptanceDriver.h"
-#include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Core/Capabilities/CapabilityRegistry.h"
-#include "Game/Creature/CreatureService.h"
-#include "Game/Creature/Animation/CreatureAnimationService.h"
-#include "Game/Creature/Combat/CreatureCombatService.h"
-#include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
-#include "Game/Creature/Look/CreatureLookService.h"
-#include "Game/Creature/Locomotion/CreatureLocomotionService.h"
-#include "Game/Entity/EntityService.h"
-#include "Game/Entity/Presence/Hooks/ThingPresenceObserver.h"
-#include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
-#include "Game/HeroPawn/HeroPawnService.h"
-#include "Game/NPC/NpcService.h"
-#include "Game/NPC/Simulation/DummyVillager/DummyVillagerService.h"
-#include "Game/NPC/Village/VillageMembershipService.h"
-#include "Game/Player/PlayerService.h"
-#include "Game/Player/Input/PlayerInputService.h"
-#include "Game/Quest/QuestService.h"
-#include "Game/World/WorldService.h"
+#include "Game/Runtime/GameServiceRuntime.h"
 #include "Scripting/Bindings/Registry/GameBindings.h"
 #include "Scripting/Runtime/Capabilities/ApiCoverage.h"
-#include "Scripting/Runtime/Events/EventBindings.h"
 #include "Scripting/Runtime/Events/EventBus.h"
 #include "Scripting/Runtime/Scheduling/Scheduler.h"
-#include "Scripting/Runtime/Scheduling/SchedulerBindings.h"
 #include "Scripting/Runtime/Storage/PersistentStore.h"
-#include "Scripting/Runtime/Storage/StorageBindings.h"
-#include "Multiplayer/Runtime/MultiplayerSession.h"
-#include "UI/Hud/HudService.h"
 
 #include <angelscript.h>
 #include <scriptarray.h>
@@ -134,50 +107,10 @@ namespace fable::scripting
     };
 
     ScriptHost::ScriptHost()
-        : entityService_(std::make_unique<game::EntityService>()),
-          creatureService_(std::make_unique<game::CreatureService>()),
-          creatureLocomotionService_(
-              std::make_unique<game::creature::locomotion::CreatureLocomotionService>()),
-          creatureLookService_(
-              std::make_unique<game::creature::look::CreatureLookService>()),
-          creatureCombatService_(
-              std::make_unique<game::creature::combat::CreatureCombatService>()),
-          heroWillAbilityService_(
-              std::make_unique<
-                  game::hero_pawn::abilities::HeroWillAbilityService>()),
-          creatureAnimationService_(
-              std::make_unique<game::creature::animation::CreatureAnimationService>()),
-          playerService_(std::make_unique<game::PlayerService>()),
-          playerInputService_(
-              std::make_unique<game::player::input::PlayerInputService>()),
-          questService_(std::make_unique<game::QuestService>()),
-          npcService_(std::make_unique<game::NpcService>()),
-          villageMembershipService_(std::make_unique<
-              game::npc::village::VillageMembershipService>()),
-          dummyVillagerService_(std::make_unique<
-              game::npc::simulation::DummyVillagerService>()),
-          heroPawnService_(std::make_unique<game::HeroPawnService>()),
-          worldService_(std::make_unique<game::WorldService>()),
-          hudService_(std::make_unique<ui::HudService>()),
-          capabilities_(std::make_unique<core::CapabilityRegistry>()),
+        : capabilities_(std::make_unique<core::CapabilityRegistry>()),
           events_(std::make_unique<EventBus>()),
           storage_(std::make_unique<PersistentStore>()),
-          scheduler_(std::make_unique<Scheduler>()),
-          transitionAcceptanceDriver_(std::make_unique<
-              automation::local_instance::MapTransitionAcceptanceDriver>()),
-          combatTargetAcceptanceDriver_(std::make_unique<
-              automation::multiplayer::combat::
-                  CombatTargetAcceptanceDriver>()),
-          combatVisualExchangeDriver_(std::make_unique<
-              automation::multiplayer::combat::
-                  CombatVisualExchangeDriver>()),
-          heroWillAbilityAcceptanceDriver_(std::make_unique<
-              automation::multiplayer::abilities::
-                  HeroWillAbilityAcceptanceDriver>()),
-          npcTransferAcceptanceDriver_(std::make_unique<
-              automation::multiplayer::transition::
-                  NpcTransferAcceptanceDriver>()),
-          multiplayerSession_(std::make_unique<multiplayer::MultiplayerSession>())
+          scheduler_(std::make_unique<Scheduler>())
     {
     }
 
@@ -188,123 +121,21 @@ namespace fable::scripting
 
     bool ScriptHost::Initialize(
         HMODULE clientModule,
-        HMODULE gameModule,
         const wchar_t* persistentStorageRoot,
-        const automation::runtime::RuntimeConfiguration& runtimeConfiguration,
+        game::GameServiceRuntime& services,
         const core::Diagnostics& diagnostics)
     {
         Shutdown();
         diagnostics_ = diagnostics;
         g_diagnostics = diagnostics;
-
-        if (!entityService_->Initialize(gameModule, diagnostics_))
-        {
-            diagnostics_.Log("AngelScript: native Entity service initialization failed.");
-            return false;
-        }
-        if (!hudService_->Initialize(entityService_->Interface(), diagnostics_))
-        {
-            diagnostics_.Log("AngelScript: native HUD service initialization failed.");
-            return false;
-        }
-        if (!creatureService_->Initialize(*entityService_, diagnostics_) ||
-            !creatureLocomotionService_->Initialize(*entityService_, diagnostics_) ||
-            !creatureLookService_->Initialize(*entityService_, diagnostics_) ||
-            !creatureCombatService_->Initialize(*entityService_, diagnostics_) ||
-            !heroWillAbilityService_->Initialize(*entityService_, diagnostics_) ||
-            !creatureAnimationService_->Initialize(*entityService_, diagnostics_) ||
-            !villageMembershipService_->Initialize(gameModule, diagnostics_) ||
-            !dummyVillagerService_->Initialize(gameModule, diagnostics_) ||
-            !playerInputService_->Initialize(gameModule, diagnostics_) ||
-            !playerService_->Initialize(
-                *entityService_,
-                *creatureService_,
-                diagnostics_) ||
-            !npcService_->Initialize(*entityService_, diagnostics_) ||
-            !heroPawnService_->Initialize(*entityService_, diagnostics_) ||
-            !questService_->Initialize(*entityService_, diagnostics_) ||
-            !worldService_->Initialize(*entityService_, diagnostics_))
-        {
-            diagnostics_.Log("AngelScript: creature or player service initialization failed.");
-            return false;
-        }
-
-        if (!multiplayerSession_->Initialize(
-                runtimeConfiguration,
-                *entityService_,
-                *npcService_,
-                *creatureLocomotionService_,
-                *creatureLookService_,
-                *creatureCombatService_,
-                *heroWillAbilityService_,
-                *villageMembershipService_,
-                *dummyVillagerService_,
-                diagnostics_))
-        {
-            diagnostics_.Log("Multiplayer: session initialization failed.");
-            return false;
-        }
-        transitionAcceptanceDriver_->Initialize(
-            runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition") ||
-                runtimeConfiguration.ScenarioIs(
-                    L"multiplayer_host_authority") ||
-                runtimeConfiguration.ScenarioIs(
-                    L"multiplayer_guest_transition"),
-            runtimeConfiguration.ScenarioIs(
-                L"multiplayer_host_authority"),
-            *entityService_,
-            *creatureLocomotionService_,
-            diagnostics_);
-        const bool hostCombatAcceptance =
-            runtimeConfiguration.ScenarioIs(L"multiplayer_host_combat");
-        const bool guestCombatAcceptance =
-            runtimeConfiguration.ScenarioIs(L"multiplayer_guest_combat");
-        const bool hostHeroWillAcceptance =
-            runtimeConfiguration.ScenarioIs(L"multiplayer_host_hero_will");
-        const bool guestHeroWillAcceptance =
-            runtimeConfiguration.ScenarioIs(L"multiplayer_guest_hero_will");
-        const bool combatAcceptance =
-            hostCombatAcceptance || guestCombatAcceptance;
-        heroWillFocusedAcceptance_ =
-            hostHeroWillAcceptance || guestHeroWillAcceptance;
-        const bool anyHeroWillAcceptance =
-            combatAcceptance || heroWillFocusedAcceptance_;
-        const bool acceptanceHost =
-            hostCombatAcceptance || hostHeroWillAcceptance;
-        combatTargetAcceptanceDriver_->Initialize(
-            anyHeroWillAcceptance,
-            acceptanceHost,
-            heroWillFocusedAcceptance_,
-            *entityService_,
-            *creatureService_,
-            *creatureCombatService_,
-            *npcService_,
-            diagnostics_);
-        combatVisualExchangeDriver_->Initialize(
-            combatAcceptance,
-            hostCombatAcceptance,
-            *entityService_,
-            *creatureCombatService_,
-            diagnostics_);
-        heroWillAbilityAcceptanceDriver_->Initialize(
-            anyHeroWillAcceptance,
-            acceptanceHost,
-            heroWillFocusedAcceptance_,
-            *entityService_,
-            *heroWillAbilityService_,
-            diagnostics_);
-        npcTransferAcceptanceDriver_->Initialize(
-            runtimeConfiguration.ScenarioIs(L"multiplayer_host_transition"),
-            *entityService_,
-            *npcService_,
-            *multiplayerSession_,
-            diagnostics_);
+        services_ = &services;
         RegisterApiCoverage(*capabilities_);
 
         std::filesystem::path scriptsRoot;
         if (!ResolveScriptsRoot(clientModule, scriptsRoot))
         {
             diagnostics_.Log("AngelScript: could not resolve the deployed scripts directory.");
+            Shutdown();
             return false;
         }
         scriptsRoot_ = scriptsRoot;
@@ -313,6 +144,7 @@ namespace fable::scripting
         if (engine_ == nullptr)
         {
             diagnostics_.Log("AngelScript: engine creation failed.");
+            Shutdown();
             return false;
         }
         events_->Initialize(*engine_, diagnostics_);
@@ -391,82 +223,18 @@ namespace fable::scripting
         return true;
     }
 
-    bool ScriptHost::AttachThingPresenceObserver(
-        game::entity::presence::ThingPresenceObserver& observer)
-    {
-        return multiplayerSession_->AttachThingPresenceObserver(observer);
-    }
-
-    bool ScriptHost::AttachSavedEntityMapBlobObserver(
-        game::entity::persistence::SavedEntityMapBlobObserver& observer)
-    {
-        return multiplayerSession_->AttachSavedEntityMapBlobObserver(observer);
-    }
-
-    bool ScriptHost::AttachThingSaveProjectionHook(
-        game::entity::persistence::ThingSaveProjectionHook& hook)
-    {
-        return multiplayerSession_->AttachThingSaveProjectionHook(hook);
-    }
-
-    bool ScriptHost::AttachPopulationSimulationHook(
-        game::npc::population::PopulationSimulationHook& hook)
-    {
-        return multiplayerSession_->AttachPopulationSimulationHook(hook);
-    }
-
-    bool ScriptHost::AttachCreatureActionObserver(
-        game::creature::actions::CreatureActionLifecycleObserver& observer)
-    {
-        return heroWillAbilityService_->AttachActionLifecycleObserver(observer) &&
-            multiplayerSession_->AttachCreatureActionObserver(observer);
-    }
-
-    bool ScriptHost::AttachAiBrainUpdateObserver(
-        game::creature::ai::AiBrainUpdateObserver& observer)
-    {
-        return multiplayerSession_->AttachAiBrainUpdateObserver(observer);
-    }
-
-    bool ScriptHost::AttachWorldTravelObserver(
-        game::world::travel::WorldTravelObserver& observer)
-    {
-        return multiplayerSession_->AttachWorldTravelObserver(observer);
-    }
-
     bool ScriptHost::RegisterApi()
     {
         if (!bindings::RegisterGameBindings(
                 *engine_,
-                *creatureService_,
-                *creatureLocomotionService_,
-                *creatureLookService_,
-                *creatureCombatService_,
-                *playerService_,
-                *npcService_,
-                *heroPawnService_,
-                *questService_,
-                *worldService_,
-                *hudService_,
+                *services_,
                 *capabilities_,
-                diagnostics_))
+                diagnostics_,
+                scheduler_.get(),
+                events_.get(),
+                storage_.get()))
         {
             diagnostics_.Log("AngelScript: game API registration failed.");
-            return false;
-        }
-        if (!bindings::RegisterSchedulerBindings(*engine_, *scheduler_))
-        {
-            diagnostics_.Log("AngelScript: scheduler API registration failed.");
-            return false;
-        }
-        if (!bindings::RegisterEventBindings(*engine_, *events_))
-        {
-            diagnostics_.Log("AngelScript: event API registration failed.");
-            return false;
-        }
-        if (!bindings::RegisterStorageBindings(*engine_, *storage_))
-        {
-            diagnostics_.Log("AngelScript: storage API registration failed.");
             return false;
         }
         return true;
@@ -644,11 +412,6 @@ namespace fable::scripting
         {
             return;
         }
-        if (!multiplayerSession_->OnWorldReady())
-        {
-            diagnostics_.Event("ClientFailed", "multiplayer-world-entry");
-            return;
-        }
         for (const auto& module : modules_)
         {
             if (!module->enabled || module->onWorldReady == nullptr)
@@ -672,21 +435,6 @@ namespace fable::scripting
         }
 
         scheduler_->Tick(deltaSeconds);
-        creatureLocomotionService_->TickHeroShadow();
-        npcTransferAcceptanceDriver_->Tick(
-            multiplayerSession_->HasActiveRemotePresentation());
-        transitionAcceptanceDriver_->Tick(
-            deltaSeconds,
-            multiplayerSession_->HasActiveRemotePresentation());
-        combatTargetAcceptanceDriver_->Tick(
-            multiplayerSession_->HasActiveRemotePresentation());
-        combatVisualExchangeDriver_->Tick(
-            multiplayerSession_->HasActiveRemotePresentation());
-        heroWillAbilityAcceptanceDriver_->Tick(
-            multiplayerSession_->HasActiveRemotePresentation(),
-            heroWillFocusedAcceptance_
-                ? combatTargetAcceptanceDriver_->IsTargetReady()
-                : combatVisualExchangeDriver_->IsComplete());
 
         for (const auto& module : modules_)
         {
@@ -716,43 +464,12 @@ namespace fable::scripting
         }
     }
 
-    bool ScriptHost::ProcessMultiplayerPresentation()
-    {
-        if (!loaded_)
-        {
-            return false;
-        }
-        // Creature creation and retirement must execute from Fable's verified
-        // game-thread queue boundary. Network state is still received by the
-        // transport worker and movement is still consumed by creature hooks;
-        // this drains only the single bounded lifecycle delta.
-        return multiplayerSession_->ProcessPresentationLifecycle();
-    }
-
-    void ScriptHost::DriveReplicatedMovement()
-    {
-        if (loaded_)
-        {
-            multiplayerSession_->DriveReplicatedMovement();
-        }
-    }
-
     bool ScriptHost::Reload()
     {
-        if (multiplayerSession_->IsEnabled())
-        {
-            diagnostics_.Event(
-                "ScriptReloadSkipped",
-                "multiplayer owns shared locomotion and combat routes");
-            return false;
-        }
         if (engine_ == nullptr || scriptsRoot_.empty())
         {
             return false;
         }
-
-        creatureCombatService_->ClearPlayerCombat();
-        creatureLocomotionService_->ClearHeroShadow();
 
         for (auto iterator = modules_.rbegin(); iterator != modules_.rend(); ++iterator)
         {
@@ -809,14 +526,6 @@ namespace fable::scripting
 
     void ScriptHost::Shutdown()
     {
-        npcTransferAcceptanceDriver_->Shutdown();
-        heroWillAbilityAcceptanceDriver_->Shutdown();
-        combatVisualExchangeDriver_->Shutdown();
-        combatTargetAcceptanceDriver_->Shutdown();
-        transitionAcceptanceDriver_->Shutdown();
-        multiplayerSession_->Shutdown();
-        creatureCombatService_->ClearPlayerCombat();
-        creatureLocomotionService_->ClearHeroShadow();
         if (loaded_)
         {
             for (auto iterator = modules_.rbegin(); iterator != modules_.rend(); ++iterator)
@@ -840,7 +549,7 @@ namespace fable::scripting
         diagnostics_ = {};
         g_diagnostics = {};
         scriptsRoot_.clear();
-        heroWillFocusedAcceptance_ = false;
+        services_ = nullptr;
     }
 
     bool ScriptHost::IsLoaded() const noexcept

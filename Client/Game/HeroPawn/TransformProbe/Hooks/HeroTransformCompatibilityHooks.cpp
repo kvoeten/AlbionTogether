@@ -234,6 +234,12 @@ namespace fable::game::hero_pawn::transform_probe
 
         g_component11Resume = component11.resume;
         g_missingComponent11Cleanup = component11.missingComponentCleanup;
+        fractionalTarget_ = fractionalTarget;
+        discreteTarget_ = discreteTarget;
+        component11Target_ = component11.branch;
+        std::memcpy(fractionalOriginal_.data(), fractionalTarget, fractionalOriginal_.size());
+        std::memcpy(discreteOriginal_.data(), discreteTarget, discreteOriginal_.size());
+        std::memcpy(component11Original_.data(), component11.branch, component11Original_.size());
         active_ = this;
 
         std::memcpy(
@@ -293,6 +299,33 @@ namespace fable::game::hero_pawn::transform_probe
         diagnostics_.Event("HeroTransformCompatibilityReady", detail);
         return true;
 #endif
+    }
+
+    void HeroTransformCompatibilityHooks::Shutdown() noexcept
+    {
+        auto restore = [](std::uint8_t* target, const auto& bytes) noexcept
+        {
+            if (target == nullptr) return;
+            DWORD protection = 0;
+            if (VirtualProtect(target, bytes.size(), PAGE_EXECUTE_READWRITE, &protection))
+            {
+                std::memcpy(target, bytes.data(), bytes.size());
+                FlushInstructionCache(GetCurrentProcess(), target, bytes.size());
+                DWORD discarded = 0;
+                VirtualProtect(target, bytes.size(), protection, &discarded);
+            }
+        };
+        restore(component11Target_, component11Original_);
+        restore(discreteTarget_, discreteOriginal_);
+        restore(fractionalTarget_, fractionalOriginal_);
+        if (active_ == this) active_ = nullptr;
+        fractionalTarget_ = nullptr;
+        discreteTarget_ = nullptr;
+        component11Target_ = nullptr;
+        installed_ = false;
+        g_component11Resume = 0;
+        g_missingComponent11Cleanup = 0;
+        diagnostics_ = {};
     }
 
     bool HeroTransformCompatibilityHooks::IsInstalled() const noexcept
