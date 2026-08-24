@@ -4,11 +4,11 @@ Experimental multiplayer mod for Fable Anniversary.
 
 Join the [FableTogether Discord](https://discord.gg/5JSKmjKd85) for playtests, updates, and support.
 
-![Two players exploring Albion together](media/MovementReplication.gif)
+![Six Heroes together in Albion](media/six-player-alpha.png)
 
 ## Current alpha
 
-One host can accept up to 64 guests (65 players total); the current alpha has been manually tested with two players. Players can load their own Heroes, explore Albion independently, and meet up anywhere. Remote Heroes keep their appearance, weapons, combat animations, and most Will spell effects. This release substantially improves stability when connecting, changing regions, equipping weapons, and synchronizing NPCs.
+One host can accept up to 64 guests (65 players total); the current alpha has been manually tested with six players. Players can load their own Heroes, explore Albion independently, and meet up anywhere. Remote Heroes keep their appearance, weapons, combat animations, and most Will spell effects. This release substantially improves stability when connecting, changing regions, equipping weapons, and synchronizing NPCs.
 
 During alpha, expect some jank. Systems are being roughly implemented to make a full multiplayer playthrough possible. Once the full game can be played by two or more people, development will move into beta and focus on polishing the experience toward release.
 
