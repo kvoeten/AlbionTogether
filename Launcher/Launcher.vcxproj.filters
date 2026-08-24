@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{5A7A8A31-4C8D-4E21-9EF6-7F1B8E49B0A1}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Platform"><UniqueIdentifier>{D8E5B0D3-7C76-4C26-9B27-8C9D3F57E2A0}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Runtime"><UniqueIdentifier>{9C1D5D8B-ED39-43E5-A66A-A8206C5B1C50}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Automation"><UniqueIdentifier>{6D8F0C8A-6C11-4E5B-9D5B-4D65E7E5D9A2}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Diagnostics"><UniqueIdentifier>{E0F7C2C2-1B1D-43CF-8D4C-52B1D46E2D88}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Application"><UniqueIdentifier>{6B8EF831-3C6E-4C17-8F85-0EDE2AE3E431}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Configuration"><UniqueIdentifier>{2C7119D7-E5A7-4F57-9E4E-C35D46F4E8A4}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Artifacts"><UniqueIdentifier>{A3B0E58B-75BE-42C4-8F46-7D774A1A6C4D}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Multiplayer"><UniqueIdentifier>{4D76B0D7-EA36-44CA-9BE8-064A38F9F3AA}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Multiplayer\Scenarios"><UniqueIdentifier>{6D9A8BE8-16A1-4E29-B4D4-83E6A73F133A}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\Multiplayer\Scenarios\Combat"><UniqueIdentifier>{B4A5B4E1-A04A-4B89-A8F5-6AAB7B8B1E6D}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{A5F75ED8-02AC-44ED-9A2A-36BFD0A7D7E9}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Configuration"><UniqueIdentifier>{B6BEEB3D-8B7F-4C64-A84E-6CE399C2C4DA}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Platform"><UniqueIdentifier>{C541A089-06A4-40B1-996A-C7A36A0AA8CC}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Runtime"><UniqueIdentifier>{EAB0B0D8-DA47-49D4-8DD8-257C053CD6A7}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Automation"><UniqueIdentifier>{FBE11B84-CF6B-4FD2-9DA5-EA7D29A4B763}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Diagnostics"><UniqueIdentifier>{FC4C6E55-2C5B-4B0A-A4C3-7D9BE72FD8D7}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Application"><UniqueIdentifier>{8EF0B4AE-B9D5-4C3D-A764-F8F3A4BCE3A7}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Artifacts"><UniqueIdentifier>{3F6FAE44-12E8-4F31-9EB3-D9A7F07A7851}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Multiplayer"><UniqueIdentifier>{7D2F47AE-CB79-4CF6-A1D9-0A0C0A4B286A}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Multiplayer\Scenarios"><UniqueIdentifier>{F737C0B8-4A04-4C95-8F07-3B5373C07324}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\Multiplayer\Scenarios\Combat"><UniqueIdentifier>{C5B6DD42-9E50-4418-9D0B-5B00E6EE7552}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Main.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="Automation\InputStimulus.cpp"><Filter>Source Files\Automation</Filter></ClCompile>
+    <ClCompile Include="Automation\AutomationRunner.cpp"><Filter>Source Files\Automation</Filter></ClCompile>
+    <ClCompile Include="Automation\DualInstanceScenario.cpp"><Filter>Source Files\Automation</Filter></ClCompile>
+    <ClCompile Include="Application\LaunchPlan.cpp"><Filter>Source Files\Application</Filter></ClCompile>
+    <ClCompile Include="Application\SingleGameLaunch.cpp"><Filter>Source Files\Application</Filter></ClCompile>
+    <ClCompile Include="Automation\WindowControl.cpp"><Filter>Source Files\Automation</Filter></ClCompile>
+    <ClCompile Include="Diagnostics\EventLog.cpp"><Filter>Source Files\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Platform\Win32Error.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
+    <ClCompile Include="Platform\ScopedEnvironmentVariable.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
+    <ClCompile Include="Runtime\ClientInjector.cpp"><Filter>Source Files\Runtime</Filter></ClCompile>
+    <ClCompile Include="Runtime\GameProcess.cpp"><Filter>Source Files\Runtime</Filter></ClCompile>
+    <ClCompile Include="Configuration\Options.cpp"><Filter>Source Files\Configuration</Filter></ClCompile>
+    <ClCompile Include="Configuration\Paths.cpp"><Filter>Source Files\Configuration</Filter></ClCompile>
+    <ClCompile Include="Artifacts\RunId.cpp"><Filter>Source Files\Artifacts</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\PeerHarness.cpp"><Filter>Source Files\Multiplayer</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\MultiplayerTestSession.cpp"><Filter>Source Files\Multiplayer</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\BasicScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\RosterScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\TransitionScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\AuthorityScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\CombatScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\RunMultiplayerTest.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\Combat\CombatSetupPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\Combat\CombatAttackPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\Combat\CombatAuthorityPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\Combat\CombatVisualPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\Combat\HeroWillPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\Combat\CombatCompletionPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Automation\InputStimulus.h"><Filter>Header Files\Automation</Filter></ClInclude>
+    <ClInclude Include="Automation\AutomationRunner.h"><Filter>Header Files\Automation</Filter></ClInclude>
+    <ClInclude Include="Automation\DualInstanceScenario.h"><Filter>Header Files\Automation</Filter></ClInclude>
+    <ClInclude Include="Application\LaunchPlan.h"><Filter>Header Files\Application</Filter></ClInclude>
+    <ClInclude Include="Application\SingleGameLaunch.h"><Filter>Header Files\Application</Filter></ClInclude>
+    <ClInclude Include="Automation\WindowControl.h"><Filter>Header Files\Automation</Filter></ClInclude>
+    <ClInclude Include="Configuration\LauncherConstants.h"><Filter>Header Files\Configuration</Filter></ClInclude>
+    <ClInclude Include="Diagnostics\EventLog.h"><Filter>Header Files\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Platform\UniqueHandle.h"><Filter>Header Files\Platform</Filter></ClInclude>
+    <ClInclude Include="Platform\ScopedEnvironmentVariable.h"><Filter>Header Files\Platform</Filter></ClInclude>
+    <ClInclude Include="Platform\Win32Error.h"><Filter>Header Files\Platform</Filter></ClInclude>
+    <ClInclude Include="Runtime\ClientInjector.h"><Filter>Header Files\Runtime</Filter></ClInclude>
+    <ClInclude Include="Runtime\GameProcess.h"><Filter>Header Files\Runtime</Filter></ClInclude>
+    <ClInclude Include="Configuration\Options.h"><Filter>Header Files\Configuration</Filter></ClInclude>
+    <ClInclude Include="Configuration\Paths.h"><Filter>Header Files\Configuration</Filter></ClInclude>
+    <ClInclude Include="Artifacts\RunId.h"><Filter>Header Files\Artifacts</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\MultiplayerTestContext.h"><Filter>Header Files\Multiplayer</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\PeerHarness.h"><Filter>Header Files\Multiplayer</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\MultiplayerTestSession.h"><Filter>Header Files\Multiplayer</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\ScenarioRunners.h"><Filter>Header Files\Multiplayer\Scenarios</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\CombatScenarioState.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\CombatSetupPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\CombatAttackPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\CombatAuthorityPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\CombatVisualPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\HeroWillPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Scenarios\Combat\CombatCompletionPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+  </ItemGroup>
+</Project>
