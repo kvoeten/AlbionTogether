@@ -750,10 +750,14 @@ namespace
                 (options.multiplayerCombatTest ? 1 : 0) +
                 (options.multiplayerHeroWillTest ? 1 : 0) +
                 (options.multiplayerPlaytest ? 1 : 0);
+        const bool interactiveRosterPlaytest =
+            options.multiplayerRosterTest && options.multiplayerPlaytest &&
+            multiplayerModes == 2;
         const bool interactiveCombatPlaytest =
             options.multiplayerCombatTest && options.multiplayerPlaytest &&
             multiplayerModes == 2;
-        if (multiplayerModes > 1 && !interactiveCombatPlaytest)
+        if (multiplayerModes > 1 &&
+            !interactiveRosterPlaytest && !interactiveCombatPlaytest)
         {
             error = L"Choose one multiplayer test or playtest mode";
             return false;
@@ -1939,6 +1943,7 @@ namespace
         LaunchedGame& game,
         const wchar_t* instance,
         int x,
+        int y = 0,
         unsigned int timeoutMilliseconds = 5'000)
     {
         const ULONGLONG deadline = GetTickCount64() + timeoutMilliseconds;
@@ -1950,7 +1955,7 @@ namespace
                 game.window = currentWindow;
             }
             if (game.window != nullptr && IsWindow(game.window) &&
-                PositionLocalWindow(game.window, instance, x, 0))
+                PositionLocalWindow(game.window, instance, x, y))
             {
                 return true;
             }
@@ -2484,6 +2489,7 @@ namespace
         bool heroWillTest,
         const std::vector<std::wstring>& originalArguments)
     {
+        const bool sixPeerShowcase = interactive && rosterTest;
         ScopedEnvironmentVariable manualPlaytestEnvironment(
             kManualPlaytestEnvironment,
             interactive ? L"1" : L"");
@@ -2519,15 +2525,18 @@ namespace
             return !error;
         };
         if (!prepareRole(L"host") || !prepareRole(L"guest") ||
-            (rosterTest && !prepareRole(L"guest2")))
+            (rosterTest && (!prepareRole(L"guest2") ||
+                (sixPeerShowcase && (!prepareRole(L"guest3") ||
+                    !prepareRole(L"guest4") || !prepareRole(L"guest5"))))))
         {
-            std::wcerr << L"Could not prepare multiplayer adult-town fixtures.\n";
+            std::wcerr << L"Could not prepare multiplayer fixture documents.\n";
             return 1;
         }
 
         LaunchedGame host;
         LaunchedGame guest;
         LaunchedGame guest2;
+        std::array<LaunchedGame, 3> showcaseGuests;
         const auto stop = [](LaunchedGame& game)
         {
             if (game.process.valid())
@@ -2572,6 +2581,10 @@ namespace
         };
         const auto stopAll = [&]
         {
+            for (auto& showcaseGuest : showcaseGuests)
+            {
+                stop(showcaseGuest);
+            }
             stop(guest2);
             stop(guest);
             stop(host);
@@ -2664,6 +2677,26 @@ namespace
                 FocusMultiplayerPeer(guest, L"guest")) &&
             WaitForMultiplayerEvent(
                 guest, guestEvents, L"guest", "MultiplayerRemoteDefinitionCreated", timeoutSeconds);
+        if (worldsReady && rosterTest)
+        {
+            // A guest can present the host before the host republishes the
+            // current saved-map baseline. Fence roster expansion on that
+            // baseline so the next guest can resolve the host's native map
+            // identity during its own save construction barrier.
+            worldsReady =
+                WaitForMultiplayerEvent(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerSavedEntityMapBaselinePublished",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEvent(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerSavedEntityMapBaselineAccepted",
+                    timeoutSeconds);
+        }
         const fs::path guest2Events = roleRoot(L"guest2") / L"events.jsonl";
         if (worldsReady && rosterTest)
         {
@@ -2718,6 +2751,96 @@ namespace
                         "actor_id=" + std::to_string(guestActorId),
                         timeoutSeconds);
             }
+
+            if (worldsReady && sixPeerShowcase)
+            {
+                struct ShowcasePeer
+                {
+                    const wchar_t* instance;
+                    const wchar_t* player;
+                    LaunchedGame* game;
+                };
+                const std::array<ShowcasePeer, 3> extraPeers = {{
+                    {L"guest3", L"Guest Three", &showcaseGuests[0]},
+                    {L"guest4", L"Guest Four", &showcaseGuests[1]},
+                    {L"guest5", L"Guest Five", &showcaseGuests[2]},
+                }};
+                for (const auto& peer : extraPeers)
+                {
+                    const std::wstring scenario = L"multiplayer_guest";
+                    worldsReady = spawnRole(
+                            peer.instance,
+                            scenario.c_str(),
+                            L"guest",
+                            L"127.0.0.1",
+                            peer.player,
+                            kRemoteHeroDefinition,
+                            *peer.game) &&
+                        WaitForLocalInstanceReady(
+                            *peer.game,
+                            roleRoot(peer.instance) / L"events.jsonl",
+                            peer.instance,
+                            kLocalTestWindowPitch *
+                                (static_cast<int>(peer.instance[5] - L'2')),
+                            timeoutSeconds) &&
+                        WaitForMultiplayerEvent(
+                            *peer.game,
+                            roleRoot(peer.instance) / L"events.jsonl",
+                            peer.instance,
+                            "MultiplayerLocalHeroReady",
+                            timeoutSeconds);
+                    if (!worldsReady)
+                    {
+                        break;
+                    }
+                }
+                if (worldsReady)
+                {
+                    struct PeerView
+                    {
+                        const wchar_t* instance;
+                        const wchar_t* player;
+                        LaunchedGame* game;
+                    };
+                    const std::array<PeerView, 6> peers = {{
+                        {L"host", L"Host", &host},
+                        {L"guest", L"Guest", &guest},
+                        {L"guest2", L"Guest Two", &guest2},
+                        {L"guest3", L"Guest Three", &showcaseGuests[0]},
+                        {L"guest4", L"Guest Four", &showcaseGuests[1]},
+                        {L"guest5", L"Guest Five", &showcaseGuests[2]},
+                    }};
+                    for (std::size_t observer = 0;
+                         observer < peers.size() && worldsReady;
+                         ++observer)
+                    {
+                        const fs::path events =
+                            roleRoot(peers[observer].instance) / L"events.jsonl";
+                        for (std::size_t subject = 0;
+                             subject < peers.size(); ++subject)
+                        {
+                            if (observer == subject)
+                            {
+                                continue;
+                            }
+                            worldsReady = WaitForMultiplayerEventDetail(
+                                *peers[observer].game,
+                                events,
+                                peers[observer].instance,
+                                "MultiplayerRemoteDefinitionCreated",
+                                "actor_id=" + std::to_string(
+                                    StablePlayerActorId(
+                                        subject == 0 ? L"host" : L"guest",
+                                        peers[subject].player)),
+                                timeoutSeconds);
+                            if (!worldsReady)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
         if (!worldsReady)
         {
@@ -2740,6 +2863,26 @@ namespace
                     guest2,
                     L"guest2",
                     kLocalTestWindowPitch * 2);
+            if (sixPeerShowcase)
+            {
+                windowsPositioned =
+                    RepositionLocalInstanceWindow(host, L"host", 0, 0) &&
+                    RepositionLocalInstanceWindow(
+                        guest, L"guest", kLocalTestWindowWidth, 0) &&
+                    RepositionLocalInstanceWindow(
+                        guest2, L"guest2", kLocalTestWindowWidth * 2, 0);
+                for (std::size_t index = 0; index < showcaseGuests.size(); ++index)
+                {
+                    windowsPositioned = windowsPositioned &&
+                        RepositionLocalInstanceWindow(
+                            showcaseGuests[index],
+                            (index == 0 ? L"guest3" :
+                                index == 1 ? L"guest4" : L"guest5"),
+                            kLocalTestWindowWidth *
+                                static_cast<int>(index),
+                            kLocalTestWindowHeight);
+                }
+            }
         }
         if (!windowsPositioned)
         {
@@ -3775,6 +3918,23 @@ namespace
                 << L"State root: " << sessionRoot.wstring() << L"\n";
             return 0;
         }
+        if (sixPeerShowcase)
+        {
+            std::wcout
+                << L"Manual six-peer Chamber roster showcase is ready. Host PID "
+                << host.processId << L", guest PIDs " << guest.processId << L", "
+                << guest2.processId << L", " << showcaseGuests[0].processId << L", "
+                << showcaseGuests[1].processId << L", " << showcaseGuests[2].processId
+                << L". All processes are being left running.\n"
+                << L"No synthetic movement, targeting, attacks, spells, or automated combat input was submitted.\n"
+                << L"State root: " << sessionRoot.wstring() << L"\n";
+            std::wcout
+                << L"The six-peer coordinator is staying alive passively; no focus, input, or automatic shutdown will be performed.\n";
+            for (;;)
+            {
+                Sleep(1'000);
+            }
+        }
         if (interactive)
         {
             std::wcout
@@ -4181,7 +4341,8 @@ int wmain(int argc, wchar_t** argv)
             ? ResolveDeploymentAsset(
                 launcherDirectory,
                 fs::path(L"fixtures") /
-                    ((options.multiplayerCombatTest || options.multiplayerHeroWillTest)
+                    ((options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
+                        (options.multiplayerRosterTest && options.multiplayerPlaytest))
                         ? L"combat-chamber-hero3"
                         : L"adult-town") /
                     L"Documents",
@@ -4262,7 +4423,9 @@ int wmain(int argc, wchar_t** argv)
                     << (options.multiplayerPlaytest
                         ? options.multiplayerCombatTest
                             ? L"multiplayer_combat_manual"
-                            : L"multiplayer_adult_town_manual"
+                            : options.multiplayerRosterTest
+                                ? L"multiplayer_chamber_roster_manual"
+                                : L"multiplayer_adult_town_manual"
                        : options.multiplayerHeroWillTest
                            ? L"multiplayer_hero_will"
                        : options.multiplayerCombatTest
@@ -4326,7 +4489,8 @@ int wmain(int argc, wchar_t** argv)
 
         const fs::path saveRoot = fixtureDocumentsSource /
             L"My Games" / L"FableHD" / L"Saves" /
-            ((options.multiplayerCombatTest || options.multiplayerHeroWillTest)
+            ((options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
+                (options.multiplayerRosterTest && options.multiplayerPlaytest))
                 ? L"Hero3" : L"Hero1");
         if (!IsFile(saveRoot / L"Profile.bin") ||
             !IsFile(saveRoot / L"AutoSave"))

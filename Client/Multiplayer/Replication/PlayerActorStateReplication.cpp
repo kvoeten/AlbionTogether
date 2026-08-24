@@ -175,7 +175,10 @@ namespace fable::multiplayer::replication
                 for (const auto& [actorId, lifecycle] : lifecycles_)
                 {
                     (void)actorId;
-                    if (!publicationQueue_.Append(lifecycle))
+                    protocol::PlayerActorStateMessage baseline = lifecycle;
+                    baseline.operation = protocol::PlayerActorStateOperation::Construct;
+                    baseline.componentFlags = protocol::player_actor_state_flag::All;
+                    if (!publicationQueue_.Append(baseline))
                     {
                         diagnostics_.Event(
                             "MultiplayerPlayerActorStateOverflow",
