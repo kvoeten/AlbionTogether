@@ -65,12 +65,13 @@ namespace fable::game
                 creatureLocomotionService_->Initialize(*entityService_, diagnostics)) ||
             !Complete(InitializationStage::Look,
                 creatureLookService_->Initialize(*entityService_, diagnostics)) ||
-            !Complete(InitializationStage::Combat,
-                creatureCombatService_->Initialize(*entityService_, diagnostics)) ||
-            !Complete(InitializationStage::HeroWill,
-                heroWillAbilityService_->Initialize(*entityService_, diagnostics)) ||
             !Complete(InitializationStage::Animation,
                 creatureAnimationService_->Initialize(*entityService_, diagnostics)) ||
+            !Complete(InitializationStage::Combat,
+                creatureCombatService_->Initialize(
+                    *entityService_, *creatureAnimationService_, diagnostics)) ||
+            !Complete(InitializationStage::HeroWill,
+                heroWillAbilityService_->Initialize(*entityService_, diagnostics)) ||
             !Complete(InitializationStage::Villages,
                 villageMembershipService_->Initialize(gameModule, diagnostics)) ||
             !Complete(InitializationStage::DummyVillagers,

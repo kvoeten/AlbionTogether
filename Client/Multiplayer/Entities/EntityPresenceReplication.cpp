@@ -81,12 +81,21 @@ namespace fable::multiplayer::entities
             }
             LiveEntityChange change;
             const bool applied = liveEntities_.Apply(canonical, change);
-            if (event.destroyed && event.phase ==
-                    game::entity::presence::ThingPresencePhase::
-                        Unregistered &&
-                identities_ != nullptr)
+            if (event.phase == game::entity::presence::ThingPresencePhase::
+                    Unregistered && identities_ != nullptr)
             {
-                identities_->ForgetLocal(event.thingUid);
+                const auto retirement = pendingIdentityRetirements_.find(
+                    event.thingUid);
+                if (retirement != pendingIdentityRetirements_.end() &&
+                    retirement->second == canonical.thingUid)
+                {
+                    identities_->ForgetLocal(event.thingUid);
+                    pendingIdentityRetirements_.erase(retirement);
+                }
+                else if (event.destroyed)
+                {
+                    identities_->ForgetLocal(event.thingUid);
+                }
             }
             if (!applied)
             {
@@ -181,6 +190,37 @@ namespace fable::multiplayer::entities
         return true;
     }
 
+    bool EntityPresenceReplication::RetireNetworkIdentity(
+        std::uint64_t canonicalUid,
+        std::uint64_t localUid) noexcept
+    {
+        if (!initialized_ || identities_ == nullptr || canonicalUid == 0 ||
+            localUid == 0 || identities_->FindLocal(canonicalUid) != localUid)
+        {
+            return false;
+        }
+
+        if (liveEntities_.Find(canonicalUid) == nullptr)
+        {
+            identities_->ForgetLocal(localUid);
+            return true;
+        }
+        const auto existing = pendingIdentityRetirements_.find(localUid);
+        if (existing != pendingIdentityRetirements_.end())
+        {
+            return existing->second == canonicalUid;
+        }
+        if (pendingIdentityRetirements_.size() >= PendingEventCapacity)
+        {
+            diagnostics_.Event(
+                "MultiplayerEntityIdentityRetirementOverflow",
+                "bounded presentation-alias retirement table is full");
+            return false;
+        }
+        pendingIdentityRetirements_.emplace(localUid, canonicalUid);
+        return true;
+    }
+
     void EntityPresenceReplication::TakeChanges(
         std::vector<LiveEntityChange>& changes,
         bool& baselineRequired)
@@ -261,6 +301,7 @@ namespace fable::multiplayer::entities
             pendingEvents_.clear();
         }
         pendingChanges_.clear();
+        pendingIdentityRetirements_.clear();
         liveEntities_.Clear();
         diagnostics_ = {};
         droppedEvents_.store(0, std::memory_order_release);

@@ -37,7 +37,7 @@ namespace
     {
         using fable::multiplayer::protocol::PacketType;
         return type >= PacketType::PlayerMovement &&
-            type <= PacketType::PlayerActorState;
+            type < PacketType::Count;
     }
 }
 

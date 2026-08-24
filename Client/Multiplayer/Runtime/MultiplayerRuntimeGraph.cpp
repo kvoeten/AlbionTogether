@@ -111,14 +111,18 @@ namespace fable::multiplayer
         w.authority.SetMapBaselineGate(&w.savedEntityMapBaseline);
         w.populationSimulation.Initialize(role, actorId, t.transport, w.authority, p.localHero, diagnostics_);
         e.entityMovement.Initialize(role, actorId, t.transport, w.authority, e.entityLifecycle, e.entityIdentities, locomotion, look, diagnostics_);
-        a.entityActions.Initialize(role, actorId, t.transport, w.authority, e.entityLifecycle, e.entityIdentities, e.entityPresence, p.playerCombatants, combat, diagnostics_);
-        a.playerActions.Initialize(role, actorId, t.transport, p.localHero, t.remotePlayerChannels, p.remotePlayers, e.entityIdentities, e.entityPresence, p.playerCombatants, combat, abilities, diagnostics_);
+        a.entityActions.Initialize(role, actorId, t.transport, w.authority, e.entityLifecycle, e.entityIdentities, e.entityPresence, p.playerCombatants, a.combatLedger, combat, diagnostics_);
+        a.playerActions.Initialize(role, actorId, t.transport, p.localHero, t.remotePlayerChannels, p.remotePlayers, e.entityIdentities, e.entityPresence, p.playerCombatants, a.combatLedger, combat, abilities, diagnostics_);
+        a.combatHits.Initialize(role, actorId, t.transport, w.authority,
+            e.entityLifecycle, e.entityIdentities, e.entityPresence,
+            p.localHero, t.remotePlayerChannels, p.playerCombatants,
+            a.combatLedger, combat, diagnostics_);
         a.entityVitals.Initialize(role, actorId, t.transport, w.authority,
             e.entityLifecycle, e.entityIdentities, t.remotePlayerChannels,
             combat, diagnostics_);
         e.entityLowSimulation.Initialize(role, actorId, t.transport, w.authority, e.entityLifecycle, e.entityIdentities, dummyVillagers, diagnostics_);
         w.villageMembership.Initialize(role, actorId, w.authority, e.entityLifecycle, e.entityIdentities, villages, diagnostics_);
-        w.entitySimulation.Initialize(actorId, w.authority, e.entityLifecycle, e.entityIdentities, e.entityPresence, diagnostics_);
+        w.entitySimulation.Initialize(actorId, w.authority, e.entityLifecycle, e.entityIdentities, e.entityPresence, p.playerCombatants, diagnostics_);
         MarkStage(InitializationStage::Components);
         t.reliableMessages.Initialize(t.transport, diagnostics_);
         MarkStage(InitializationStage::ReliableDispatcher);
@@ -203,6 +207,7 @@ namespace fable::multiplayer
             w.villageMembership.Shutdown();
             e.entityLowSimulation.Shutdown();
             a.entityVitals.Shutdown();
+            a.combatHits.Shutdown();
             a.playerActions.Shutdown();
             p.actorState.Shutdown();
             a.entityActions.Shutdown();
@@ -219,6 +224,7 @@ namespace fable::multiplayer
             e.entityLifecycle.Shutdown();
             e.entityIdentities.Clear();
             w.authority.Shutdown();
+            a.combatLedger.Clear();
         }
         if (HasStage(InitializationStage::Players))
         {

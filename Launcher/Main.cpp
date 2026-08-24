@@ -37,6 +37,8 @@ namespace
     constexpr wchar_t kMultiplayerPlayerIdEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_PLAYER_ID";
     constexpr wchar_t kMultiplayerAppearanceEnvironment[] = L"FABLETOGETHER_MULTIPLAYER_APPEARANCE";
     constexpr wchar_t kGameDefinitionsEnvironment[] = L"FABLETOGETHER_GAME_DEFINITIONS";
+    constexpr wchar_t kManualPlaytestEnvironment[] =
+        L"FABLETOGETHER_MANUAL_PLAYTEST";
     constexpr wchar_t kHeroWillPillarOnlyEnvironment[] =
         L"FABLE_TOGETHER_HERO_WILL_PILLAR_ONLY";
     // The deployed definitions sidecar patches this ordinary creature with
@@ -740,13 +742,18 @@ namespace
             error = L"multiplayer test/playtest cannot be combined with another launch mode";
             return false;
         }
-        if ((options.multiplayerTest ? 1 : 0) +
+        const int multiplayerModes =
+                (options.multiplayerTest ? 1 : 0) +
                 (options.multiplayerRosterTest ? 1 : 0) +
                 (options.multiplayerTransitionTest ? 1 : 0) +
                 (options.multiplayerAuthorityTest ? 1 : 0) +
                 (options.multiplayerCombatTest ? 1 : 0) +
                 (options.multiplayerHeroWillTest ? 1 : 0) +
-                (options.multiplayerPlaytest ? 1 : 0) > 1)
+                (options.multiplayerPlaytest ? 1 : 0);
+        const bool interactiveCombatPlaytest =
+            options.multiplayerCombatTest && options.multiplayerPlaytest &&
+            multiplayerModes == 2;
+        if (multiplayerModes > 1 && !interactiveCombatPlaytest)
         {
             error = L"Choose one multiplayer test or playtest mode";
             return false;
@@ -882,7 +889,7 @@ namespace
             << L"  --multiplayer-authority-test  Move only the host away and prove guest NPC ownership handoff\n"
             << L"  --multiplayer-combat-test  Attack from the guest and prove per-NPC authority handoff\n"
             << L"  --multiplayer-hero-will-test  Run only the Chamber Hero Will capture/replay sequence\n"
-            << L"  --multiplayer-playtest  Load two connected adult-town peers and leave them running\n"
+            << L"  --multiplayer-playtest  Set up and leave two connected peers running without synthetic input; combine with --multiplayer-combat-test for the Chamber arena\n"
             << L"  --hold <sec>        Dual-instance stability interval from 5 to 300 seconds (default: 10)\n"
             << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
             << L"  --dry-run          Resolve and validate paths without launching\n"
@@ -1296,6 +1303,20 @@ namespace
         hash ^= role == L"host" ? 1u : 2u;
         hash *= 1099511628211ull;
         return hash == 0 ? 1 : hash;
+    }
+
+    std::string PvpReactionDetail(
+        std::uint64_t sourceActorId,
+        std::uint64_t targetActorId)
+    {
+        char detail[192] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "source_kind=1 source=%016llX target_kind=1 target=%016llX reaction_route=observer-replay",
+            static_cast<unsigned long long>(sourceActorId),
+            static_cast<unsigned long long>(targetActorId));
+        return detail;
     }
 
     bool ReplicatedMovementWasApplied(
@@ -2385,28 +2406,64 @@ namespace
         return true;
     }
 
-    bool AttackWithMultiplayerPeer(
+    bool DriveFriendlyTargetedPvpAttacks(
         LaunchedGame& game,
         const wchar_t* instance,
-        unsigned int attempts)
+        const fs::path& events,
+        unsigned int attacks,
+        unsigned int timeoutSeconds)
     {
-        if (attempts == 0 || !FocusMultiplayerPeer(game, instance))
+        if (attacks == 0)
         {
             return false;
         }
-        ScopedSyntheticMouseButton attack;
-        for (unsigned int attempt = 0; attempt < attempts; ++attempt)
+
+        for (unsigned int ordinal = 1; ordinal <= attacks; ++ordinal)
         {
-            if (!attack.Press(game.window))
+            const std::string attackOrdinal =
+                "ordinal=" + std::to_string(ordinal) + " action=SPACE";
+            if (!WaitForMultiplayerEventDetail(
+                    game,
+                    events,
+                    instance,
+                    "MultiplayerCombatPvpTargetInputRequested",
+                    attackOrdinal.c_str(),
+                    timeoutSeconds) ||
+                !FocusMultiplayerPeer(game, instance))
             {
                 return false;
             }
-            Sleep(100);
-            if (!attack.Release())
+
+            // Fable's Space action owns friendly target acquisition. Keep it
+            // held until the injected acceptance driver has observed the
+            // remote Hero in the native targeting component and accepted the
+            // corresponding attack; this prevents an untargeted swing from
+            // racing target selection.
+            ScopedSyntheticKey targetAction(VK_SPACE);
+            if (!targetAction.Press())
             {
+                std::wcerr << L"Could not press the friendly-target action in multiplayer "
+                           << instance << L".\n";
                 return false;
             }
-            Sleep(350);
+            const bool targetObserved = WaitForMultiplayerEventDetail(
+                game,
+                events,
+                instance,
+                "MultiplayerCombatPvpFriendlyTargetObserved",
+                attackOrdinal.c_str(),
+                timeoutSeconds);
+            const bool targetReleased = targetAction.Release();
+            if (!targetObserved || !targetReleased)
+            {
+                if (!targetReleased)
+                {
+                    std::wcerr << L"Could not release the friendly-target action in multiplayer "
+                               << instance << L".\n";
+                }
+                return false;
+            }
+            Sleep(250);
         }
         return true;
     }
@@ -2427,6 +2484,14 @@ namespace
         bool heroWillTest,
         const std::vector<std::wstring>& originalArguments)
     {
+        ScopedEnvironmentVariable manualPlaytestEnvironment(
+            kManualPlaytestEnvironment,
+            interactive ? L"1" : L"");
+        if (!manualPlaytestEnvironment.applied())
+        {
+            std::wcerr << L"Could not configure manual multiplayer input ownership.\n";
+            return 1;
+        }
         const std::vector<std::wstring> arguments =
             LocalWindowArguments(originalArguments);
         const auto roleRoot = [&](const wchar_t* role)
@@ -2685,7 +2750,8 @@ namespace
         // The combat fixture loads both Heroes from the same Chamber save.
         // Wait until both selected-save Heroes and their remote presentations
         // are live, then separate only the host through normal player input.
-        if (combatTest && !MoveMultiplayerPeer(host, L"host", 1'000, false))
+        if (combatTest && !interactive &&
+            !MoveMultiplayerPeer(host, L"host", 500, false))
         {
             stopAll();
             return 1;
@@ -2745,6 +2811,21 @@ namespace
                     L"guest",
                     "MultiplayerCombatTargetArmed",
                     timeoutSeconds);
+            if (interactive)
+            {
+                if (!targetReady)
+                {
+                    stopAll();
+                    return 1;
+                }
+                std::wcout
+                    << L"Manual Chamber combat playtest is ready. Host PID "
+                    << host.processId << L", guest PID " << guest.processId
+                    << L". Both processes are being left running.\n"
+                    << L"The Hobbe is armed, but no synthetic movement, targeting, equipment, health, or combat input will be submitted.\n"
+                    << L"State root: " << sessionRoot.wstring() << L"\n";
+                return 0;
+            }
             const std::uint64_t guestActorId =
                 StablePlayerActorId(L"guest", L"Guest");
             const std::string guestActor = std::to_string(guestActorId);
@@ -2767,9 +2848,23 @@ namespace
                     ReadEventFile(hostEvents),
                     "MultiplayerRemotePlayerVitalsApplied",
                     guestRemoteVitals.c_str());
+            const bool pvpTargetingCompleted = targetReady &&
+                (heroWillTest ||
+                    (DriveFriendlyTargetedPvpAttacks(
+                        host,
+                        L"host",
+                        hostEvents,
+                        2,
+                        timeoutSeconds) &&
+                     DriveFriendlyTargetedPvpAttacks(
+                        guest,
+                        L"guest",
+                        guestEvents,
+                        2,
+                        timeoutSeconds)));
             const bool attackSubmitted = heroWillTest
-                ? targetReady
-                : targetReady &&
+                ? pvpTargetingCompleted
+                : pvpTargetingCompleted &&
                 WaitForMultiplayerEvent(
                     guest,
                     guestEvents,
@@ -3094,6 +3189,62 @@ namespace
                     "MultiplayerRemotePlayerAbilitySubmitted",
                     ("actor_id=" + guestActor).c_str(),
                     timeoutSeconds) &&
+                WaitForMultiplayerEventCount(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "CreatureHitResolved",
+                    1,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventCount(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "CreatureHitResolved",
+                    1,
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatHitApplied",
+                    "target_kind=1",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatHitApplied",
+                    "target_kind=1",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatHitApplied",
+                    "target_kind=2",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatHitApplied",
+                    "target_kind=2",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatHitApplied",
+                    PvpReactionDetail(hostActorId, guestActorId),
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatHitApplied",
+                    PvpReactionDetail(guestActorId, hostActorId),
+                    timeoutSeconds) &&
                 WaitForMultiplayerEvent(
                     host,
                     hostEvents,
@@ -3105,6 +3256,27 @@ namespace
                     guestEvents,
                     L"guest",
                     "MultiplayerCombatVisualExchangeComplete",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatTargetKillStarted",
+                    "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    host,
+                    hostEvents,
+                    L"host",
+                    "MultiplayerCombatTargetTerminalObserved",
+                    "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET health=0.000 maximum=60.000 dead=true",
+                    timeoutSeconds) &&
+                WaitForMultiplayerEventDetail(
+                    guest,
+                    guestEvents,
+                    L"guest",
+                    "MultiplayerCombatTargetTerminalObserved",
+                    "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET health=0.000 maximum=60.000 dead=true",
                     timeoutSeconds));
             wchar_t pillarOnlyValue[8] = {};
             const DWORD pillarOnlyLength = GetEnvironmentVariableW(
@@ -3191,6 +3363,17 @@ namespace
                 WindowIsResponsive(guest.window) &&
                 !EventWasReported(hostEventContent, "ClientFailed") &&
                 !EventWasReported(guestEventContent, "ClientFailed");
+            if (interactive)
+            {
+                std::wcout
+                    << (peersSurvived
+                        ? L"Interactive combat sequence completed; leaving both peers running for visual verification.\n"
+                        : L"Interactive combat sequence did not satisfy every diagnostic assertion; leaving surviving peers running for visual verification.\n")
+                    << L"Host PID " << host.processId << L", guest PID "
+                    << guest.processId << L".\n"
+                    << L"State root: " << sessionRoot.wstring() << L"\n";
+                return peersSurvived ? 0 : 1;
+            }
             const bool guestStopped = CloseCreatedProcess(
                 guest.process.get(), guest.processId, guest.shutdownEvent.get());
             const bool hostStopped = CloseCreatedProcess(
@@ -4076,8 +4259,10 @@ int wmain(int argc, wchar_t** argv)
         options.multiplayerPlaytest)
     {
         std::wcout << L"Test:   "
-                   << (options.multiplayerPlaytest
-                       ? L"multiplayer_adult_town_manual"
+                    << (options.multiplayerPlaytest
+                        ? options.multiplayerCombatTest
+                            ? L"multiplayer_combat_manual"
+                            : L"multiplayer_adult_town_manual"
                        : options.multiplayerHeroWillTest
                            ? L"multiplayer_hero_will"
                        : options.multiplayerCombatTest

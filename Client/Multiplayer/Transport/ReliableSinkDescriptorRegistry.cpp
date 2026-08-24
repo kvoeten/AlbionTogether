@@ -36,7 +36,7 @@ namespace
     constexpr std::size_t TransportOwnedPacketTypeCount = 4;
     constexpr std::size_t ExpectedDescriptorCount =
         static_cast<std::size_t>(
-            fable::multiplayer::protocol::PacketType::PlayerActorState) -
+            fable::multiplayer::protocol::PacketType::Count) - 1u -
         TransportOwnedPacketTypeCount;
 
     bool IsApplicationReliableType(
@@ -103,7 +103,7 @@ namespace fable::multiplayer
             });
 
         constexpr std::size_t PacketSlotCount =
-            static_cast<std::size_t>(protocol::PacketType::PlayerActorState) + 1;
+            static_cast<std::size_t>(protocol::PacketType::Count);
         std::array<const ReliableSinkDescriptor*, PacketSlotCount> owners = {};
         for (std::size_t index = 0; index < descriptors.size(); ++index)
         {

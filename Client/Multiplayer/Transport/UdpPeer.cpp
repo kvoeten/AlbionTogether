@@ -199,13 +199,16 @@ namespace fable::multiplayer
 
         bool SendPeerHelloIfNeeded(ULONGLONG now)
         {
-            if (role != PeerRole::Guest ||
-                now - lastPeerHelloSentAt < kPeerHelloIntervalMilliseconds)
+            if (role != PeerRole::Guest)
             {
                 return true;
             }
-            if (sessions.HasGuestSession() &&
-                !sessions.HasPendingGuestConfirmation())
+            const bool established = sessions.HasGuestSession() &&
+                !sessions.HasPendingGuestConfirmation();
+            const ULONGLONG interval = established
+                ? kKeepAliveIntervalMilliseconds
+                : kPeerHelloIntervalMilliseconds;
+            if (now - lastPeerHelloSentAt < interval)
             {
                 return true;
             }

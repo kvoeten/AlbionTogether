@@ -25,6 +25,11 @@ namespace fable::multiplayer::entities
     class EntityPresenceReplication;
 }
 
+namespace fable::multiplayer::combat
+{
+    class PlayerCombatantDirectory;
+}
+
 namespace fable::multiplayer::authority
 {
     class AuthorityReplication;
@@ -32,7 +37,9 @@ namespace fable::multiplayer::authority
     // Applies the same fenced publisher decision to native AI and native
     // action submission that movement replication already uses. A non-owner
     // keeps the retail creature body, physics, animation, and action playback
-    // surface, but cannot make autonomous decisions or originate actions.
+    // surface, but cannot make autonomous decisions or originate attacks.
+    // Native victim responses remain allowed as predicted presentation;
+    // authoritative health and death still come from combat replication.
     class EntitySimulationAuthority final
     {
     public:
@@ -42,6 +49,7 @@ namespace fable::multiplayer::authority
             entities::EntityLifecycleReplication& lifecycle,
             entities::EntityNetworkIdentityRegistry& identities,
             entities::EntityPresenceReplication& presence,
+            combat::PlayerCombatantDirectory& combatants,
             const core::Diagnostics& diagnostics);
         bool AttachBrainObserver(
             game::creature::ai::AiBrainUpdateObserver& observer);
@@ -77,6 +85,7 @@ namespace fable::multiplayer::authority
         entities::EntityLifecycleReplication* lifecycle_ = nullptr;
         entities::EntityNetworkIdentityRegistry* identities_ = nullptr;
         entities::EntityPresenceReplication* presence_ = nullptr;
+        combat::PlayerCombatantDirectory* combatants_ = nullptr;
         game::creature::ai::AiBrainUpdateObserver* brainObserver_ = nullptr;
         game::creature::actions::CreatureActionLifecycleObserver*
             actionObserver_ = nullptr;

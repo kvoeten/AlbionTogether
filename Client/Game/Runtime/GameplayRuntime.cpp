@@ -127,9 +127,17 @@ namespace fable::game
     bool GameplayRuntime::AttachCreatureActionObserver(
         creature::actions::CreatureActionLifecycleObserver& observer)
     {
-        if (!state_->servicesReady || !state_->multiplayerReady ||
-            !state_->services.HeroWill().AttachActionLifecycleObserver(observer))
+        if (!state_->servicesReady || !state_->multiplayerReady)
         {
+            return false;
+        }
+        if (!state_->services.Combat().AttachActionLifecycleObserver(observer))
+        {
+            return false;
+        }
+        if (!state_->services.HeroWill().AttachActionLifecycleObserver(observer))
+        {
+            state_->services.Combat().DetachActionLifecycleObserver();
             return false;
         }
         if (state_->multiplayer.AttachCreatureActionObserver(observer))
@@ -137,6 +145,7 @@ namespace fable::game
             return true;
         }
         state_->services.HeroWill().DetachActionLifecycleObserver();
+        state_->services.Combat().DetachActionLifecycleObserver();
         return false;
     }
 

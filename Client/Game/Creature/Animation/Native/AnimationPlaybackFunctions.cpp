@@ -3,6 +3,7 @@
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
+#include <atomic>
 #include <cstring>
 
 namespace
@@ -16,6 +17,7 @@ namespace
     constexpr std::array<std::uint8_t, 9> kValidateAnimationPrefix = {
         0x56, 0x8B, 0x74, 0x24, 0x08, 0x85, 0xF6, 0x7E, 0x19,
     };
+    std::atomic<HMODULE> gPristineValidatedModule{nullptr};
 }
 
 namespace fable::game::creature::animation::native
@@ -39,16 +41,19 @@ namespace fable::game::creature::animation::native
         auto* const validate = reinterpret_cast<const std::uint8_t*>(
             base + ValidateAnimationRva);
         std::uintptr_t submitExceptionHandler = 0;
+        bool pristineSubmit = false;
         __try
         {
+            pristineSubmit = std::memcmp(
+                submit, kSehPrefix.data(), kSehPrefix.size()) == 0;
+            const bool knownModuleDetour = submit[0] == 0xE9 &&
+                gPristineValidatedModule.load(std::memory_order_acquire) ==
+                    gameModule;
             if (std::memcmp(
                     construct,
                     kConstructRequestPrefix.data(),
                     kConstructRequestPrefix.size()) != 0 ||
-                std::memcmp(
-                    submit,
-                    kSehPrefix.data(),
-                    kSehPrefix.size()) != 0 ||
+                (!pristineSubmit && !knownModuleDetour) ||
                 std::memcmp(
                     validate,
                     kValidateAnimationPrefix.data(),
@@ -56,19 +61,27 @@ namespace fable::game::creature::animation::native
             {
                 return false;
             }
-            std::memcpy(
-                &submitExceptionHandler,
-                submit + kSehPrefix.size(),
-                sizeof(submitExceptionHandler));
+            if (pristineSubmit)
+            {
+                std::memcpy(
+                    &submitExceptionHandler,
+                    submit + kSehPrefix.size(),
+                    sizeof(submitExceptionHandler));
+            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             return false;
         }
-        if (submitExceptionHandler !=
-            base + SubmitRequestExceptionHandlerRva)
+        if (pristineSubmit && submitExceptionHandler !=
+                base + SubmitRequestExceptionHandlerRva)
         {
             return false;
+        }
+        if (pristineSubmit)
+        {
+            gPristineValidatedModule.store(
+                gameModule, std::memory_order_release);
         }
 
         gameModule_ = gameModule;
@@ -99,7 +112,9 @@ namespace fable::game::creature::animation::native
             return attempt;
         }
         if (!::fable::game::creature::native::CreatureFrameFunctions::
-                ValidateCreature(gameModule_, creature))
+                ValidateCreature(gameModule_, creature) &&
+            !::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(gameModule_, creature))
         {
             attempt.result = AnimationPlaybackResult::InvalidCreature;
             return attempt;

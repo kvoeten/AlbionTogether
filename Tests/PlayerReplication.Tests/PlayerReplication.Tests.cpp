@@ -11,10 +11,13 @@
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
+#include "Multiplayer/Combat/CombatActionLedger.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
 #include "Multiplayer/Entities/EntityPresenceReplication.h"
+#include "Multiplayer/Entities/LiveEntityRegistry.h"
+#include "Multiplayer/Entities/WorldEntityDirectory.h"
 #include "Multiplayer/Presentation/RemotePlayerRegistry.h"
 #include "Multiplayer/Replication/EntityVitalsReplication.h"
 #include "Multiplayer/Replication/LocalHeroReplication.h"
@@ -47,6 +50,8 @@ namespace fable::multiplayer::replication::testing
     void SetLocalHeroState(const PlayerState* state) noexcept;
 }
 
+int RunCombatHitReplicationTests();
+
 namespace
 {
     using fable::game::Vector3;
@@ -67,6 +72,7 @@ namespace
     using fable::multiplayer::replication::RemotePlayerChannels;
     using fable::multiplayer::TransportMessage;
     using fable::multiplayer::UdpPeer;
+    using fable::multiplayer::authority::MapPreparationRetryState;
 
     namespace actor_state_testing =
         fable::multiplayer::replication::testing;
@@ -1448,6 +1454,7 @@ namespace
         fable::multiplayer::entities::EntityNetworkIdentityRegistry identities;
         fable::multiplayer::entities::EntityPresenceReplication presence;
         fable::multiplayer::combat::PlayerCombatantDirectory combatants;
+        fable::multiplayer::combat::CombatActionLedger combatLedger;
         fable::game::creature::combat::CreatureCombatService combat;
         fable::game::hero_pawn::abilities::HeroWillAbilityService abilities;
         fable::multiplayer::replication::PlayerActionReplication actions;
@@ -1461,6 +1468,7 @@ namespace
             identities,
             presence,
             combatants,
+            combatLedger,
             combat,
             abilities,
             TestDiagnostics());
@@ -1539,6 +1547,7 @@ namespace
         fable::multiplayer::entities::EntityNetworkIdentityRegistry identities;
         fable::multiplayer::entities::EntityPresenceReplication presence;
         fable::multiplayer::combat::PlayerCombatantDirectory combatants;
+        fable::multiplayer::combat::CombatActionLedger combatLedger;
         fable::game::creature::combat::CreatureCombatService combat;
         fable::game::hero_pawn::abilities::HeroWillAbilityService abilities;
         fable::multiplayer::replication::PlayerActionReplication actions;
@@ -1552,6 +1561,7 @@ namespace
             identities,
             presence,
             combatants,
+            combatLedger,
             combat,
             abilities,
             TestDiagnostics());
@@ -1695,6 +1705,7 @@ namespace
         fable::multiplayer::entities::EntityNetworkIdentityRegistry identities;
         fable::multiplayer::entities::EntityPresenceReplication presence;
         fable::multiplayer::combat::PlayerCombatantDirectory combatants;
+        fable::multiplayer::combat::CombatActionLedger combatLedger;
         fable::game::creature::combat::CreatureCombatService combat;
         fable::game::hero_pawn::abilities::HeroWillAbilityService abilities;
         fable::multiplayer::replication::PlayerActionReplication actions;
@@ -1708,6 +1719,7 @@ namespace
             identities,
             presence,
             combatants,
+            combatLedger,
             combat,
             abilities,
             TestDiagnostics());
@@ -2969,16 +2981,14 @@ namespace
         movement.moving = true;
         movement.velocity = {1.0f, 0.0f, 0.0f};
 
-        // Authenticated movement refreshes the host-side lease. Remaining
-        // connected beyond the whole lease proves active peers are not aged
-        // out merely because the original handshake is old.
+        // Transport keepalives must preserve the peer while native game/save
+        // loading has not opened a movement channel yet. Requiring gameplay
+        // state here recreates the real startup race where the host retired a
+        // slow-loading guest before its Hero became available.
         const auto activeDeadline =
             std::chrono::steady_clock::now() + leaseSpan;
         while (std::chrono::steady_clock::now() < activeDeadline)
         {
-            ++movement.sequence;
-            movement.position.x += 0.1f;
-            CHECK(test, guest.Submit(movement));
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
         CHECK(test, !guest.HasFailed());
@@ -3175,6 +3185,29 @@ namespace
     void TestBoundedChallengeReconnectFencing()
     {
         constexpr const char* test = "bounded handshake reconnect fencing";
+
+        // A duplicate challenge is the host retrying the same handshake, not
+        // a replacement transport session. Actor lifecycle consumers key
+        // their invalidation to this revision, so it must remain stable.
+        fable::multiplayer::PeerSessionRegistry guestRegistry;
+        constexpr std::uint64_t hostNonce = 70'001;
+        constexpr std::uint64_t guestNonce = 70'002;
+        std::array<std::uint8_t,
+            fable::multiplayer::PeerSessionRegistry::ChallengeBytes>
+            hostChallenge = {};
+        CHECK(test,
+            fable::multiplayer::transport_codec::EncodePeerHelloChallenge(
+                guestNonce, 70'003, hostChallenge));
+        bool guestSessionChanged = false;
+        CHECK(test, guestRegistry.AcceptHostChallenge(
+            hostNonce, guestNonce, hostChallenge, guestSessionChanged));
+        CHECK(test, guestSessionChanged);
+        const std::uint64_t establishedRevision = guestRegistry.Revision();
+        CHECK(test, guestRegistry.AcceptHostChallenge(
+            hostNonce, guestNonce, hostChallenge, guestSessionChanged));
+        CHECK(test, !guestSessionChanged);
+        CHECK(test, guestRegistry.Revision() == establishedRevision);
+
         fable::multiplayer::PeerSessionRegistry registry;
         const sockaddr_in endpoint = LoopbackEndpoint(41000);
         constexpr std::uint64_t actorId = 0xF000000000000042ull;
@@ -3388,6 +3421,89 @@ namespace
         CHECK(test, channels.Find(kActorId)->sequence == 1);
     }
 
+    void TestLostMapPreparationRequestRetriesUntilAcknowledged()
+    {
+        constexpr const char* test =
+            "lost map preparation request retries until acknowledged";
+        MapPreparationRetryState retry;
+
+        CHECK(test, !retry.IsPending());
+        CHECK(test, retry.IsDue(1000));
+
+        // The first Prepare is lost.  The request remains pending, but the
+        // construction loop cannot enqueue another copy during the backoff.
+        retry.RecordAttempt(1000);
+        CHECK(test, retry.IsPending());
+        CHECK(test, retry.AttemptCount() == 1);
+        CHECK(test, !retry.IsDue(1249));
+        CHECK(test, retry.IsDue(1250));
+
+        // A second identical Prepare is now allowed.  Its backoff grows in a
+        // bounded way, and a later Prepared acknowledgement clears it.
+        retry.RecordAttempt(1250);
+        CHECK(test, retry.AttemptCount() == 2);
+        CHECK(test, !retry.IsDue(1749));
+        CHECK(test, retry.IsDue(1750));
+        retry.Acknowledge();
+        CHECK(test, !retry.IsPending());
+        CHECK(test, retry.IsDue(1750));
+    }
+
+    void TestRemoteEntityHealthProtectionFencesLifecycle()
+    {
+        constexpr const char* test =
+            "remote entity health protection fences lifecycle";
+        fable::multiplayer::entities::WorldEntityRecord world;
+        world.thingUid = 7001;
+        world.generation = 3;
+        world.mapEpoch = 9;
+        world.simulationOwnerActorId = 2002;
+        world.available = true;
+        world.live = true;
+        world.creature = true;
+        fable::multiplayer::entities::LiveEntityRecord live;
+        live.thingUid = world.thingUid;
+        live.creature = true;
+        live.thing = reinterpret_cast<void*>(0x1234);
+
+        CHECK(test, fable::multiplayer::replication::
+            IsRemoteEntityHealthReplica(world, live, 1001, false));
+        CHECK(test, !fable::multiplayer::replication::
+            IsRemoteEntityHealthReplica(world, live, 1001, true));
+
+        // Retirement, generation replacement, and map handoff all fence the
+        // old native binding before EntityVitals can retain a new one.
+        world.available = false;
+        CHECK(test, !fable::multiplayer::replication::
+            IsRemoteEntityHealthReplica(world, live, 1001, false));
+        world.available = true;
+        world.generation = 4;
+        CHECK(test, fable::multiplayer::replication::
+            IsRemoteEntityHealthReplica(world, live, 1001, false));
+        world.mapEpoch = 10;
+        CHECK(test, fable::multiplayer::replication::
+            IsRemoteEntityHealthReplica(world, live, 1001, false));
+        world.simulationOwnerActorId = 1001;
+        CHECK(test, !fable::multiplayer::replication::
+            IsRemoteEntityHealthReplica(world, live, 1001, false));
+    }
+
+    void TestReplicaHealthProtectionRevisionGatesUnchangedTicks()
+    {
+        constexpr const char* test =
+            "replica health protection revision gates unchanged ticks";
+        fable::multiplayer::replication::ReplicaHealthProtectionRevision
+            revision;
+        CHECK(test, revision.NeedsReconcile(1, 1));
+        revision.Commit(1, 1);
+        CHECK(test, !revision.NeedsReconcile(1, 1));
+        CHECK(test, revision.NeedsReconcile(2, 1));
+        revision.Commit(2, 1);
+        CHECK(test, revision.NeedsReconcile(2, 3));
+        revision.Invalidate();
+        CHECK(test, revision.NeedsReconcile(2, 3));
+    }
+
     void TestStaleDeltaDoesNotOverwrite()
     {
         constexpr const char* test = "stale component delta";
@@ -3494,6 +3610,9 @@ int main()
 {
     TestCodecRoundTripAndRejection();
     TestLostConstructAndRetransmission();
+    TestLostMapPreparationRequestRetriesUntilAcknowledged();
+    TestRemoteEntityHealthProtectionFencesLifecycle();
+    TestReplicaHealthProtectionRevisionGatesUnchangedTicks();
     TestStaleDeltaDoesNotOverwrite();
     TestNewAuthorityRequiresNewIncarnation();
     TestRetirePreventsResurrection();
@@ -3526,6 +3645,7 @@ int main()
     TestGuestDropsTrafficBeforeHandshakeLatch();
     TestGuestRecoversFromRestartedHostWithoutRestarting();
     TestBoundedChallengeReconnectFencing();
+    failures += RunCombatHitReplicationTests();
 
     if (failures != 0)
     {

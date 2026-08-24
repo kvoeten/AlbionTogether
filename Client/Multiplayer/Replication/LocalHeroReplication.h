@@ -32,6 +32,11 @@ namespace fable::multiplayer::combat
     class PlayerCombatantDirectory;
 }
 
+namespace fable::multiplayer::entities
+{
+    class LiveEntityRegistry;
+}
+
 namespace fable::multiplayer::replication
 {
     class LocalPlayerChannel;
@@ -59,6 +64,8 @@ namespace fable::multiplayer::replication
         void CaptureMovement(std::uint64_t now);
         void CaptureAppearance(std::uint64_t now);
         void CaptureEquipment(std::uint64_t now);
+        [[nodiscard]] bool HasDepartedNativeWorld(
+            const entities::LiveEntityRegistry& liveEntities) noexcept;
         [[nodiscard]] bool WorldIsCurrent() const;
         void BeginWorldTransition() noexcept;
         [[nodiscard]] bool ConsumeCompletedWorldTransition() noexcept;
@@ -132,6 +139,7 @@ namespace fable::multiplayer::replication
         bool entryPending_ = false;
         bool appearanceReady_ = false;
         bool equipmentReady_ = false;
+        bool nativePresenceObserved_ = false;
         bool morphSelfTest_ = false;
         bool graphicRuntimeReported_ = false;
         bool transitionActive_ = false;

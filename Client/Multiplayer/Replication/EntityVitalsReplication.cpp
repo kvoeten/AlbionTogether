@@ -64,6 +64,10 @@ namespace fable::multiplayer::replication
         {
             return false;
         }
+        if (!SynchronizeReplicaHealthProtection(liveEntities))
+        {
+            return false;
+        }
         processingLocalHero_ = &localHero;
         processingLiveEntities_ = &liveEntities;
         std::deque<game::creature::combat::CombatHealthMutationEvent> captured;
@@ -199,13 +203,12 @@ namespace fable::multiplayer::replication
         {
             return true;
         }
-        const authority::EntityAuthorityKey key{
-            world->thingUid, world->generation};
-        if (!authority_->IsEntityPublisher(
-                key,
-                world->mapName,
-                localActorId_,
-                world->mapEpoch))
+        // Action leases are intentionally short-lived (for example while a
+        // remote player drives an NPC reaction). They must not transfer the
+        // canonical health/death writer. Vitals remain with the stable
+        // high-simulation owner recorded by the entity lifecycle.
+        if (world->simulationOwnerActorId == 0 ||
+            world->simulationOwnerActorId != localActorId_)
         {
             deferred = now >= event.observedAt &&
                 now - event.observedAt <= AuthorityGraceMilliseconds;
@@ -295,11 +298,8 @@ namespace fable::multiplayer::replication
                 lifecycle_->Directory().Find(canonicalUid);
             if (world == nullptr || !world->live || !world->available ||
                 !world->creature ||
-                !authority_->IsEntityPublisher(
-                    {world->thingUid, world->generation},
-                    world->mapName,
-                    localActorId_,
-                    world->mapEpoch))
+                world->simulationOwnerActorId == 0 ||
+                world->simulationOwnerActorId != localActorId_)
             {
                 continue;
             }
@@ -516,17 +516,12 @@ namespace fable::multiplayer::replication
         }
         const entities::WorldEntityRecord* const world =
             lifecycle_->Directory().Find(message.entityUid);
-        const authority::EntityAuthorityKey key{
-            message.entityUid, message.entityGeneration};
         if (world == nullptr || !world->live || !world->available ||
             !world->creature || world->generation != message.entityGeneration ||
             world->mapName != message.mapName ||
             world->mapEpoch != message.mapEpoch ||
-            !authority_->IsEntityPublisher(
-                key,
-                message.mapName,
-                sourceActorId,
-                message.mapEpoch))
+            world->simulationOwnerActorId == 0 ||
+            world->simulationOwnerActorId != sourceActorId)
         {
             diagnostics_.Event(
                 "MultiplayerEntityVitalsRejected",
@@ -885,6 +880,145 @@ namespace fable::multiplayer::replication
         }
     }
 
+    bool EntityVitalsReplication::SynchronizeReplicaHealthProtection(
+        const entities::LiveEntityRegistry& liveEntities)
+    {
+        if (combat_ == nullptr || authority_ == nullptr ||
+            lifecycle_ == nullptr || identities_ == nullptr)
+        {
+            return false;
+        }
+
+        const std::uint64_t liveRevision = liveEntities.Revision();
+        const std::uint64_t worldRevision =
+            lifecycle_->Directory().LatestWorldRevision();
+        if (!protectionRevision_.NeedsReconcile(
+                liveRevision,
+                worldRevision))
+        {
+            return true;
+        }
+
+        std::unordered_set<std::uint64_t> retained;
+        const std::vector<entities::LiveEntityRecord> snapshot =
+            liveEntities.Snapshot();
+        retained.reserve(snapshot.size());
+        for (const entities::LiveEntityRecord& live : snapshot)
+        {
+            if (live.thing == nullptr || !live.creature)
+            {
+                continue;
+            }
+            const std::uint64_t canonicalUid = identities_->Canonicalize(
+                live.thingUid);
+            const entities::WorldEntityRecord* const world =
+                lifecycle_->Directory().Find(canonicalUid);
+            if (world == nullptr)
+            {
+                continue;
+            }
+            const bool localIsPublisher =
+                world->simulationOwnerActorId != 0 &&
+                world->simulationOwnerActorId == localActorId_;
+            if (!IsRemoteEntityHealthReplica(
+                    *world,
+                    live,
+                    localActorId_,
+                    localIsPublisher))
+            {
+                continue;
+            }
+
+            retained.insert(world->thingUid);
+            const auto existing = protectedEntities_.find(world->thingUid);
+            if (existing != protectedEntities_.end() &&
+                existing->second.creature == live.thing &&
+                existing->second.generation == world->generation &&
+                existing->second.mapEpoch == world->mapEpoch &&
+                existing->second.ownerActorId ==
+                    world->simulationOwnerActorId)
+            {
+                continue;
+            }
+            if (existing != protectedEntities_.end())
+            {
+                combat_->SetReplicaHealthProtection(
+                    existing->second.creature,
+                    false);
+                protectedEntities_.erase(existing);
+            }
+            if (!combat_->SetReplicaHealthProtection(live.thing, true))
+            {
+                char detail[256] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "thing_uid=%016llX generation=%u map_epoch=%u owner=%llu creature=%p",
+                    static_cast<unsigned long long>(world->thingUid),
+                    world->generation,
+                    world->mapEpoch,
+                    static_cast<unsigned long long>(
+                        world->simulationOwnerActorId),
+                    live.thing);
+                diagnostics_.Event(
+                    "MultiplayerEntityHealthProtectionFailed",
+                    detail);
+                return false;
+            }
+            protectedEntities_[world->thingUid] = {
+                live.thing,
+                world->generation,
+                world->mapEpoch,
+                world->simulationOwnerActorId};
+            char detail[256] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "thing_uid=%016llX generation=%u map_epoch=%u owner=%llu creature=%p",
+                static_cast<unsigned long long>(world->thingUid),
+                world->generation,
+                world->mapEpoch,
+                static_cast<unsigned long long>(
+                    world->simulationOwnerActorId),
+                live.thing);
+            diagnostics_.Event(
+                "MultiplayerEntityHealthProtectionBound",
+                detail);
+        }
+
+        for (auto current = protectedEntities_.begin();
+             current != protectedEntities_.end();)
+        {
+            if (retained.find(current->first) == retained.end())
+            {
+                combat_->SetReplicaHealthProtection(
+                    current->second.creature,
+                    false);
+                current = protectedEntities_.erase(current);
+            }
+            else
+            {
+                ++current;
+            }
+        }
+        protectionRevision_.Commit(liveRevision, worldRevision);
+        return true;
+    }
+
+    void EntityVitalsReplication::ClearReplicaHealthProtection() noexcept
+    {
+        if (combat_ != nullptr)
+        {
+            for (const auto& [entityUid, binding] : protectedEntities_)
+            {
+                (void)entityUid;
+                combat_->SetReplicaHealthProtection(binding.creature, false);
+            }
+        }
+        protectedEntities_.clear();
+        protectionRevision_.Invalidate();
+    }
+
     void EntityVitalsReplication::ApplyLatest(
         const entities::LiveEntityRegistry& liveEntities,
         presentation::RemotePlayerRegistry& remotePlayers)
@@ -1045,6 +1179,7 @@ namespace fable::multiplayer::replication
     void EntityVitalsReplication::Shutdown() noexcept
     {
         acceptingEvents_.store(false, std::memory_order_release);
+        ClearReplicaHealthProtection();
         if (combat_ != nullptr)
         {
             combat_->SetHealthMutationSink(nullptr, nullptr);
@@ -1062,6 +1197,7 @@ namespace fable::multiplayer::replication
         hostEntityRevisions_.clear();
         appliedEntities_.clear();
         authoredEntityBaselines_.clear();
+        protectedEntities_.clear();
         transport_ = nullptr;
         authority_ = nullptr;
         lifecycle_ = nullptr;

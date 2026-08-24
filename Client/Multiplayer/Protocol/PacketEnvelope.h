@@ -25,6 +25,8 @@ namespace fable::multiplayer::protocol
         EntityLowSimulation = 11,
         PlayerAction = 12,
         PlayerActorState = 13,
+        CombatHit = 14,
+        Count,
     };
 
     namespace packet_flag

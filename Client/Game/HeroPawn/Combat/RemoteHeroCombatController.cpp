@@ -2,6 +2,7 @@
 
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/Creature/Combat/Native/AiTargetingComponent.h"
+#include "Game/Creature/Locomotion/Native/LocomotionComponents.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
@@ -10,7 +11,6 @@
 
 #include <Windows.h>
 
-#include <cmath>
 #include <cstdio>
 
 namespace fable::game::hero_pawn::combat
@@ -105,54 +105,6 @@ namespace fable::game::hero_pawn::combat
             return false;
         }
 
-        const auto submitAutoTurn = [&]()
-        {
-            constexpr float Tau = 6.28318530717958647692f;
-            constexpr float AimDistance = 4.0f;
-            const game::Vector3 position = hero_->GetPosition();
-            const float radians = hero_->GetFacing() * Tau;
-            const float targetPosition[3] = {
-                position.x + std::sin(radians) * AimDistance,
-                position.y + std::cos(radians) * AimDistance,
-                position.z,
-            };
-            const bool submitted =
-                std::isfinite(targetPosition[0]) &&
-                std::isfinite(targetPosition[1]) &&
-                std::isfinite(targetPosition[2]) &&
-                combat_->SubmitReplicatedUntargetedAttack(
-                    nativeHero_, targetPosition);
-            char detail[480] = {};
-            std::snprintf(
-                detail,
-                sizeof(detail),
-                "actor_id=%llu avatar=%p ability_id=%u charge=%.3f aim=(%.3f,%.3f,%.3f) source_action=%s source_animation_id=%u route=retail-hero-untargeted-auto-turn submitted=%s",
-                static_cast<unsigned long long>(actorId_),
-                nativeHero_,
-                abilityId,
-                charge,
-                targetPosition[0],
-                targetPosition[1],
-                targetPosition[2],
-                resolvedActionType.empty()
-                    ? "<unresolved>"
-                    : resolvedActionType.c_str(),
-                resolvedAnimationId,
-                submitted ? "true" : "false");
-            diagnostics_.Event(
-                submitted
-                    ? "MultiplayerRemoteNativeUntargetedAttackSubmitted"
-                    : "MultiplayerRemoteNativeUntargetedAttackRejected",
-                detail);
-            return submitted;
-        };
-
-        if (weaponFamily == CreatureWeaponFamily::Melee &&
-            targetCreature == nullptr)
-        {
-            return submitAutoTurn();
-        }
-
         if (targetCreature != nullptr)
         {
             const HMODULE gameModule = entities_->GameModule();
@@ -164,37 +116,6 @@ namespace fable::game::hero_pawn::combat
             if (!targetValid)
             {
                 return false;
-            }
-            if (weaponFamily == CreatureWeaponFamily::Melee)
-            {
-                // The verified AI immediate-attack constructor owns its target
-                // directly. Do not make melee replay depend on a Hero
-                // targeting component, and do not let the auto-turn selector
-                // choose a different contextual/acrobatic attack variant.
-                const bool submitted =
-                    combat_->SubmitReplicatedImmediateAttack(
-                        nativeHero_, targetCreature);
-                char attackDetail[448] = {};
-                std::snprintf(
-                    attackDetail,
-                    sizeof(attackDetail),
-                    "actor_id=%llu avatar=%p target=%p ability_id=%u charge=%.3f source_action=%s source_animation_id=%u route=retail-ai-immediate-attack submitted=%s",
-                    static_cast<unsigned long long>(actorId_),
-                    nativeHero_,
-                    targetCreature,
-                    abilityId,
-                    charge,
-                    resolvedActionType.empty()
-                        ? "<unresolved>"
-                        : resolvedActionType.c_str(),
-                    resolvedAnimationId,
-                    submitted ? "true" : "false");
-                diagnostics_.Event(
-                    submitted
-                        ? "MultiplayerRemoteNativeAttackSubmitted"
-                        : "MultiplayerRemoteNativeAttackRejected",
-                    attackDetail);
-                return submitted;
             }
             void* const targeting = entity::native::ThingComponentAccess::Find(
                 nativeHero_, entity::native::ThingComponentType::Targeting);
@@ -218,8 +139,79 @@ namespace fable::game::hero_pawn::combat
             diagnostics_.Event(
                 "MultiplayerRemotePlayerTargetAssigned", detail);
         }
-        const bool submitted = combat_->SubmitReplicatedAbility(
-            nativeHero_, abilityId, charge);
+        bool submitted = false;
+        const char* route = "retail-hero-ability";
+        if (weaponFamily == CreatureWeaponFamily::Melee &&
+            resolvedActionType.find("InterruptableMidAttackAutoTurn") !=
+                std::string::npos)
+        {
+            creature::locomotion::native::LocomotionComponentSnapshot aim;
+            const HMODULE gameModule = entities_->GameModule();
+            const bool targetPositionResolved = targetCreature != nullptr &&
+                creature::locomotion::native::LocomotionComponentDefinition::
+                    Inspect(gameModule, targetCreature, aim) &&
+                aim.physicsNavigatorValidated;
+            if (!targetPositionResolved)
+            {
+                aim = {};
+                if (!creature::locomotion::native::
+                        LocomotionComponentDefinition::Inspect(
+                            gameModule, nativeHero_, aim) ||
+                    !aim.physicsNavigatorValidated)
+                {
+                    return false;
+                }
+                // Untargeted retail Hero attacks take a world aim point. A
+                // missing semantic target should not block the owner-observed
+                // swing; use a stable nearby point and retain the replicated
+                // pawn yaw already driven by locomotion.
+                aim.physicsPosition.y += 1.0f;
+            }
+            const float targetPosition[3] = {
+                aim.physicsPosition.x,
+                aim.physicsPosition.y,
+                aim.physicsPosition.z,
+            };
+            submitted = combat_->SubmitReplicatedUntargetedAttack(
+                nativeHero_,
+                targetPosition,
+                resolvedActionType.c_str(),
+                resolvedAnimationId);
+            route = "native-hero-auto-turn-action";
+        }
+        else
+        {
+            submitted = combat_->SubmitReplicatedAbility(
+                nativeHero_,
+                abilityId,
+                charge,
+                resolvedActionType.c_str(),
+                resolvedAnimationId);
+        }
+        if (weaponFamily == CreatureWeaponFamily::Melee)
+        {
+            char detail[448] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "actor_id=%llu avatar=%p target=%p ability_id=%u charge=%.3f source_action=%s source_animation_id=%u route=%s submitted=%s",
+                static_cast<unsigned long long>(actorId_),
+                nativeHero_,
+                targetCreature,
+                abilityId,
+                charge,
+                resolvedActionType.empty()
+                    ? "<unresolved>"
+                    : resolvedActionType.c_str(),
+                resolvedAnimationId,
+                route,
+                submitted ? "true" : "false");
+            diagnostics_.Event(
+                submitted
+                    ? "MultiplayerRemoteNativeAttackSubmitted"
+                    : "MultiplayerRemoteNativeAttackRejected",
+                detail);
+        }
         return submitted;
     }
 

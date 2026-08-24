@@ -284,7 +284,15 @@ namespace fable::multiplayer
         guestConfirmationPending_ = true;
         guestSessionEstablished_ = true;
         lastGuestTrafficAt_ = GetTickCount64();
-        ++revision_;
+        // The host may repeat the same challenge until it receives our
+        // confirmation. That is transport retransmission, not a new peer
+        // session: advancing the revision would make lifecycle consumers
+        // discard an already accepted actor baseline without prompting the
+        // unchanged host session to resend it.
+        if (changed)
+        {
+            ++revision_;
+        }
         return true;
     }
 

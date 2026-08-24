@@ -8,14 +8,16 @@ Experimental multiplayer mod for Fable Anniversary.
 
 One host can accept up to 64 guests (65 players total); the current alpha has been manually tested with two players. Players can load their own Heroes, explore Albion independently, and meet up anywhere. Remote Heroes keep their appearance, weapons, combat animations, and most Will spell effects. This release substantially improves stability when connecting, changing regions, equipping weapons, and synchronizing NPCs.
 
+During alpha, expect some jank. Systems are being roughly implemented to make a full multiplayer playthrough possible. Once the full game can be played by two or more people, development will move into beta and focus on polishing the experience toward release.
+
 ### Done
 
 - Load your own save character and see each other.
 - Walk around Albion independently and meet in any region.
 - Hero appearance, clothing, movement, rotation, and locomotion.
 - Equipped weapons, including drawing and returning them to the Hero's back.
-- Remote melee attacks and most Will spell animations and effects.
-- NPC presence, position, movement, and health.
+- Synchronized melee combat, damage, and hit reactions for Heroes and enemies.
+- NPC presence, position, movement, health, and death.
 - NPC ownership when players split across different regions.
 - Player health synchronization during combat.
 - Stable map transitions and background rendering.
@@ -23,8 +25,8 @@ One host can accept up to 64 guests (65 players total); the current alpha has be
 
 ### Next
 
-- Enemy hit reactions and complete PvP damage/reactions.
-- Ranged combat, projectiles, death, and revival.
+- Ranged combat and projectiles.
+- Player death and revival.
 - Slow Time and Raise Dead synchronization.
 - Shared quests, cutscenes, warps, and world progress.
 - Equipment, loot, trading, currency, shops, and property ownership.

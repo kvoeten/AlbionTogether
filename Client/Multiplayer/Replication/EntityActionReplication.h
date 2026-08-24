@@ -34,6 +34,7 @@ namespace fable::multiplayer::entities
 
 namespace fable::multiplayer::combat
 {
+    class CombatActionLedger;
     class PlayerCombatantDirectory;
 }
 
@@ -67,6 +68,7 @@ namespace fable::multiplayer::replication
             entities::EntityNetworkIdentityRegistry& identities,
             entities::EntityPresenceReplication& presence,
             combat::PlayerCombatantDirectory& combatants,
+            combat::CombatActionLedger& combatLedger,
             game::creature::combat::CreatureCombatService& combat,
             const core::Diagnostics& diagnostics);
         bool Attach(
@@ -170,6 +172,8 @@ namespace fable::multiplayer::replication
         bool PublishPeerBaseline();
         bool QueueEnd(ActiveAction& action);
         bool Queue(protocol::EntityActionMessage message);
+        void TrackCombatAction(
+            const protocol::EntityActionMessage& message) noexcept;
         bool PublishPending();
         void PruneFencedActions();
         bool FinalizeCompletedHostActions();
@@ -191,6 +195,7 @@ namespace fable::multiplayer::replication
         entities::EntityNetworkIdentityRegistry* identities_ = nullptr;
         entities::EntityPresenceReplication* presence_ = nullptr;
         combat::PlayerCombatantDirectory* combatants_ = nullptr;
+        combat::CombatActionLedger* combatLedger_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;

@@ -10,6 +10,7 @@
 #include "Multiplayer/Entities/LiveEntityRegistry.h"
 #include "Multiplayer/Entities/WorldEntityDirectory.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Combat/CombatActionLedger.h"
 #include "Multiplayer/Protocol/PacketEnvelope.h"
 #include "Multiplayer/Transport/TransportMessage.h"
 #include "Multiplayer/Transport/UdpPeer.h"
@@ -105,6 +106,7 @@ namespace fable::multiplayer::replication
         entities::EntityNetworkIdentityRegistry& identities,
         entities::EntityPresenceReplication& presence,
         combat::PlayerCombatantDirectory& combatants,
+        combat::CombatActionLedger& combatLedger,
         game::creature::combat::CreatureCombatService& combat,
         const core::Diagnostics& diagnostics)
     {
@@ -117,6 +119,7 @@ namespace fable::multiplayer::replication
         identities_ = &identities;
         presence_ = &presence;
         combatants_ = &combatants;
+        combatLedger_ = &combatLedger;
         combat_ = &combat;
         diagnostics_ = diagnostics;
         acceptingEvents_.store(true, std::memory_order_release);
@@ -1093,6 +1096,7 @@ namespace fable::multiplayer::replication
                     "action begin arrived without its ordered map or action authority fence");
                 return true;
             }
+            TrackCombatAction(message);
             const auto existing = activeActions_.find(message.actionId);
             if (existing != activeActions_.end() &&
                 existing->second.actionEpoch == message.actionEpoch &&
@@ -1195,6 +1199,7 @@ namespace fable::multiplayer::replication
         }
         if (message.phase == protocol::EntityActionPhase::End)
         {
+            TrackCombatAction(message);
             const auto active = activeActions_.find(message.actionId);
             if (active != activeActions_.end())
             {
@@ -1249,6 +1254,7 @@ namespace fable::multiplayer::replication
             {
                 active->second.lastActivityAt = GetTickCount64();
             }
+            TrackCombatAction(message);
             return true;
         }
         return false;
@@ -1511,8 +1517,41 @@ namespace fable::multiplayer::replication
                 "bounded semantic action publication queue is full");
             return false;
         }
+        TrackCombatAction(message);
         pendingMessages_.push_back(std::move(message));
         return true;
+    }
+
+    void EntityActionReplication::TrackCombatAction(
+        const protocol::EntityActionMessage& message) noexcept
+    {
+        if (combatLedger_ == nullptr || message.actionId == 0 ||
+            message.entityUid == 0 || message.entityGeneration == 0 ||
+            message.mapEpoch == 0 || message.actionEpoch == 0)
+        {
+            return;
+        }
+        const combat::CombatSourceAction action{
+            {combat::CombatSubjectKind::WorldEntity,
+             message.entityUid,
+             message.entityGeneration,
+             message.mapEpoch},
+            message.actionId,
+            message.actionEpoch};
+        switch (message.phase)
+        {
+        case protocol::EntityActionPhase::Begin:
+            (void)combatLedger_->Begin(action, GetTickCount64());
+            break;
+        case protocol::EntityActionPhase::Update:
+            (void)combatLedger_->Touch(action);
+            break;
+        case protocol::EntityActionPhase::End:
+            (void)combatLedger_->Finish(action, GetTickCount64());
+            break;
+        default:
+            break;
+        }
     }
 
     bool EntityActionReplication::PublishPending()
@@ -1861,6 +1900,7 @@ namespace fable::multiplayer::replication
         identities_ = nullptr;
         presence_ = nullptr;
         combatants_ = nullptr;
+        combatLedger_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
         localActorId_ = 0;

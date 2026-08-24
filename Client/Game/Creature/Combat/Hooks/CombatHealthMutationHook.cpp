@@ -10,6 +10,15 @@ namespace
 {
     constexpr std::size_t kMaximumHealthOffset = 0xCC;
     constexpr std::size_t kHealthOffset = 0xD0;
+
+    struct ProtectedReplicaAttempt final
+    {
+        void* creature = nullptr;
+        float currentHealth = -1.0f;
+        float maximumHealth = -1.0f;
+    };
+
+    thread_local ProtectedReplicaAttempt g_protectedReplicaAttempt;
 }
 
 namespace fable::game::creature::combat
@@ -232,6 +241,37 @@ namespace fable::game::creature::combat
         return false;
     }
 
+    bool CombatHealthMutationHook::IsProtectedReplica(
+        void* creature) noexcept
+    {
+        const CombatHealthMutationHook* const hook = active_;
+        return hook != nullptr && hook->IsReplicaProtected(creature);
+    }
+
+    void CombatHealthMutationHook::ClearProtectedReplicaAttempt() noexcept
+    {
+        g_protectedReplicaAttempt = {};
+    }
+
+    bool CombatHealthMutationHook::ConsumeProtectedReplicaAttempt(
+        void* creature,
+        float& currentHealth,
+        float& maximumHealth) noexcept
+    {
+        currentHealth = -1.0f;
+        maximumHealth = -1.0f;
+        if (creature == nullptr || g_protectedReplicaAttempt.creature != creature)
+        {
+            return false;
+        }
+        currentHealth = g_protectedReplicaAttempt.currentHealth;
+        maximumHealth = g_protectedReplicaAttempt.maximumHealth;
+        g_protectedReplicaAttempt = {};
+        return std::isfinite(currentHealth) &&
+            std::isfinite(maximumHealth) && maximumHealth > 0.0f &&
+            currentHealth >= 0.0f && currentHealth <= maximumHealth + 0.01f;
+    }
+
     bool CombatHealthMutationHook::Read(
         void* creature,
         float& currentHealth,
@@ -295,6 +335,58 @@ namespace fable::game::creature::combat
         return applied;
     }
 
+    bool CombatHealthMutationHook::ApplyOwnedCombatDamage(
+        void* creature,
+        const float damage) noexcept
+    {
+        if (!IsInstalled() || creature == nullptr ||
+            !std::isfinite(damage) || damage <= 0.0f ||
+            IsReplicaProtected(creature))
+        {
+            return false;
+        }
+        float previous = -1.0f;
+        float previousMaximum = -1.0f;
+        if (!Read(creature, previous, previousMaximum))
+        {
+            return false;
+        }
+        __try
+        {
+            original_(creature, -damage, true);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        float current = -1.0f;
+        float maximum = -1.0f;
+        if (!Read(creature, current, maximum))
+        {
+            return false;
+        }
+        if (std::fabs(current - previous) < 0.0001f &&
+            std::fabs(maximum - previousMaximum) < 0.0001f)
+        {
+            return true;
+        }
+        const EventSink sink = eventSink_.load(std::memory_order_acquire);
+        if (sink != nullptr)
+        {
+            CombatHealthMutationEvent event;
+            event.creature = creature;
+            event.thingUid = ReadThingUid(creature);
+            event.previousHealth = previous;
+            event.currentHealth = current;
+            event.maximumHealth = maximum;
+            event.requestedDelta = -damage;
+            event.observedAt = GetTickCount64();
+            event.combatFlag = true;
+            sink(eventSinkContext_.load(std::memory_order_acquire), event);
+        }
+        return true;
+    }
+
     bool CombatHealthMutationHook::IsInstalled() const noexcept
     {
         return active_ == this && original_ != nullptr &&
@@ -342,6 +434,13 @@ namespace fable::game::creature::combat
         if (protectedReplica && std::isfinite(previous) &&
             std::isfinite(previousMaximum) && previousMaximum > 0.0f)
         {
+            float attemptedCurrent = -1.0f;
+            float attemptedMaximum = -1.0f;
+            if (hook->Read(creature, attemptedCurrent, attemptedMaximum))
+            {
+                g_protectedReplicaAttempt = {
+                    creature, attemptedCurrent, attemptedMaximum};
+            }
             __try
             {
                 auto* const bytes = static_cast<std::uint8_t*>(creature);

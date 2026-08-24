@@ -26,10 +26,26 @@ namespace fable::game::creature::combat
             void* creature,
             float currentHealth,
             float maximumHealth) noexcept;
+        // Applies one host-approved combat delta on the target owner and
+        // emits the ordinary mutation event so EntityVitals remains the sole
+        // reliable health publisher.
+        bool ApplyOwnedCombatDamage(
+            void* creature,
+            float damage) noexcept;
         bool Read(
             void* creature,
             float& currentHealth,
             float& maximumHealth) const noexcept;
+        [[nodiscard]] static bool IsProtectedReplica(
+            void* creature) noexcept;
+        // OnHit may resolve against a protected remote presentation. Preserve
+        // the native attempted outcome for the enclosing hit observer while
+        // restoring replica health immediately.
+        static void ClearProtectedReplicaAttempt() noexcept;
+        [[nodiscard]] static bool ConsumeProtectedReplicaAttempt(
+            void* creature,
+            float& currentHealth,
+            float& maximumHealth) noexcept;
 
         [[nodiscard]] bool IsInstalled() const noexcept;
 

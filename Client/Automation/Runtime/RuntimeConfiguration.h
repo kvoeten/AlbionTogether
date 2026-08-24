@@ -35,6 +35,7 @@ namespace fable::automation::runtime
         [[nodiscard]] const std::wstring& MultiplayerAppearance() const noexcept;
         [[nodiscard]] unsigned short MultiplayerPort() const noexcept;
         [[nodiscard]] bool MorphSelfTest() const noexcept;
+        [[nodiscard]] bool ManualPlaytest() const noexcept;
         [[nodiscard]] HANDLE ShutdownEvent() const noexcept;
 
         [[nodiscard]] bool IsLocalInstance() const noexcept;
@@ -61,6 +62,7 @@ namespace fable::automation::runtime
         std::wstring multiplayerAppearance_;
         unsigned short multiplayerPort_ = 0;
         bool morphSelfTest_ = false;
+        bool manualPlaytest_ = false;
         HANDLE shutdownEvent_ = nullptr;
     };
 }

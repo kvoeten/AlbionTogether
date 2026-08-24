@@ -42,6 +42,7 @@ namespace fable::automation::multiplayer::combat
             const core::Diagnostics& diagnostics) noexcept;
         void Tick(bool remotePresentationReady);
         [[nodiscard]] bool IsTargetReady() const noexcept;
+        void AllowTargetDeath() noexcept;
         void Shutdown() noexcept;
 
     private:
@@ -82,6 +83,7 @@ namespace fable::automation::multiplayer::combat
         bool redrawRequested_ = false;
         bool redrawReady_ = false;
         bool healthMutationApplied_ = false;
+        bool maintainTargetHealth_ = true;
         bool enabled_ = false;
         bool completed_ = false;
     };

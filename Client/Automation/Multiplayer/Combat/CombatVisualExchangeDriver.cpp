@@ -3,6 +3,7 @@
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/Creature/Combat/Native/HeroTargetingComponent.h"
 #include "Game/Creature/Equipment/CreatureWeaponFamily.h"
+#include "Game/Creature/CreatureService.h"
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
@@ -11,6 +12,7 @@
 
 #include <Windows.h>
 
+#include <cmath>
 #include <cstdio>
 
 namespace
@@ -26,6 +28,12 @@ namespace
     constexpr std::uint64_t RetryMilliseconds = 250;
     constexpr std::uint64_t AttackSpacingMilliseconds = 1'500;
     constexpr unsigned int MaximumFailedAttempts = 80;
+    constexpr unsigned int MaximumTargetKillAttacks = 48;
+    constexpr std::uint64_t TargetKillAttackSpacingMilliseconds = 900;
+    constexpr std::uint64_t TargetKillTimeoutMilliseconds = 45'000;
+    constexpr std::uint64_t GuestPvpCompletionGraceMilliseconds = 8'000;
+    constexpr float ExpectedTargetMaximumHealth = 60.0f;
+    constexpr float TerminalHealthEpsilon = 0.001f;
 
     bool AssignHeroTarget(
         HMODULE gameModule,
@@ -40,6 +48,35 @@ namespace
             fable::game::creature::combat::native::HeroTargetingComponent::
                 AssignSelectedTarget(gameModule, targeting, targetThing);
     }
+
+    bool HeroTargets(
+        HMODULE gameModule,
+        void* heroThing,
+        void* targetThing) noexcept
+    {
+        void* const targeting =
+            fable::game::entity::native::ThingComponentAccess::Find(
+                heroThing,
+                fable::game::entity::native::ThingComponentType::Targeting);
+        fable::game::creature::combat::native::HeroTargetingSnapshot snapshot;
+        return targeting != nullptr && targetThing != nullptr &&
+            fable::game::creature::combat::native::HeroTargetingComponent::
+                ReadTargets(gameModule, targeting, snapshot) &&
+            (snapshot.selected == targetThing ||
+             snapshot.candidatePrimary == targetThing ||
+             snapshot.candidateSecondary == targetThing);
+    }
+
+    bool ClearHeroTargets(HMODULE gameModule, void* heroThing) noexcept
+    {
+        void* const targeting =
+            fable::game::entity::native::ThingComponentAccess::Find(
+                heroThing,
+                fable::game::entity::native::ThingComponentType::Targeting);
+        return targeting != nullptr &&
+            fable::game::creature::combat::native::HeroTargetingComponent::
+                ClearTargets(gameModule, targeting);
+    }
 }
 
 namespace fable::automation::multiplayer::combat
@@ -48,11 +85,13 @@ namespace fable::automation::multiplayer::combat
         bool enabled,
         bool hostRole,
         game::EntityService& entities,
+        game::CreatureService& creatures,
         game::creature::combat::CreatureCombatService& combat,
         const core::Diagnostics& diagnostics) noexcept
     {
         Shutdown();
         entities_ = &entities;
+        creatures_ = &creatures;
         combat_ = &combat;
         diagnostics_ = diagnostics;
         hostRole_ = hostRole;
@@ -78,20 +117,26 @@ namespace fable::automation::multiplayer::combat
         game::Entity* const hero = entities_->GetHero();
         game::Entity* const remote =
             entities_->FindByScriptName(RemotePlayerScriptName);
-        game::Entity* const target =
-            entities_->FindByScriptName(TargetScriptName);
+        if (target_ == nullptr)
+        {
+            target_ = entities_->FindByScriptName(TargetScriptName);
+            if (target_ != nullptr)
+            {
+                targetUid_ = target_->GetUid();
+            }
+        }
+        game::Entity* const target = target_;
+        const bool targetReady = target != nullptr &&
+            (visualSequenceComplete_ ||
+                (target->IsValid() &&
+                 target->GetCurrentMapName() == ArenaMap));
         const bool ready = hero != nullptr && hero->IsValid() &&
             remote != nullptr && remote->IsValid() &&
-            target != nullptr && target->IsValid() &&
+            targetReady &&
             hero->GetCurrentMapName() == ArenaMap &&
-            remote->GetCurrentMapName() == ArenaMap &&
-            target->GetCurrentMapName() == ArenaMap;
+            remote->GetCurrentMapName() == ArenaMap;
         if (!ready)
         {
-            if (target != nullptr)
-            {
-                target->Release();
-            }
             if (remote != nullptr)
             {
                 remote->Release();
@@ -194,21 +239,28 @@ namespace fable::automation::multiplayer::combat
                     break;
                 case 6:
                 case 7:
-                    submitted = SubmitHeroAttack(
+                    submitted = SubmitPlayerTargetedHeroAttack(
                         heroThing,
                         remoteThing,
                         "guest-remote-hero",
-                        step_ - 5);
+                        step_ - 5,
+                        now);
                     if (submitted)
                     {
-                        Advance(now, AttackSpacingMilliseconds);
+                        Advance(
+                            now,
+                            step_ == 6
+                                ? AttackSpacingMilliseconds
+                                : GuestPvpCompletionGraceMilliseconds);
                     }
+                    break;
+                case 8:
+                    CompleteVisualSequence();
+                    submitted = ExecuteTargetKill(
+                        target, heroThing, targetThing, now);
                     break;
                 default:
                     completed_ = true;
-                    diagnostics_.Event(
-                        "MultiplayerCombatVisualExchangeComplete",
-                        "role=host hero_enemy=2 enemy_host=2 enemy_guest=2 pvp_guest=2");
                     break;
                 }
             }
@@ -231,26 +283,25 @@ namespace fable::automation::multiplayer::combat
                     break;
                 case 2:
                 case 3:
-                    submitted = SubmitHeroAttack(
+                    submitted = SubmitPlayerTargetedHeroAttack(
                         heroThing,
                         remoteThing,
                         "host-remote-hero",
-                        step_ - 1);
+                        step_ - 1,
+                        now);
                     if (submitted)
                     {
                         Advance(now, AttackSpacingMilliseconds);
                     }
                     break;
                 default:
-                    completed_ = true;
-                    diagnostics_.Event(
-                        "MultiplayerCombatVisualExchangeComplete",
-                        "role=guest hero_enemy=2 pvp_host=2");
+                    CompleteVisualSequence();
+                    submitted = ObserveTargetTerminal(target);
                     break;
                 }
             }
 
-            if (!submitted && !completed_)
+            if (!submitted && !completed_ && !visualSequenceComplete_)
             {
                 ++failedAttempts_;
                 nextActionAt_ = now + RetryMilliseconds;
@@ -274,7 +325,6 @@ namespace fable::automation::multiplayer::combat
             }
         }
 
-        target->Release();
         remote->Release();
         hero->Release();
     }
@@ -283,10 +333,11 @@ namespace fable::automation::multiplayer::combat
         void* heroThing,
         void* targetThing,
         const char* targetRole,
-        unsigned int ordinal) noexcept
+        unsigned int ordinal,
+        bool assignTarget) noexcept
     {
-        if (!AssignHeroTarget(
-                entities_->GameModule(), heroThing, targetThing) ||
+        if ((assignTarget && !AssignHeroTarget(
+                entities_->GameModule(), heroThing, targetThing)) ||
             !combat_->SubmitReplicatedAbility(
                 heroThing, HeroMeleeAttackAbility, 0.0f))
         {
@@ -304,6 +355,174 @@ namespace fable::automation::multiplayer::combat
             ordinal,
             HeroMeleeAttackAbility);
         diagnostics_.Event("MultiplayerCombatHeroAttackSubmitted", detail);
+        return true;
+    }
+
+    void CombatVisualExchangeDriver::CompleteVisualSequence() noexcept
+    {
+        if (visualSequenceComplete_)
+        {
+            return;
+        }
+        visualSequenceComplete_ = true;
+        diagnostics_.Event(
+            "MultiplayerCombatVisualExchangeComplete",
+            hostRole_
+                ? "role=host hero_enemy=2 enemy_host=2 enemy_guest=2 pvp_guest=2"
+                : "role=guest hero_enemy=2 pvp_host=2");
+    }
+
+    bool CombatVisualExchangeDriver::ObserveTargetTerminal(
+        game::Entity* target) noexcept
+    {
+        if (target == nullptr || creatures_ == nullptr)
+        {
+            return false;
+        }
+        const float current = creatures_->GetHealth(target);
+        const float maximum = creatures_->GetMaximumHealth(target);
+        const bool dead = target->IsDead();
+        if (!std::isfinite(current) || !std::isfinite(maximum) ||
+            std::fabs(maximum - ExpectedTargetMaximumHealth) >
+                TerminalHealthEpsilon ||
+            current > TerminalHealthEpsilon || !dead)
+        {
+            return false;
+        }
+
+        char detail[320] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "role=%s thing_uid=%016llX script_name=%s health=%.3f maximum=%.3f dead=true attacks=%u",
+            hostRole_ ? "host" : "guest",
+            static_cast<unsigned long long>(targetUid_),
+            TargetScriptName,
+            current,
+            maximum,
+            targetKillAttackCount_);
+        diagnostics_.Event(
+            "MultiplayerCombatTargetTerminalObserved", detail);
+        completed_ = true;
+        return true;
+    }
+
+    bool CombatVisualExchangeDriver::ExecuteTargetKill(
+        game::Entity* target,
+        void* heroThing,
+        void* targetThing,
+        std::uint64_t now) noexcept
+    {
+        if (ObserveTargetTerminal(target))
+        {
+            return true;
+        }
+        if (targetKillStartedAt_ == 0)
+        {
+            const float current = creatures_->GetHealth(target);
+            const float maximum = creatures_->GetMaximumHealth(target);
+            if (!std::isfinite(current) || !std::isfinite(maximum) ||
+                std::fabs(maximum - ExpectedTargetMaximumHealth) >
+                    TerminalHealthEpsilon)
+            {
+                diagnostics_.Event(
+                    "ClientFailed",
+                    "multiplayer-combat-target-not-60-health");
+                completed_ = true;
+                return false;
+            }
+            targetKillStartedAt_ = now;
+            char detail[256] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "thing_uid=%016llX script_name=%s health=%.3f maximum=%.3f",
+                static_cast<unsigned long long>(targetUid_),
+                TargetScriptName,
+                current,
+                maximum);
+            diagnostics_.Event(
+                "MultiplayerCombatTargetKillStarted", detail);
+        }
+
+        if (targetKillAttackCount_ >= MaximumTargetKillAttacks ||
+            now - targetKillStartedAt_ >= TargetKillTimeoutMilliseconds)
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-combat-target-terminal-state-timeout");
+            completed_ = true;
+            return false;
+        }
+
+        if (!SubmitHeroAttack(
+                heroThing,
+                targetThing,
+                "enemy-finisher",
+                targetKillAttackCount_ + 1))
+        {
+            nextActionAt_ = now + RetryMilliseconds;
+            return false;
+        }
+        ++targetKillAttackCount_;
+        nextActionAt_ = now + TargetKillAttackSpacingMilliseconds;
+        return true;
+    }
+
+    bool CombatVisualExchangeDriver::SubmitPlayerTargetedHeroAttack(
+        void* heroThing,
+        void* targetThing,
+        const char* targetRole,
+        unsigned int ordinal,
+        std::uint64_t now) noexcept
+    {
+        if (!playerTargetRequested_)
+        {
+            // Each ordinal needs a fresh player-owned target action. Clear the
+            // previous native selection first so a lingering target from the
+            // preceding attack cannot satisfy this step before Space arrives.
+            if (!ClearHeroTargets(entities_->GameModule(), heroThing))
+            {
+                return false;
+            }
+            char detail[192] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "source=%s-local-hero target=%s ordinal=%u action=SPACE",
+                hostRole_ ? "host" : "guest",
+                targetRole,
+                ordinal);
+            diagnostics_.Event(
+                "MultiplayerCombatPvpTargetInputRequested", detail);
+            playerTargetRequested_ = true;
+            nextActionAt_ = now + RetryMilliseconds;
+            return false;
+        }
+
+        if (!HeroTargets(
+                entities_->GameModule(), heroThing, targetThing))
+        {
+            nextActionAt_ = now + RetryMilliseconds;
+            return false;
+        }
+
+        if (!SubmitHeroAttack(
+                heroThing, targetThing, targetRole, ordinal, false))
+        {
+            return false;
+        }
+
+        char detail[192] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "source=%s-local-hero target=%s ordinal=%u action=SPACE",
+            hostRole_ ? "host" : "guest",
+            targetRole,
+            ordinal);
+        diagnostics_.Event(
+            "MultiplayerCombatPvpFriendlyTargetObserved", detail);
         return true;
     }
 
@@ -336,6 +555,7 @@ namespace fable::automation::multiplayer::combat
     {
         ++step_;
         failedAttempts_ = 0;
+        playerTargetRequested_ = false;
         nextActionAt_ = now + delay;
     }
 
@@ -344,17 +564,33 @@ namespace fable::automation::multiplayer::combat
         return completed_;
     }
 
+    bool CombatVisualExchangeDriver::WantsTargetDeath() const noexcept
+    {
+        return enabled_ && hostRole_ && step_ >= 8 && !completed_;
+    }
+
     void CombatVisualExchangeDriver::Shutdown() noexcept
     {
+        if (target_ != nullptr)
+        {
+            target_->Release();
+            target_ = nullptr;
+        }
         entities_ = nullptr;
+        creatures_ = nullptr;
         combat_ = nullptr;
         diagnostics_ = {};
         fixtureReadyAt_ = 0;
         nextActionAt_ = 0;
+        targetKillStartedAt_ = 0;
+        targetUid_ = 0;
         step_ = 0;
         failedAttempts_ = 0;
+        targetKillAttackCount_ = 0;
         meleeRequested_ = false;
         meleeReady_ = false;
+        playerTargetRequested_ = false;
+        visualSequenceComplete_ = false;
         hostRole_ = false;
         enabled_ = false;
         completed_ = false;

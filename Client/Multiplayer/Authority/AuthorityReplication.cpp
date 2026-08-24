@@ -7,6 +7,8 @@
 #include "Multiplayer/Transport/TransportMessage.h"
 #include "Multiplayer/Transport/UdpPeer.h"
 
+#include <Windows.h>
+
 #include <array>
 #include <algorithm>
 #include <utility>
@@ -88,27 +90,72 @@ namespace fable::multiplayer::authority
         {
             return false;
         }
-        if (preparedLocalMapId_ == mapId &&
-            preparedLocalMapName_ == mapName)
+        const bool sameMap = preparedLocalMapId_ == mapId &&
+            preparedLocalMapName_ == mapName;
+        if (sameMap && role_ == PeerRole::Host)
         {
             return true;
         }
+        if (sameMap && preparedLocalBaselineRevision_ != 0)
+        {
+            // A request being queued is not an acknowledgement.  Only the
+            // host's Prepared message may establish the revision that lets a
+            // guest pass the construction gate.
+            return true;
+        }
+
         const std::string* const canonicalName =
             mapIdentities_.FindName(mapId);
         const MapAuthorityLease* const observed = canonicalName != nullptr
             ? maps_.Find(*canonicalName)
             : nullptr;
-        if (!SubmitMapRequest(
-                protocol::AuthorityOperation::Prepare,
-                mapName,
-                mapId,
-                observed != nullptr ? observed->epoch : 0))
+        if (role_ == PeerRole::Host)
+        {
+            if (!SubmitMapRequest(
+                    protocol::AuthorityOperation::Prepare,
+                    mapName,
+                    mapId,
+                    observed != nullptr ? observed->epoch : 0))
+            {
+                return false;
+            }
+            preparedLocalMapId_ = mapId;
+            preparedLocalBaselineRevision_ = 0;
+            preparedLocalMapName_ = mapName;
+            preparationRetry_.Acknowledge();
+            return true;
+        }
+
+        const std::uint64_t now = static_cast<std::uint64_t>(
+            GetTickCount64());
+        if (!sameMap)
+        {
+            preparedLocalMapId_ = mapId;
+            preparedLocalBaselineRevision_ = 0;
+            preparedLocalMapName_ = mapName;
+            preparationRetry_.Acknowledge();
+        }
+        if (!preparationRetry_.IsDue(now))
+        {
+            return true;
+        }
+
+        const bool submitted = SubmitMapRequest(
+            protocol::AuthorityOperation::Prepare,
+            mapName,
+            mapId,
+            observed != nullptr ? observed->epoch : 0);
+        preparationRetry_.RecordAttempt(now);
+        if (!submitted)
         {
             return false;
         }
-        preparedLocalMapId_ = mapId;
-        preparedLocalBaselineRevision_ = 0;
-        preparedLocalMapName_ = mapName;
+        if (preparationRetry_.AttemptCount() > 1)
+        {
+            diagnostics_.Event(
+                "MultiplayerMapPreparationRetry",
+                "guest did not receive Prepared; retrying the identical map preparation request");
+        }
         return true;
     }
 
@@ -219,6 +266,7 @@ namespace fable::multiplayer::authority
             }
             preparedLocalBaselineRevision_ =
                 message.mapBaselineRevision;
+            preparationRetry_.Acknowledge();
             diagnostics_.Event(
                 "MultiplayerMapPreparationAcknowledged",
                 "host saved-map baseline is staged ahead of retail map construction");
@@ -330,6 +378,7 @@ namespace fable::multiplayer::authority
             preparedLocalMapId_ = 0;
             preparedLocalBaselineRevision_ = 0;
             preparedLocalMapName_.clear();
+            preparationRetry_.Acknowledge();
         }
         return true;
     }
@@ -739,6 +788,7 @@ namespace fable::multiplayer::authority
         preparedLocalMapId_ = 0;
         preparedLocalBaselineRevision_ = 0;
         preparedLocalMapName_.clear();
+        preparationRetry_.Acknowledge();
         pendingBaselinePreparations_.clear();
         actorMaps_.clear();
         baselinePreparationDeferredReported_ = false;

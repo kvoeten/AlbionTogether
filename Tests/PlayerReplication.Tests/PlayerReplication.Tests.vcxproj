@@ -42,6 +42,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="PlayerReplication.Tests.cpp" />
+    <ClCompile Include="CombatHitReplication.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Combat\CombatActionLedger.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\CombatHitCodec.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\AuthorityMessage.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\PlayerActorStateCodec.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\PlayerMovementCodec.cpp" />
@@ -68,6 +71,12 @@
     <ClCompile Include="..\..\Client\Multiplayer\Transport\UdpPeer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Client\Multiplayer\Combat\CombatActionLedger.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Combat\CombatHitReactionPolicy.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Combat\CombatTerminalTransitionState.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\CombatHitCodec.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\CombatHitMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\CombatHitDeliveryState.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Protocol\AuthorityMessage.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Protocol\PlayerActorStateCodec.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Protocol\EntityActionMessage.h" />

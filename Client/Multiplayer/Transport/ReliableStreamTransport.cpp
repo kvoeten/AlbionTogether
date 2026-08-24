@@ -6,6 +6,7 @@
 #include "Multiplayer/Protocol/EntityVitalsMessageCodec.h"
 #include "Multiplayer/Protocol/PlayerActionMessage.h"
 #include "Multiplayer/Protocol/PlayerActorStateCodec.h"
+#include "Multiplayer/Protocol/CombatHitCodec.h"
 #include "ConnectionNonceRegistry.h"
 
 #include <limits>
@@ -103,6 +104,15 @@ namespace fable::multiplayer
                     message.subject == protocol::EntityVitalsSubject::Player &&
                     message.playerActorId == streamId.subject;
             }
+            if (type == PacketType::CombatHit)
+            {
+                protocol::CombatHitMessage message;
+                return protocol::DecodeCombatHitMessage(
+                           payload, payloadSize, message) &&
+                    message.targetKind ==
+                        protocol::CombatParticipantKind::Player &&
+                    message.targetId == streamId.subject;
+            }
             return false;
         }
         if (streamId.kind != ReliableStreamKind::Entity)
@@ -137,6 +147,15 @@ namespace fable::multiplayer
                        payload, payloadSize, message) &&
                 message.subject == protocol::EntityVitalsSubject::WorldEntity &&
                 message.entityUid == streamId.subject;
+        }
+        if (type == PacketType::CombatHit)
+        {
+            protocol::CombatHitMessage message;
+            return protocol::DecodeCombatHitMessage(
+                       payload, payloadSize, message) &&
+                message.targetKind ==
+                    protocol::CombatParticipantKind::WorldEntity &&
+                message.targetId == streamId.subject;
         }
         return false;
     }
