@@ -23,6 +23,61 @@ namespace fable::multiplayer
 
 namespace fable::multiplayer::authority
 {
+    // A map preparation request is not an acknowledgement.  Keep retry
+    // scheduling explicit so a lost first Prepare does not permanently hold
+    // the guest, while repeated construction callbacks cannot flood the
+    // reliable control stream.
+    class MapPreparationRetryState final
+    {
+    public:
+        static constexpr std::uint64_t InitialDelayMilliseconds = 250;
+        static constexpr std::uint64_t MaximumDelayMilliseconds = 2000;
+
+        [[nodiscard]] bool IsPending() const noexcept
+        {
+            return pending_;
+        }
+
+        [[nodiscard]] bool IsDue(
+            std::uint64_t nowMilliseconds) const noexcept
+        {
+            return !pending_ || nowMilliseconds >= nextRetryAt_;
+        }
+
+        [[nodiscard]] std::uint32_t AttemptCount() const noexcept
+        {
+            return attemptCount_;
+        }
+
+        void RecordAttempt(std::uint64_t nowMilliseconds) noexcept
+        {
+            pending_ = true;
+            nextRetryAt_ = nowMilliseconds + delayMilliseconds_;
+            if (attemptCount_ != 0xFFFFFFFFu)
+            {
+                ++attemptCount_;
+            }
+            delayMilliseconds_ = delayMilliseconds_ >=
+                    MaximumDelayMilliseconds / 2
+                ? MaximumDelayMilliseconds
+                : delayMilliseconds_ * 2;
+        }
+
+        void Acknowledge() noexcept
+        {
+            pending_ = false;
+            nextRetryAt_ = 0;
+            delayMilliseconds_ = InitialDelayMilliseconds;
+            attemptCount_ = 0;
+        }
+
+    private:
+        bool pending_ = false;
+        std::uint64_t nextRetryAt_ = 0;
+        std::uint64_t delayMilliseconds_ = InitialDelayMilliseconds;
+        std::uint32_t attemptCount_ = 0;
+    };
+
     // Owns reliable host-issued authority messages. MultiplayerSession only
     // supplies current occupancy; it does not resolve or serialize leases.
     class AuthorityReplication final : public ReliableMessageSink
@@ -130,6 +185,7 @@ namespace fable::multiplayer::authority
         std::uint16_t preparedLocalMapId_ = 0;
         std::uint64_t preparedLocalBaselineRevision_ = 0;
         std::string preparedLocalMapName_;
+        MapPreparationRetryState preparationRetry_;
         std::deque<BaselinePreparation> pendingBaselinePreparations_;
         std::unordered_map<std::uint64_t, std::string> actorMaps_;
         bool baselinePreparationDeferredReported_ = false;

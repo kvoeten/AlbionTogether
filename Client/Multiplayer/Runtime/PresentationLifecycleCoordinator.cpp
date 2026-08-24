@@ -48,11 +48,20 @@ namespace fable::multiplayer
         if (!entityPresence.ProcessPending()) diagnostics.Event("ClientFailed", "multiplayer-entity-presence-processing");
         if (!world.mapTransitionAuthority.Process()) diagnostics.Event("MultiplayerMapPreparationDeferred", "ordered transport could not yet accept the native destination preparation");
         std::uint16_t departingMapId = 0;
-        if (world.mapTransitionAuthority.ConsumeSourceDeparture(departingMapId) && localHero.IsWorldReady() && departingMapId == localHero.MapId()) {
+        const bool connectedExitDeparted =
+            world.mapTransitionAuthority.ConsumeSourceDeparture(
+                departingMapId) &&
+            localHero.IsWorldReady() &&
+            departingMapId == localHero.MapId();
+        const bool nativePresenceDeparted =
+            localHero.HasDepartedNativeWorld(
+                entityPresence.LiveEntities());
+        if (connectedExitDeparted || nativePresenceDeparted) {
             departingEntityMap_ = localHero.MapName(); departingEntityMapId_ = departingMapId; sourceMapFinalDrainRequired_ = false;
+            if (departingEntityMapId_ == 0) departingEntityMapId_ = localHero.MapId();
             if (!players.actorState.RetireLocal()) diagnostics.Event("ClientFailed", "multiplayer-player-actor-retire");
             remotePlayers.BeginWorldTransition(); world.populationSimulation.SetHighDetailReady(departingEntityMap_, false); entitySimulation.Refresh(departingEntityMap_, false); localHero.BeginWorldTransition();
-            char detail[192] = {}; std::snprintf(detail, sizeof(detail), "map=%s map_id=%u; native region exit froze canonical lifecycle before local level teardown", departingEntityMap_.c_str(), static_cast<unsigned int>(departingEntityMapId_)); diagnostics.Event("MultiplayerSourceMapLifecycleFrozen", detail);
+            char detail[224] = {}; std::snprintf(detail, sizeof(detail), "map=%s map_id=%u boundary=%s; canonical lifecycle froze before local level teardown", departingEntityMap_.c_str(), static_cast<unsigned int>(departingEntityMapId_), connectedExitDeparted ? "connected-region-exit" : "native-mapwho-unregister"); diagnostics.Event("MultiplayerSourceMapLifecycleFrozen", detail);
             return true;
         }
         // Queue late-join baselines before dispatching any newly arrived
@@ -119,6 +128,7 @@ namespace fable::multiplayer
         }
         if (!actions.entityActions.ProcessPending(localHero.MapName(), ownerRosterReady)) diagnostics.Event("ClientFailed", "multiplayer-entity-action-replication");
         if (!actions.playerActions.ProcessPending()) diagnostics.Event("ClientFailed", "multiplayer-player-action-replication");
+        if (!actions.combatHits.Process()) diagnostics.Event("ClientFailed", "multiplayer-combat-hit-replication");
         if (!actions.entityVitals.Process(localHero, entityPresence.LiveEntities(), remotePlayers)) diagnostics.Event("ClientFailed", "multiplayer-entity-vitals-replication");
         entitySimulation.Refresh(localHero.MapName(), ownerRosterReady);
         return false;

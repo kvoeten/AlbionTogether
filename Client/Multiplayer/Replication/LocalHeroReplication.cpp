@@ -14,6 +14,7 @@
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
 #include "Game/HeroPawn/Appearance/Diagnostics/HeroPresentationDiagnostics.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Entities/LiveEntityRegistry.h"
 #include "Multiplayer/Replication/LocalPlayerChannel.h"
 #include "Multiplayer/Transport/UdpPeer.h"
 
@@ -805,6 +806,30 @@ namespace fable::multiplayer::replication
         diagnostics_.Event("MultiplayerOwnerEquipmentDirty", detail);
     }
 
+    bool LocalHeroReplication::HasDepartedNativeWorld(
+        const entities::LiveEntityRegistry& liveEntities) noexcept
+    {
+        if (!worldReady_ || nativeHero_ == nullptr)
+        {
+            return false;
+        }
+
+        const std::uint64_t thingUid = ReadNativeThingUid(nativeHero_);
+        const entities::LiveEntityRecord* const live =
+            thingUid != 0 ? liveEntities.Find(thingUid) : nullptr;
+        if (live != nullptr && live->thing == nativeHero_)
+        {
+            nativePresenceObserved_ = true;
+            return false;
+        }
+
+        // Do not classify a freshly bound Hero as departing until its native
+        // Mapwho registration has crossed the observation queue once. After
+        // that point, absence is the earliest reliable teardown boundary and
+        // does not depend on the script map name changing first.
+        return nativePresenceObserved_;
+    }
+
     bool LocalHeroReplication::WorldIsCurrent() const
     {
         if (hero_ == nullptr || !hero_->IsValid())
@@ -864,6 +889,7 @@ namespace fable::multiplayer::replication
         appearanceDirty_.store(false, std::memory_order_release);
         equipmentReady_ = false;
         equipmentDirty_.store(false, std::memory_order_release);
+        nativePresenceObserved_ = false;
         nextBindDiagnosticAt_ = 0;
         nextAppearanceCaptureAt_ = 0;
         nextEquipmentCaptureAt_ = 0;

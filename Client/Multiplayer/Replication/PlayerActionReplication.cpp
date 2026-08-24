@@ -7,6 +7,7 @@
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Combat/CombatActionLedger.h"
 #include "Multiplayer/Presentation/RemotePlayerRegistry.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
 #include "Multiplayer/Entities/EntityPresenceReplication.h"
@@ -70,6 +71,7 @@ namespace fable::multiplayer::replication
         entities::EntityNetworkIdentityRegistry& identities,
         entities::EntityPresenceReplication& presence,
         multiplayer::combat::PlayerCombatantDirectory& combatants,
+        multiplayer::combat::CombatActionLedger& combatLedger,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
         const core::Diagnostics& diagnostics)
@@ -84,6 +86,7 @@ namespace fable::multiplayer::replication
         identities_ = &identities;
         presence_ = &presence;
         combatants_ = &combatants;
+        combatLedger_ = &combatLedger;
         combat_ = &combat;
         abilities_ = &abilities;
         diagnostics_ = diagnostics;
@@ -430,6 +433,24 @@ namespace fable::multiplayer::replication
             diagnostics_.Event(
                 "MultiplayerRemoteHeroAbilityReceived", detail);
         }
+        else if (message.kind == protocol::PlayerActionKind::AbilityRequest)
+        {
+            char detail[224] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "source_actor_id=%llu owner_actor_id=%llu action_id=%llu target_player=%llu target_uid=%016llX phase=%u",
+                static_cast<unsigned long long>(
+                    transportMessage.sourceActorId),
+                static_cast<unsigned long long>(message.ownerActorId),
+                static_cast<unsigned long long>(message.actionId),
+                static_cast<unsigned long long>(
+                    message.targetPlayerActorId),
+                static_cast<unsigned long long>(message.targetThingUid),
+                static_cast<unsigned int>(message.phase));
+            diagnostics_.Event(
+                "MultiplayerRemotePlayerActionReceived", detail);
+        }
         if (role_ == PeerRole::Host)
         {
             if (message.phase != protocol::PlayerActionPhase::Intent ||
@@ -493,7 +514,13 @@ namespace fable::multiplayer::replication
     {
         if (message.ownerActorId == localActorId_)
         {
-            return true;
+            // A guest publishes Intent and receives the host-approved Perform
+            // for its own action. It must not replay that action locally, but
+            // the source-owner hit resolver still needs the approved action
+            // in its ledger before the native weapon sweep lands.
+            return RecordCombatAction(
+                message,
+                "self-authoritative player action did not match the current actor lifecycle");
         }
         const RemotePlayerLifecycle* const lifecycle =
             remoteChannels_->FindLifecycle(message.ownerActorId);
@@ -513,10 +540,45 @@ namespace fable::multiplayer::replication
         return QueueReplay(std::move(message), sourceConnectionNonce);
     }
 
+    bool PlayerActionReplication::RecordCombatAction(
+        const protocol::PlayerActionMessage& message,
+        const char* const rejectionDetail)
+    {
+        const bool predictedLocalIntent =
+            message.phase == protocol::PlayerActionPhase::Intent &&
+            message.ownerActorId == localActorId_;
+        if ((message.phase != protocol::PlayerActionPhase::Perform &&
+                !predictedLocalIntent) || combatLedger_ == nullptr)
+        {
+            return true;
+        }
+        const combat::CombatSourceAction action{
+            {combat::CombatSubjectKind::PlayerActor,
+             message.ownerActorId,
+             message.actorGeneration,
+             message.mapEpoch},
+            message.actionId,
+            message.authorityEpoch};
+        if (combatLedger_->Begin(action, GetTickCount64()) ||
+            combatLedger_->IsCurrent(action))
+        {
+            return true;
+        }
+        diagnostics_.Event(
+            "MultiplayerCombatActionLedgerRejected", rejectionDetail);
+        return false;
+    }
+
     bool PlayerActionReplication::Queue(
         protocol::PlayerActionMessage message,
         const std::uint64_t sourceConnectionNonce)
     {
+        if (!RecordCombatAction(
+                message,
+                "player action perform did not match the current actor lifecycle"))
+        {
+            return false;
+        }
         std::size_t actorMessages = 0;
         for (const auto& pending : pendingMessages_)
         {
@@ -548,6 +610,12 @@ namespace fable::multiplayer::replication
         protocol::PlayerActionMessage message,
         const std::uint64_t sourceConnectionNonce)
     {
+        if (!RecordCombatAction(
+                message,
+                "player action replay did not match the current actor lifecycle"))
+        {
+            return false;
+        }
         std::size_t actorReplays = 0;
         for (const auto& pending : pendingReplays_)
         {
@@ -607,6 +675,9 @@ namespace fable::multiplayer::replication
                     queued.authorityEpoch || !lifecycleMatches ||
                 owner->mapName != queued.mapName)
             {
+                diagnostics_.Event(
+                    "MultiplayerPlayerActionStale",
+                    "local player action no longer matched its lifecycle before publication");
                 pendingMessages_.pop_front();
                 continue;
             }
@@ -644,7 +715,7 @@ namespace fable::multiplayer::replication
                 continue;
             }
             if (pendingMessages_.front().message.kind ==
-                protocol::PlayerActionKind::HeroAbility)
+                    protocol::PlayerActionKind::HeroAbility)
             {
                 char detail[160] = {};
                 std::snprintf(
@@ -660,6 +731,25 @@ namespace fable::multiplayer::replication
                         pendingMessages_.front().message.heroAbilityCommand));
                 diagnostics_.Event(
                     "MultiplayerLocalHeroAbilityPublished", detail);
+            }
+            else if (pendingMessages_.front().message.kind ==
+                protocol::PlayerActionKind::AbilityRequest)
+            {
+                char detail[192] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "actor_id=%llu action_id=%llu target_player=%llu target_uid=%016llX",
+                    static_cast<unsigned long long>(
+                        pendingMessages_.front().message.ownerActorId),
+                    static_cast<unsigned long long>(
+                        pendingMessages_.front().message.actionId),
+                    static_cast<unsigned long long>(
+                        pendingMessages_.front().message.targetPlayerActorId),
+                    static_cast<unsigned long long>(
+                        pendingMessages_.front().message.targetThingUid));
+                diagnostics_.Event(
+                    "MultiplayerLocalPlayerActionPublished", detail);
             }
             pendingMessages_.pop_front();
         }
@@ -1044,6 +1134,7 @@ namespace fable::multiplayer::replication
         identities_ = nullptr;
         presence_ = nullptr;
         combatants_ = nullptr;
+        combatLedger_ = nullptr;
         combat_ = nullptr;
         abilities_ = nullptr;
         actionObserver_ = nullptr;

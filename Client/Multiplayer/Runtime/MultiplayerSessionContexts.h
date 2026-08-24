@@ -7,6 +7,7 @@
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Authority/EntitySimulationAuthority.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Combat/CombatActionLedger.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityMaterializationService.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
@@ -20,6 +21,7 @@
 #include "Multiplayer/Replication/EntityActionReplication.h"
 #include "Multiplayer/Replication/EntityLowSimulationReplication.h"
 #include "Multiplayer/Replication/EntityVitalsReplication.h"
+#include "Multiplayer/Replication/CombatHitReplication.h"
 #include "Multiplayer/Replication/LocalHeroReplication.h"
 #include "Multiplayer/Replication/LocalPlayerChannel.h"
 #include "Multiplayer/Replication/PlayerActionReplication.h"
@@ -72,8 +74,10 @@ namespace fable::multiplayer
 
     struct MultiplayerActionContext final
     {
+        combat::CombatActionLedger combatLedger;
         replication::EntityActionReplication entityActions;
         replication::PlayerActionReplication playerActions;
+        replication::CombatHitReplication combatHits;
         replication::EntityVitalsReplication entityVitals;
     };
 

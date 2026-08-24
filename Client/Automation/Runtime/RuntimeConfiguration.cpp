@@ -32,6 +32,8 @@ namespace
         L"FABLETOGETHER_MULTIPLAYER_APPEARANCE";
     constexpr wchar_t kMorphSelfTestEnvironment[] =
         L"FABLETOGETHER_MORPH_SELF_TEST";
+    constexpr wchar_t kManualPlaytestEnvironment[] =
+        L"FABLETOGETHER_MANUAL_PLAYTEST";
     constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
 
     std::wstring ReadEnvironment(const wchar_t* name)
@@ -89,6 +91,8 @@ namespace fable::automation::runtime
         multiplayerPlayerId_ = ReadEnvironment(kMultiplayerPlayerIdEnvironment);
         multiplayerAppearance_ = ReadEnvironment(kMultiplayerAppearanceEnvironment);
         morphSelfTest_ = ReadEnvironment(kMorphSelfTestEnvironment) == L"1";
+        manualPlaytest_ =
+            ReadEnvironment(kManualPlaytestEnvironment) == L"1";
         multiplayerPort_ = 0;
         const std::wstring port = ReadEnvironment(kMultiplayerPortEnvironment);
         if (!port.empty())
@@ -196,6 +200,11 @@ namespace fable::automation::runtime
     bool RuntimeConfiguration::MorphSelfTest() const noexcept
     {
         return morphSelfTest_;
+    }
+
+    bool RuntimeConfiguration::ManualPlaytest() const noexcept
+    {
+        return manualPlaytest_;
     }
 
     HANDLE RuntimeConfiguration::ShutdownEvent() const noexcept

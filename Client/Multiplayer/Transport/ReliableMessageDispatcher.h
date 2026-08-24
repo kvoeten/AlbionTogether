@@ -53,7 +53,7 @@ namespace fable::multiplayer
     private:
         static constexpr std::size_t SinkCount =
             static_cast<std::size_t>(
-                protocol::PacketType::PlayerActorState) + 1u;
+                protocol::PacketType::Count);
         UdpPeer* transport_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         std::array<ReliableMessageSink*, SinkCount> sinks_ = {};

@@ -759,6 +759,12 @@ namespace fable::multiplayer::entities
         {
             return;
         }
+        if (presence_ != nullptr && owned->second.localUid != 0)
+        {
+            (void)presence_->RetireNetworkIdentity(
+                canonicalUid,
+                owned->second.localUid);
+        }
         if (owned->second.entity != nullptr)
         {
             if (requestDestroy && owned->second.entity->IsValid())

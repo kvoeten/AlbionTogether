@@ -24,7 +24,7 @@ namespace
         "SCRIPT_NAME_FABLE_TOGETHER_REMOTE_PLAYER";
     constexpr char ArenaMap[] = "FrescoDome";
     constexpr float Tau = 6.28318530717958647692f;
-    constexpr float SpawnDistance = 2.5f;
+    constexpr float SpawnDistance = 1.5f;
     constexpr std::uint64_t PeerStagingDelayMilliseconds = 2'000;
     constexpr std::uint64_t RosterSettleMilliseconds = 1'000;
     constexpr std::uint64_t RetryMilliseconds = 1'000;
@@ -89,7 +89,10 @@ namespace fable::automation::multiplayer::combat
         const std::uint64_t now = GetTickCount64();
         if (spawnTarget_ && completed_)
         {
-            MaintainAcceptanceTargetHealth(now);
+            if (maintainTargetHealth_)
+            {
+                MaintainAcceptanceTargetHealth(now);
+            }
             return;
         }
         if (armedAt_ == 0)
@@ -232,12 +235,12 @@ namespace fable::automation::multiplayer::combat
                 Find(
                     heroThing,
                     game::entity::native::ThingComponentType::Targeting);
-            const bool selectedArmed = game::creature::combat::native::
-                HeroTargetingComponent::AssignSelectedTarget(
-                    entities_->GameModule(),
-                    targeting,
-                    targetThing);
-            const bool armed = selectedArmed;
+            const bool armed = targetArmed_ ||
+                game::creature::combat::native::HeroTargetingComponent::
+                    AssignSelectedTarget(
+                        entities_->GameModule(),
+                        targeting,
+                        targetThing);
             if (!armed)
             {
                 hero->Release();
@@ -618,11 +621,32 @@ namespace fable::automation::multiplayer::combat
         }
 
         const float radians = heroFacing * Tau;
-        const game::Vector3 targetPosition = {
+        game::Vector3 targetPosition = {
             heroPosition.x + std::sin(radians) * SpawnDistance,
             heroPosition.y + std::cos(radians) * SpawnDistance,
             heroPosition.z,
         };
+        game::Entity* const remote =
+            entities_->FindByScriptName(RemotePlayerScriptName);
+        if (remote != nullptr && remote->IsValid() &&
+            remote->GetCurrentMapName() == map)
+        {
+            const game::Vector3 remotePosition = remote->GetPosition();
+            if (std::isfinite(remotePosition.x) &&
+                std::isfinite(remotePosition.y) &&
+                std::isfinite(remotePosition.z))
+            {
+                targetPosition = {
+                    (heroPosition.x + remotePosition.x) * 0.5f,
+                    (heroPosition.y + remotePosition.y) * 0.5f,
+                    (heroPosition.z + remotePosition.z) * 0.5f,
+                };
+            }
+        }
+        if (remote != nullptr)
+        {
+            remote->Release();
+        }
         ++attempts_;
         target_ = npcs_->Spawn(
             TargetDefinition,
@@ -698,6 +722,18 @@ namespace fable::automation::multiplayer::combat
             target_->GetScriptCounter());
         diagnostics_.Event("MultiplayerCombatTargetSpawned", detail);
         completed_ = true;
+    }
+
+    void CombatTargetAcceptanceDriver::AllowTargetDeath() noexcept
+    {
+        if (!enabled_ || !spawnTarget_ || !maintainTargetHealth_)
+        {
+            return;
+        }
+        maintainTargetHealth_ = false;
+        diagnostics_.Event(
+            "MultiplayerCombatTargetDeathAllowed",
+            "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET maintenance=disabled");
     }
 
     void CombatTargetAcceptanceDriver::MaintainAcceptanceTargetHealth(
@@ -795,6 +831,7 @@ namespace fable::automation::multiplayer::combat
         redrawRequested_ = false;
         redrawReady_ = false;
         healthMutationApplied_ = false;
+        maintainTargetHealth_ = true;
         enabled_ = false;
         completed_ = false;
     }

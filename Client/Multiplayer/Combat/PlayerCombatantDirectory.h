@@ -16,6 +16,8 @@ namespace fable::multiplayer::combat
         bool Bind(std::uint64_t actorId, void* creature) noexcept;
         void Unbind(std::uint64_t actorId, void* creature = nullptr) noexcept;
         [[nodiscard]] std::uint64_t FindActor(void* creature) const noexcept;
+        [[nodiscard]] std::uint64_t FindActorByThingUid(
+            std::uint64_t thingUid) const noexcept;
         [[nodiscard]] void* FindCreature(std::uint64_t actorId) const noexcept;
         void Clear() noexcept;
 
@@ -23,5 +25,6 @@ namespace fable::multiplayer::combat
         mutable SRWLOCK lock_ = SRWLOCK_INIT;
         std::unordered_map<std::uint64_t, void*> creaturesByActor_;
         std::unordered_map<void*, std::uint64_t> actorsByCreature_;
+        std::unordered_map<std::uint64_t, std::uint64_t> actorsByThingUid_;
     };
 }

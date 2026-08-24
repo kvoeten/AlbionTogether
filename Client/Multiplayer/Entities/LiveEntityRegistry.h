@@ -57,6 +57,7 @@ namespace fable::multiplayer::entities
             LiveEntityChange& change);
         [[nodiscard]] const LiveEntityRecord* Find(
             std::uint64_t thingUid) const noexcept;
+        [[nodiscard]] std::uint64_t Revision() const noexcept;
         bool Remap(
             std::uint64_t localUid,
             std::uint64_t canonicalUid) noexcept;
@@ -70,8 +71,10 @@ namespace fable::multiplayer::entities
 
     private:
         std::uint32_t NextIncarnation() noexcept;
+        void MarkChanged() noexcept;
 
         std::unordered_map<std::uint64_t, LiveEntityRecord> records_;
         std::uint32_t nextIncarnation_ = 0;
+        std::uint64_t revision_ = 0;
     };
 }

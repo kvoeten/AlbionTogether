@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <deque>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace fable::multiplayer::entities
@@ -35,6 +36,13 @@ namespace fable::multiplayer::entities
         bool BindNetworkIdentity(
             std::uint64_t canonicalUid,
             std::uint64_t localUid);
+        // Retires one process-local presentation alias without weakening
+        // identity conflict checks. If the native Thing is still registered,
+        // removal is deferred until its ordered Mapwho unregistration has
+        // first removed the canonical live record.
+        bool RetireNetworkIdentity(
+            std::uint64_t canonicalUid,
+            std::uint64_t localUid) noexcept;
         bool UnregisterLocalPresence(std::uint64_t canonicalUid) noexcept;
         [[nodiscard]] const LiveEntityRegistry& LiveEntities() const noexcept;
         void Shutdown() noexcept;
@@ -57,6 +65,8 @@ namespace fable::multiplayer::entities
         std::mutex pendingMutex_;
         std::deque<game::entity::presence::ThingPresenceEvent> pendingEvents_;
         std::deque<LiveEntityChange> pendingChanges_;
+        std::unordered_map<std::uint64_t, std::uint64_t>
+            pendingIdentityRetirements_;
         std::atomic_bool acceptingEvents_{false};
         std::atomic_uint droppedEvents_{0};
         unsigned int reportedDroppedEvents_ = 0;

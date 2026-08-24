@@ -144,7 +144,7 @@ namespace fable::game::creature::actions
         originalUpdate_ = nullptr;
         gameModule_ = nullptr;
         AcquireSRWLockExclusive(&authoritativeReplayLock_);
-        authoritativeReplayActions_.clear();
+        authoritativeReplayActions_ = {};
         ReleaseSRWLockExclusive(&authoritativeReplayLock_);
         diagnostics_ = {};
     }
@@ -433,6 +433,27 @@ namespace fable::game::creature::actions
         return IsAuthoritativeReplay(action);
     }
 
+    bool CreatureActionLifecycleObserver::
+        IsActiveActionAuthoritativeReplay(void* creature) noexcept
+    {
+        CreatureActionLifecycleObserver* const observer = active_;
+        if (observer == nullptr || creature == nullptr)
+        {
+            return false;
+        }
+        void* action = nullptr;
+        __try
+        {
+            action = *reinterpret_cast<void**>(
+                static_cast<std::uint8_t*>(creature) + 0x120);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        return action != nullptr && observer->IsAuthoritativeReplay(action);
+    }
+
     bool CreatureActionLifecycleObserver::DescribeActionType(
         void* action,
         char* name,
@@ -667,6 +688,22 @@ namespace fable::game::creature::actions
         const AuthorityGate gate = observer->authorityGate_.load(
             std::memory_order_acquire);
         const bool replaySubmission = authoritativeReplayDepth_ != 0;
+        // A requested action can reuse an address retained from an earlier
+        // replay if native storage is recycled. Remove that address before
+        // native arbitration so pointer reuse cannot inherit authority.
+        observer->ForgetAuthoritativeReplay(action);
+        void* previousAction = nullptr;
+        __try
+        {
+            previousAction = creature != nullptr
+                ? *reinterpret_cast<void**>(
+                    static_cast<std::uint8_t*>(creature) + 0x120)
+                : nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            previousAction = nullptr;
+        }
         const bool authorityDenied = !replaySubmission &&
             gate != nullptr && !gate(
             observer->authorityGateContext_.load(
@@ -696,7 +733,17 @@ namespace fable::game::creature::actions
             {
                 activeAction = nullptr;
             }
+            if (previousAction != nullptr && previousAction != activeAction)
+            {
+                observer->ForgetAuthoritativeReplay(previousAction);
+            }
             observer->RememberAuthoritativeReplay(activeAction);
+        }
+        else if (previousAction != nullptr && previousAction != action)
+        {
+            // A native replacement that was denied or rejected must not leave
+            // the old replay marker live indefinitely.
+            observer->PruneAuthoritativeReplay(creature);
         }
         observer->ReportSubmission(
             creature,
@@ -884,6 +931,12 @@ namespace fable::game::creature::actions
             : 0;
     }
 
+    std::uint32_t CreatureActionLifecycleObserver::
+        DescribeActionAnimationId(void* action) noexcept
+    {
+        return ReadAnimationId(action);
+    }
+
     void* CreatureActionLifecycleObserver::ReadAttackTarget(
         HMODULE gameModule,
         void* action,
@@ -1050,9 +1103,35 @@ namespace fable::game::creature::actions
         {
             return false;
         }
+        void* const creature = ResolveActionOwner(action);
+        void* activeAction = nullptr;
+        __try
+        {
+            activeAction = creature != nullptr
+                ? *reinterpret_cast<void**>(
+                    static_cast<std::uint8_t*>(creature) + 0x120)
+                : nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            activeAction = nullptr;
+        }
+        if (activeAction != action)
+        {
+            return false;
+        }
+        const std::uint64_t creatureUid = ReadThingContext(creature).uid;
         AcquireSRWLockShared(&authoritativeReplayLock_);
-        const bool found = authoritativeReplayActions_.find(action) !=
-            authoritativeReplayActions_.end();
+        bool found = false;
+        for (const AuthoritativeReplayEntry& entry : authoritativeReplayActions_)
+        {
+            if (entry.action == action && entry.creature == creature &&
+                (entry.creatureUid == 0 || entry.creatureUid == creatureUid))
+            {
+                found = true;
+                break;
+            }
+        }
         ReleaseSRWLockShared(&authoritativeReplayLock_);
         return found;
     }
@@ -1064,8 +1143,37 @@ namespace fable::game::creature::actions
         {
             return;
         }
+        void* creature = ResolveActionOwner(action);
+        if (creature == nullptr)
+        {
+            return;
+        }
+        const ThingContext context = ReadThingContext(creature);
+        PruneAuthoritativeReplay(creature);
         AcquireSRWLockExclusive(&authoritativeReplayLock_);
-        authoritativeReplayActions_.insert(action);
+        for (AuthoritativeReplayEntry& entry : authoritativeReplayActions_)
+        {
+            if (entry.action == action)
+            {
+                entry.creature = creature;
+                entry.creatureUid = context.uid;
+                ReleaseSRWLockExclusive(&authoritativeReplayLock_);
+                return;
+            }
+        }
+        for (AuthoritativeReplayEntry& entry : authoritativeReplayActions_)
+        {
+            if (entry.action == nullptr)
+            {
+                entry = {action, creature, context.uid};
+                ReleaseSRWLockExclusive(&authoritativeReplayLock_);
+                return;
+            }
+        }
+        // A bounded table must never grow with action churn. If every slot is
+        // still live, leave the marker absent rather than evicting a live
+        // action's authority. The submission remains authoritative for its
+        // native call; the next lifecycle finish/replacement frees capacity.
         ReleaseSRWLockExclusive(&authoritativeReplayLock_);
     }
 
@@ -1077,7 +1185,53 @@ namespace fable::game::creature::actions
             return;
         }
         AcquireSRWLockExclusive(&authoritativeReplayLock_);
-        authoritativeReplayActions_.erase(action);
+        for (AuthoritativeReplayEntry& entry : authoritativeReplayActions_)
+        {
+            if (entry.action == action)
+            {
+                entry = {};
+            }
+        }
+        ReleaseSRWLockExclusive(&authoritativeReplayLock_);
+    }
+
+    void CreatureActionLifecycleObserver::PruneAuthoritativeReplay(
+        void* creature) noexcept
+    {
+        AcquireSRWLockExclusive(&authoritativeReplayLock_);
+        for (AuthoritativeReplayEntry& entry : authoritativeReplayActions_)
+        {
+            if (entry.action == nullptr ||
+                (creature != nullptr && entry.creature != creature))
+            {
+                continue;
+            }
+            bool stale = false;
+            void* activeAction = nullptr;
+            __try
+            {
+                activeAction = entry.creature != nullptr
+                    ? *reinterpret_cast<void**>(
+                        static_cast<std::uint8_t*>(entry.creature) + 0x120)
+                    : nullptr;
+                stale = activeAction != entry.action ||
+                    *reinterpret_cast<const std::uint8_t*>(
+                        static_cast<const std::uint8_t*>(entry.action) + 0x61) != 0;
+                if (entry.creatureUid != 0 &&
+                    ReadThingContext(entry.creature).uid != entry.creatureUid)
+                {
+                    stale = true;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                stale = true;
+            }
+            if (stale)
+            {
+                entry = {};
+            }
+        }
         ReleaseSRWLockExclusive(&authoritativeReplayLock_);
     }
 }

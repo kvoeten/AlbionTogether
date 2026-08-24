@@ -1,5 +1,27 @@
 #include "PlayerCombatantDirectory.h"
 
+namespace
+{
+    std::uint64_t ReadThingUid(void* creature) noexcept
+    {
+        std::uint64_t uid = 0;
+        if (creature == nullptr)
+        {
+            return 0;
+        }
+        __try
+        {
+            uid = *reinterpret_cast<const std::uint64_t*>(
+                static_cast<const std::uint8_t*>(creature) + 0x14);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            uid = 0;
+        }
+        return uid;
+    }
+}
+
 namespace fable::multiplayer::combat
 {
     bool PlayerCombatantDirectory::Bind(
@@ -14,6 +36,12 @@ namespace fable::multiplayer::combat
         const auto previousCreature = creaturesByActor_.find(actorId);
         if (previousCreature != creaturesByActor_.end())
         {
+            const std::uint64_t previousUid = ReadThingUid(
+                previousCreature->second);
+            if (previousUid != 0)
+            {
+                actorsByThingUid_.erase(previousUid);
+            }
             actorsByCreature_.erase(previousCreature->second);
         }
         const auto previousActor = actorsByCreature_.find(creature);
@@ -24,6 +52,11 @@ namespace fable::multiplayer::combat
         }
         creaturesByActor_[actorId] = creature;
         actorsByCreature_[creature] = actorId;
+        const std::uint64_t thingUid = ReadThingUid(creature);
+        if (thingUid != 0)
+        {
+            actorsByThingUid_[thingUid] = actorId;
+        }
         ReleaseSRWLockExclusive(&lock_);
         return true;
     }
@@ -41,10 +74,31 @@ namespace fable::multiplayer::combat
         if (found != creaturesByActor_.end() &&
             (creature == nullptr || found->second == creature))
         {
+            const std::uint64_t thingUid = ReadThingUid(found->second);
+            if (thingUid != 0)
+            {
+                actorsByThingUid_.erase(thingUid);
+            }
             actorsByCreature_.erase(found->second);
             creaturesByActor_.erase(found);
         }
         ReleaseSRWLockExclusive(&lock_);
+    }
+
+    std::uint64_t PlayerCombatantDirectory::FindActorByThingUid(
+        std::uint64_t thingUid) const noexcept
+    {
+        if (thingUid == 0)
+        {
+            return 0;
+        }
+        AcquireSRWLockShared(&lock_);
+        const auto found = actorsByThingUid_.find(thingUid);
+        const std::uint64_t actorId = found != actorsByThingUid_.end()
+            ? found->second
+            : 0;
+        ReleaseSRWLockShared(&lock_);
+        return actorId;
     }
 
     std::uint64_t PlayerCombatantDirectory::FindActor(
@@ -84,6 +138,7 @@ namespace fable::multiplayer::combat
         AcquireSRWLockExclusive(&lock_);
         creaturesByActor_.clear();
         actorsByCreature_.clear();
+        actorsByThingUid_.clear();
         ReleaseSRWLockExclusive(&lock_);
     }
 }

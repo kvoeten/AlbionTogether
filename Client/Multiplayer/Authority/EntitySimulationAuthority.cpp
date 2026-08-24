@@ -3,6 +3,7 @@
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/AI/Hooks/AiBrainUpdateObserver.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
+#include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
 #include "Multiplayer/Entities/EntityPresenceReplication.h"
@@ -13,6 +14,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -39,6 +41,26 @@ namespace
         }
         return readable;
     }
+
+    bool IsVictimPresentationAction(void* action) noexcept
+    {
+        char actionType[128] = {};
+        if (!fable::game::creature::actions::
+                CreatureActionLifecycleObserver::DescribeActionType(
+                    action, actionType, sizeof(actionType)))
+        {
+            return false;
+        }
+
+        constexpr char genericStrikePrefix[] =
+            "CCombatAction_GenericStrikeResponse";
+        return std::strncmp(
+                actionType,
+                genericStrikePrefix,
+                sizeof(genericStrikePrefix) - 1) == 0 ||
+            std::strcmp(actionType, "CCreatureAction_BeingForcePushed") == 0 ||
+            std::strcmp(actionType, "CCreatureAction_BlockRespond") == 0;
+    }
 }
 
 namespace fable::multiplayer::authority
@@ -49,6 +71,7 @@ namespace fable::multiplayer::authority
         entities::EntityLifecycleReplication& lifecycle,
         entities::EntityNetworkIdentityRegistry& identities,
         entities::EntityPresenceReplication& presence,
+        combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics)
     {
         Shutdown();
@@ -57,6 +80,7 @@ namespace fable::multiplayer::authority
         lifecycle_ = &lifecycle;
         identities_ = &identities;
         presence_ = &presence;
+        combatants_ = &combatants;
         diagnostics_ = diagnostics;
         diagnostics_.Event(
             "MultiplayerEntitySimulationAuthorityReady",
@@ -135,9 +159,51 @@ namespace fable::multiplayer::authority
                 continue;
             }
             ++creatureCount;
-            if (entities::LiveEntityRegistry::IsPlayerPresentation(live))
+            const std::uint64_t canonicalUid =
+                identities_->Canonicalize(live.thingUid);
+            const entities::WorldEntityRecord* const record =
+                lifecycle_->Directory().Find(canonicalUid);
+            const bool isPlayerPresentation =
+                entities::LiveEntityRegistry::IsPlayerPresentation(live);
+            if (isPlayerPresentation)
             {
                 ++playerPresentationCount;
+            }
+            std::uint64_t playerActorId = combatants_->FindActor(live.thing);
+            if (playerActorId == 0)
+            {
+                playerActorId = combatants_->FindActorByThingUid(canonicalUid);
+            }
+
+            // Known player combatants get an explicit decision: only the
+            // local actor may run native simulation. Unknown presentations
+            // during engine bootstrap remain fail-open below.
+            if (playerActorId != 0)
+            {
+                const std::uint64_t localUid = identities_->FindLocal(canonicalUid);
+                const std::uint64_t nativeUid = localUid != 0
+                    ? localUid
+                    : canonicalUid;
+                const bool canSimulate = playerActorId == localActorId_;
+                next->byCreature[live.thing] = {
+                    nativeUid, canSimulate};
+                if (canSimulate)
+                {
+                    ++localSimulationCount;
+                }
+                else
+                {
+                    ++fencedCount;
+                }
+                continue;
+            }
+
+            // A canonical world record takes precedence over the presentation
+            // label: world entities with a Hero morph still follow publisher
+            // authority. Only an unknown, unrecorded player presentation is
+            // omitted (and therefore remains fail-open in CanSimulate).
+            if (record == nullptr && isPlayerPresentation)
+            {
                 continue;
             }
             if (!entities::LiveEntityRegistry::IsReplicable(live))
@@ -146,10 +212,6 @@ namespace fable::multiplayer::authority
             }
             ++replicableCount;
 
-            const std::uint64_t canonicalUid =
-                identities_->Canonicalize(live.thingUid);
-            const entities::WorldEntityRecord* const record =
-                lifecycle_->Directory().Find(canonicalUid);
             bool canSimulate = true;
             if (record == nullptr)
             {
@@ -266,6 +328,7 @@ namespace fable::multiplayer::authority
         lifecycle_ = nullptr;
         identities_ = nullptr;
         presence_ = nullptr;
+        combatants_ = nullptr;
         diagnostics_ = {};
         localActorId_ = 0;
         reportedCoverageMap_.clear();
@@ -290,8 +353,18 @@ namespace fable::multiplayer::authority
     bool EntitySimulationAuthority::ShouldSubmitAction(
         void* context,
         void* creature,
-        void*) noexcept
+        void* action) noexcept
     {
+        // Hit reactions are presentation consequences, not simulation
+        // decisions. Let the retail OnHit path submit and update them on a
+        // fenced replica so the attacker sees the native flinch/knockdown and
+        // impact effects immediately. Health remains protected and the
+        // reliable CombatHit result suppresses duplicate replay after it
+        // correlates this native response.
+        if (IsVictimPresentationAction(action))
+        {
+            return true;
+        }
         const auto* const simulation =
             static_cast<const EntitySimulationAuthority*>(context);
         return simulation == nullptr || simulation->CanSimulate(creature);

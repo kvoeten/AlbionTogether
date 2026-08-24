@@ -106,6 +106,13 @@ namespace fable::game::creature::combat
     {
         return false;
     }
+
+    bool CreatureCombatService::SetReplicaHealthProtection(
+        void*,
+        bool) noexcept
+    {
+        return true;
+    }
 }
 
 namespace fable::game::hero_pawn::abilities
@@ -159,6 +166,12 @@ namespace fable::multiplayer::entities
         return nullptr;
     }
 
+    std::uint64_t WorldEntityDirectory::LatestWorldRevision()
+        const noexcept
+    {
+        return 0;
+    }
+
     std::uint64_t EntityNetworkIdentityRegistry::Canonicalize(
         const std::uint64_t uid) const noexcept
     {
@@ -180,6 +193,11 @@ namespace fable::multiplayer::entities
     std::vector<LiveEntityRecord> LiveEntityRegistry::Snapshot() const
     {
         return {};
+    }
+
+    std::uint64_t LiveEntityRegistry::Revision() const noexcept
+    {
+        return 0;
     }
 
     bool LiveEntityRegistry::IsReplicable(

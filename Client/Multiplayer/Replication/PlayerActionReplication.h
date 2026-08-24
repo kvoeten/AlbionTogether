@@ -35,6 +35,7 @@ namespace fable::multiplayer
 
 namespace fable::multiplayer::combat
 {
+    class CombatActionLedger;
     class PlayerCombatantDirectory;
 }
 
@@ -79,6 +80,7 @@ namespace fable::multiplayer::replication
             entities::EntityNetworkIdentityRegistry& identities,
             entities::EntityPresenceReplication& presence,
             combat::PlayerCombatantDirectory& combatants,
+            combat::CombatActionLedger& combatLedger,
             game::creature::combat::CreatureCombatService& combat,
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
             const core::Diagnostics& diagnostics);
@@ -153,6 +155,9 @@ namespace fable::multiplayer::replication
         bool AcceptAuthoritative(
             protocol::PlayerActionMessage message,
             std::uint64_t sourceConnectionNonce);
+        bool RecordCombatAction(
+            const protocol::PlayerActionMessage& message,
+            const char* rejectionDetail);
         bool Queue(
             protocol::PlayerActionMessage message,
             std::uint64_t sourceConnectionNonce = 0);
@@ -170,6 +175,7 @@ namespace fable::multiplayer::replication
         entities::EntityNetworkIdentityRegistry* identities_ = nullptr;
         entities::EntityPresenceReplication* presence_ = nullptr;
         combat::PlayerCombatantDirectory* combatants_ = nullptr;
+        combat::CombatActionLedger* combatLedger_ = nullptr;
         game::creature::combat::CreatureCombatService* combat_ =
             nullptr;
         game::hero_pawn::abilities::HeroWillAbilityService* abilities_ =

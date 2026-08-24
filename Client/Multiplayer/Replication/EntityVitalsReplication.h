@@ -3,6 +3,8 @@
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/Creature/Combat/CombatHealthMutationEvent.h"
 #include "Multiplayer/Authority/ActionAuthorityCoordinator.h"
+#include "Multiplayer/Entities/LiveEntityRegistry.h"
+#include "Multiplayer/Entities/WorldEntityDirectory.h"
 #include "Multiplayer/Protocol/EntityVitalsMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
@@ -45,6 +47,58 @@ namespace fable::multiplayer::replication
 {
     class LocalHeroReplication;
     class RemotePlayerChannels;
+
+    // A native world creature remains locally simulated even when another
+    // peer owns its authoritative state. Such a creature must be protected
+    // before its first local combat mutation; EntityVitalsReplication is the
+    // only path allowed to apply the owner's health value.
+    [[nodiscard]] inline bool IsRemoteEntityHealthReplica(
+        const entities::WorldEntityRecord& world,
+        const entities::LiveEntityRecord& live,
+        std::uint64_t localActorId,
+        bool localIsPublisher) noexcept
+    {
+        return localActorId != 0 &&
+            world.thingUid != 0 && world.generation != 0 &&
+            world.mapEpoch != 0 && world.available && world.live &&
+            world.creature && world.simulationOwnerActorId != 0 &&
+            world.simulationOwnerActorId != localActorId &&
+            live.thing != nullptr && live.creature &&
+            !localIsPublisher;
+    }
+
+    class ReplicaHealthProtectionRevision final
+    {
+    public:
+        [[nodiscard]] bool NeedsReconcile(
+            std::uint64_t liveRevision,
+            std::uint64_t worldRevision) const noexcept
+        {
+            return !valid_ || liveRevision != liveRevision_ ||
+                worldRevision != worldRevision_;
+        }
+
+        void Commit(
+            std::uint64_t liveRevision,
+            std::uint64_t worldRevision) noexcept
+        {
+            liveRevision_ = liveRevision;
+            worldRevision_ = worldRevision;
+            valid_ = true;
+        }
+
+        void Invalidate() noexcept
+        {
+            valid_ = false;
+            liveRevision_ = 0;
+            worldRevision_ = 0;
+        }
+
+    private:
+        std::uint64_t liveRevision_ = 0;
+        std::uint64_t worldRevision_ = 0;
+        bool valid_ = false;
+    };
 
     // Reliable, mutation-driven health replication. Only the latest revision
     // for each player or current entity generation is retained; dormant
@@ -95,6 +149,14 @@ namespace fable::multiplayer::replication
             std::uint64_t publisherActorId = 0;
         };
 
+        struct ProtectedEntity final
+        {
+            void* creature = nullptr;
+            std::uint32_t generation = 0;
+            std::uint32_t mapEpoch = 0;
+            std::uint64_t ownerActorId = 0;
+        };
+
         static constexpr std::size_t EventCapacity = 1024;
         static constexpr std::size_t MessageCapacity = 1024;
         static constexpr std::uint64_t AuthorityGraceMilliseconds = 1'500;
@@ -126,6 +188,9 @@ namespace fable::multiplayer::replication
         bool Publish(protocol::EntityVitalsMessage message);
         bool PublishPending();
         bool PublishPeerBaseline();
+        bool SynchronizeReplicaHealthProtection(
+            const entities::LiveEntityRegistry& liveEntities);
+        void ClearReplicaHealthProtection() noexcept;
         void ApplyLatest(
             const entities::LiveEntityRegistry& liveEntities,
             presentation::RemotePlayerRegistry& remotePlayers);
@@ -162,6 +227,9 @@ namespace fable::multiplayer::replication
         std::unordered_map<std::uint64_t, AppliedEntity> appliedEntities_;
         std::unordered_map<std::uint64_t, AuthoredEntityBaseline>
             authoredEntityBaselines_;
+        std::unordered_map<std::uint64_t, ProtectedEntity>
+            protectedEntities_;
+        ReplicaHealthProtectionRevision protectionRevision_;
         std::atomic_bool acceptingEvents_{false};
         std::atomic_uint droppedEvents_{0};
         unsigned int reportedDroppedEvents_ = 0;

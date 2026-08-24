@@ -44,6 +44,7 @@ namespace fable::multiplayer::entities
                 existing->second.mapwhoComponent = event.component;
                 change.kind = LiveEntityChangeKind::Rebound;
                 change.record = existing->second;
+                MarkChanged();
                 return true;
             }
 
@@ -71,6 +72,7 @@ namespace fable::multiplayer::entities
                 ? LiveEntityChangeKind::Registered
                 : LiveEntityChangeKind::Rebound;
             change.record = record;
+            MarkChanged();
             return true;
         }
 
@@ -110,6 +112,7 @@ namespace fable::multiplayer::entities
         change.kind = LiveEntityChangeKind::Unregistered;
         change.record = existing->second;
         records_.erase(existing);
+        MarkChanged();
         return true;
     }
 
@@ -118,6 +121,11 @@ namespace fable::multiplayer::entities
     {
         const auto match = records_.find(thingUid);
         return match != records_.end() ? &match->second : nullptr;
+    }
+
+    std::uint64_t LiveEntityRegistry::Revision() const noexcept
+    {
+        return revision_;
     }
 
     bool LiveEntityRegistry::Remap(
@@ -147,6 +155,7 @@ namespace fable::multiplayer::entities
         records_.erase(local);
         record.thingUid = canonicalUid;
         records_.emplace(canonicalUid, std::move(record));
+        MarkChanged();
         return true;
     }
 
@@ -189,6 +198,10 @@ namespace fable::multiplayer::entities
 
     void LiveEntityRegistry::Clear() noexcept
     {
+        if (!records_.empty())
+        {
+            MarkChanged();
+        }
         records_.clear();
         nextIncarnation_ = 0;
     }
@@ -201,5 +214,14 @@ namespace fable::multiplayer::entities
             ++nextIncarnation_;
         }
         return nextIncarnation_;
+    }
+
+    void LiveEntityRegistry::MarkChanged() noexcept
+    {
+        ++revision_;
+        if (revision_ == 0)
+        {
+            ++revision_;
+        }
     }
 }

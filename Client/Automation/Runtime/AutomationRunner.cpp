@@ -60,6 +60,7 @@ namespace fable::automation::runtime
         const bool hostWill = configuration.ScenarioIs(L"multiplayer_host_hero_will");
         const bool guestWill = configuration.ScenarioIs(L"multiplayer_guest_hero_will");
         const bool combat = hostCombat || guestCombat;
+        const bool manualCombat = combat && configuration.ManualPlaytest();
         heroWillFocusedAcceptance_ = hostWill || guestWill;
         state_->heroWillFocused = heroWillFocusedAcceptance_;
         const bool anyWill = combat || heroWillFocusedAcceptance_;
@@ -68,20 +69,28 @@ namespace fable::automation::runtime
         state_->combatTarget.Initialize(
             anyWill,
             acceptanceHost,
-            heroWillFocusedAcceptance_,
+            heroWillFocusedAcceptance_ || manualCombat,
             services.Entities(),
             services.Creatures(),
             services.Combat(),
             services.Npcs(),
             diagnostics);
+        if (manualCombat)
+        {
+            // Manual acceptance owns its own pacing. Keep the Hobbe fully
+            // damageable and mortal so the tester can verify ordered health
+            // and death replication without the automated fixture healing it.
+            state_->combatTarget.AllowTargetDeath();
+        }
         state_->combatVisual.Initialize(
-            combat,
+            combat && !manualCombat,
             hostCombat,
             services.Entities(),
+            services.Creatures(),
             services.Combat(),
             diagnostics);
         state_->heroWill.Initialize(
-            anyWill,
+            anyWill && !manualCombat,
             acceptanceHost,
             heroWillFocusedAcceptance_,
             services.Entities(),
@@ -100,6 +109,10 @@ namespace fable::automation::runtime
     {
         state_->npcTransfer.Tick(remotePresentationReady);
         state_->transition.Tick(deltaSeconds, remotePresentationReady);
+        if (state_->combatVisual.WantsTargetDeath())
+        {
+            state_->combatTarget.AllowTargetDeath();
+        }
         state_->combatTarget.Tick(remotePresentationReady);
         state_->combatVisual.Tick(remotePresentationReady);
         state_->heroWill.Tick(
