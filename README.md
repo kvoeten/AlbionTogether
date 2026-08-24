@@ -2,6 +2,8 @@
 
 Experimental multiplayer mod for Fable Anniversary.
 
+Join the [FableTogether Discord](https://discord.gg/5JSKmjKd85) for playtests, updates, and support.
+
 ![Two players exploring Albion together](media/MovementReplication.gif)
 
 ## Current alpha
