@@ -100,7 +100,20 @@ namespace fable::game::creature::combat
             const float (&targetPosition)[3],
             const char* resolvedActionType,
             std::uint32_t resolvedAnimationId) noexcept;
-        void SetHealthMutationSink(
+        bool SubmitReplicatedRangedFire(
+            void* creature,
+            void* rangedWeapon,
+            const char* resolvedActionType,
+            std::uint32_t resolvedAnimationId) noexcept;
+        bool SubmitReplicatedRangedAim(
+            void* creature,
+            void* rangedWeapon,
+            const char* resolvedActionType,
+            std::uint32_t resolvedAnimationId) noexcept;
+        bool AddHealthMutationSink(
+            HealthMutationSink sink,
+            void* context) noexcept;
+        void RemoveHealthMutationSink(
             HealthMutationSink sink,
             void* context) noexcept;
         bool AddResolvedHitSink(
@@ -123,6 +136,9 @@ namespace fable::game::creature::combat
         bool ApplyOwnedCombatDamage(
             void* creature,
             float damage) noexcept;
+        bool ApplyOwnedCombatHealing(
+            void* creature,
+            float healing) noexcept;
         void ClearPlayerCombat() noexcept;
 
         [[nodiscard]] bool IsPlayerCombatRouted() const noexcept;
@@ -130,6 +146,15 @@ namespace fable::game::creature::combat
         [[nodiscard]] unsigned int InterceptedHeroAttackCount() const noexcept;
 
     private:
+        bool SubmitReplicatedRangedAction(
+            void* creature,
+            void* rangedWeapon,
+            const char* resolvedActionType,
+            std::uint32_t resolvedAnimationId,
+            bool aimStage) noexcept;
+        static void CaptureHealthMutation(
+            void* context,
+            const CombatHealthMutationEvent& event) noexcept;
         static void CaptureResolvedHit(
             void* context,
             const ResolvedHitEvent& event) noexcept;
@@ -139,6 +164,7 @@ namespace fable::game::creature::combat
         core::Diagnostics diagnostics_ = {};
         mutable SRWLOCK routeLock_ = SRWLOCK_INIT;
         mutable SRWLOCK abilitySinkLock_ = SRWLOCK_INIT;
+        mutable SRWLOCK healthMutationSinkLock_ = SRWLOCK_INIT;
         mutable SRWLOCK resolvedHitSinkLock_ = SRWLOCK_INIT;
         Entity* retainedHero_ = nullptr;
         Entity* retainedPuppet_ = nullptr;
@@ -154,6 +180,14 @@ namespace fable::game::creature::combat
         };
         static constexpr std::size_t AbilitySinkCapacity = 4;
         std::array<AbilitySinkEntry, AbilitySinkCapacity> abilitySinks_ = {};
+        struct HealthMutationSinkEntry final
+        {
+            HealthMutationSink sink = nullptr;
+            void* context = nullptr;
+        };
+        static constexpr std::size_t HealthMutationSinkCapacity = 4;
+        std::array<HealthMutationSinkEntry, HealthMutationSinkCapacity>
+            healthMutationSinks_ = {};
         struct ResolvedHitSinkEntry final
         {
             ResolvedHitSink sink = nullptr;

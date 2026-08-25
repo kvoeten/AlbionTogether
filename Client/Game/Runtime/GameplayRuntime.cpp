@@ -61,6 +61,7 @@ namespace fable::game
                 state_->services.Look(),
                 state_->services.Combat(),
                 state_->services.HeroWill(),
+                state_->services.Quests(),
                 state_->services.Villages(),
                 state_->services.DummyVillagers(),
                 diagnostics))
@@ -147,6 +148,13 @@ namespace fable::game
         state_->services.HeroWill().DetachActionLifecycleObserver();
         state_->services.Combat().DetachActionLifecycleObserver();
         return false;
+    }
+
+    bool GameplayRuntime::AttachCreatureModeObserver(
+        creature::locomotion::CreatureModeManagerObserver& observer)
+    {
+        return state_->multiplayerReady &&
+            state_->multiplayer.AttachCreatureModeObserver(observer);
     }
 
     bool GameplayRuntime::AttachAiBrainUpdateObserver(

@@ -251,7 +251,9 @@
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.cpp"><Filter>Game\HeroPawn\Appearance</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroCombatController.cpp"><Filter>Game\HeroPawn\Combat</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.cpp"><Filter>Game\HeroPawn\Combat</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Equipment\Hooks\HeroEquipmentMutationObserver.cpp"><Filter>Game\HeroPawn\Equipment\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Equipment\Hooks\RemoteRangedWeaponOrientationHook.cpp"><Filter>Game\HeroPawn\Equipment\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponent.cpp"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponentProvisioner.cpp"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Equipment\RemoteHeroEquipmentController.cpp"><Filter>Game\HeroPawn\Equipment</Filter></ClCompile>
@@ -299,6 +301,7 @@
     <ClCompile Include="Multiplayer\Combat\CombatActionLedger.cpp"><Filter>Multiplayer\Combat</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Combat\CombatHitApplicator.cpp"><Filter>Multiplayer\Combat</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Combat\CombatHitCandidateBuilder.cpp"><Filter>Multiplayer\Combat</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Combat\PlayerDeathCoordinator.cpp"><Filter>Multiplayer\Combat</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\AuthorityMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\EntityActionMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\PlayerActionMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
@@ -440,6 +443,7 @@
     <ClInclude Include="Game\Creature\Locomotion\Bindings\CreatureLocomotionBindings.h"><Filter>Game\Creature\Locomotion\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Locomotion\CreatureLocomotionService.h"><Filter>Game\Creature\Locomotion</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Locomotion\CreatureLocomotionState.h"><Filter>Game\Creature\Locomotion</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Locomotion\CreatureModeSourceEvent.h"><Filter>Game\Creature\Locomotion</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Locomotion\Hooks\CreatureModeManagerObserver.h"><Filter>Game\Creature\Locomotion\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Locomotion\Hooks\CreatureFrameInputRouterHook.h"><Filter>Game\Creature\Locomotion\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Locomotion\Hooks\FollowCreatureActionHook.h"><Filter>Game\Creature\Locomotion\Hooks</Filter></ClInclude>
@@ -490,8 +494,10 @@
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroCombatController.h"><Filter>Game\HeroPawn\Combat</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.h"><Filter>Game\HeroPawn\Combat</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Equipment\HeroEquipmentState.h"><Filter>Game\HeroPawn\Equipment</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Equipment\Hooks\HeroEquipmentMutationObserver.h"><Filter>Game\HeroPawn\Equipment\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Equipment\Hooks\RemoteRangedWeaponOrientationHook.h"><Filter>Game\HeroPawn\Equipment\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponent.h"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponentProvisioner.h"><Filter>Game\HeroPawn\Equipment\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Equipment\RemoteHeroEquipmentController.h"><Filter>Game\HeroPawn\Equipment</Filter></ClInclude>
@@ -548,6 +554,8 @@
     <ClInclude Include="Multiplayer\Combat\CombatTerminalTransitionState.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Combat\CombatHitApplicator.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Combat\CombatHitCandidateBuilder.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Combat\PlayerDeathCoordinator.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Combat\PlayerDeathPolicy.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
@@ -574,6 +582,7 @@
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionEventQueue.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActionSemantics.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActorStateReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActorStatePublicationQueue.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityVitalsReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>

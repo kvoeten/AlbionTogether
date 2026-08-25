@@ -18,8 +18,9 @@ namespace fable::multiplayer::protocol
     enum class PlayerActionKind : std::uint8_t
     {
         AbilityRequest = 1,
-        // Ranged aiming is a sustained state and will use explicit begin,
-        // update, release messages once its native command seam is mapped.
+        // One reliable begin event enters Fable's native weapon-specific
+        // ranged load/aim pose. FireMissileWeapon is the ordered release;
+        // continuous charge timing remains local to the owning player.
         RangedAim = 2,
         // Draw/stow is an ordered semantic action. The reliable message also
         // carries the final owner-observed carry slots because PlayerState is
@@ -28,6 +29,9 @@ namespace fable::multiplayer::protocol
         // Hero Will actions are executed by CTCSpecialAbilities rather than
         // CThingCreature's ordinary weapon-ability submission path.
         HeroAbility = 4,
+        // Ends the held native ranged movement mode without inventing a pose.
+        // Fire also closes this state, while this event covers aim cancel.
+        RangedAimEnd = 5,
     };
 
     struct PlayerActionMessage final

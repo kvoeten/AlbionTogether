@@ -2,6 +2,7 @@
 
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/Creature/Combat/Native/AiTargetingComponent.h"
+#include "Game/Creature/Equipment/Native/CreatureWeaponFunctions.h"
 #include "Game/Creature/Locomotion/Native/LocomotionComponents.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Entity/Entity.h"
@@ -26,6 +27,7 @@ namespace fable::game::hero_pawn::combat
         combat_ = &combat;
         equipment_ = &equipment;
         diagnostics_ = diagnostics;
+        rangedAim_.Initialize(diagnostics);
         return true;
     }
 
@@ -42,6 +44,7 @@ namespace fable::game::hero_pawn::combat
         hero_ = &hero;
         nativeHero_ = nativeHero;
         actorId_ = actorId;
+        rangedAim_.Bind(nativeHero, actorId);
         healthReplicaProtected_ = combat_->SetReplicaHealthProtection(
             nativeHero_, true);
         return healthReplicaProtected_;
@@ -66,17 +69,31 @@ namespace fable::game::hero_pawn::combat
         {
             return false;
         }
+        const bool terminal = currentHealth <= 0.01f;
+        if (terminal && !deathSubmitted_)
+        {
+            if (!combat_->SubmitReplicatedDeath(nativeHero_))
+            {
+                return false;
+            }
+            deathSubmitted_ = true;
+        }
+        else if (!terminal)
+        {
+            deathSubmitted_ = false;
+        }
         healthCreature_ = nativeHero_;
         appliedHealthRevision_ = revision;
         char detail[256] = {};
         std::snprintf(
             detail,
             sizeof(detail),
-            "actor=%llu revision=%u health=%.3f maximum=%.3f",
+            "actor=%llu revision=%u health=%.3f maximum=%.3f death=%s",
             static_cast<unsigned long long>(actorId_),
             revision,
             currentHealth,
-            maximumHealth);
+            maximumHealth,
+            terminal ? "submitted" : "alive");
         diagnostics_.Event("MultiplayerRemotePlayerVitalsApplied", detail);
         return true;
     }
@@ -141,7 +158,52 @@ namespace fable::game::hero_pawn::combat
         }
         bool submitted = false;
         const char* route = "retail-hero-ability";
-        if (weaponFamily == CreatureWeaponFamily::Melee &&
+        const bool rangedAim = weaponFamily == CreatureWeaponFamily::Ranged &&
+            resolvedActionType.find("HeroLoadRangedWeapon") !=
+                std::string::npos;
+        const bool rangedFire =
+            weaponFamily == CreatureWeaponFamily::Ranged &&
+            resolvedActionType.find("FireMissileWeapon") !=
+                std::string::npos;
+        if (rangedAim || rangedFire)
+        {
+            creature::equipment::native::CreatureWeaponInspection inspection;
+            const bool rangedWeaponReady =
+                creature::equipment::native::CreatureWeaponFunctions::Inspect(
+                    nativeHero_,
+                    requiredWeapons.meleeDefinitionIndex,
+                    requiredWeapons.rangedDefinitionIndex,
+                    inspection) &&
+                inspection.rangedPresent &&
+                inspection.rangedWeapon != nullptr;
+            const bool aimWasActive = rangedAim_.IsActive();
+            const bool aimModeReady = !rangedAim || rangedAim_.Begin();
+            submitted = rangedWeaponReady && aimModeReady && (rangedAim
+                ? combat_->SubmitReplicatedRangedAim(
+                    nativeHero_,
+                    inspection.rangedWeapon,
+                    resolvedActionType.c_str(),
+                    resolvedAnimationId)
+                : combat_->SubmitReplicatedRangedFire(
+                    nativeHero_,
+                    inspection.rangedWeapon,
+                    resolvedActionType.c_str(),
+                    resolvedAnimationId));
+            if (rangedAim && !submitted && !aimWasActive)
+            {
+                (void)rangedAim_.End();
+            }
+            else if (rangedFire && submitted && !rangedAim_.End())
+            {
+                diagnostics_.Event(
+                    "MultiplayerRemoteRangedAimModeExitFailed",
+                    "ranged fire was accepted; cleanup will be retried on the ordered aim-end event");
+            }
+            route = rangedAim
+                ? "native-ranged-aim-action"
+                : "native-fire-missile-action";
+        }
+        else if (weaponFamily == CreatureWeaponFamily::Melee &&
             resolvedActionType.find("InterruptableMidAttackAutoTurn") !=
                 std::string::npos)
         {
@@ -188,7 +250,8 @@ namespace fable::game::hero_pawn::combat
                 resolvedActionType.c_str(),
                 resolvedAnimationId);
         }
-        if (weaponFamily == CreatureWeaponFamily::Melee)
+        if (weaponFamily == CreatureWeaponFamily::Melee ||
+            weaponFamily == CreatureWeaponFamily::Ranged)
         {
             char detail[448] = {};
             std::snprintf(
@@ -208,15 +271,25 @@ namespace fable::game::hero_pawn::combat
                 submitted ? "true" : "false");
             diagnostics_.Event(
                 submitted
-                    ? "MultiplayerRemoteNativeAttackSubmitted"
-                    : "MultiplayerRemoteNativeAttackRejected",
+                    ? (weaponFamily == CreatureWeaponFamily::Ranged
+                        ? "MultiplayerRemoteNativeRangedAttackSubmitted"
+                        : "MultiplayerRemoteNativeAttackSubmitted")
+                    : (weaponFamily == CreatureWeaponFamily::Ranged
+                        ? "MultiplayerRemoteNativeRangedAttackRejected"
+                        : "MultiplayerRemoteNativeAttackRejected"),
                 detail);
         }
         return submitted;
     }
 
+    bool RemoteHeroCombatController::EndRangedAim() noexcept
+    {
+        return rangedAim_.End();
+    }
+
     void RemoteHeroCombatController::Unbind() noexcept
     {
+        rangedAim_.Unbind();
         if (healthReplicaProtected_ && combat_ != nullptr &&
             nativeHero_ != nullptr)
         {
@@ -227,12 +300,14 @@ namespace fable::game::hero_pawn::combat
         actorId_ = 0;
         healthCreature_ = nullptr;
         appliedHealthRevision_ = 0;
+        deathSubmitted_ = false;
         healthReplicaProtected_ = false;
     }
 
     void RemoteHeroCombatController::Shutdown() noexcept
     {
         Unbind();
+        rangedAim_.Shutdown();
         entities_ = nullptr;
         combat_ = nullptr;
         equipment_ = nullptr;

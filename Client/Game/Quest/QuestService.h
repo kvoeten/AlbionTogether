@@ -13,6 +13,7 @@ namespace fable::game
     public:
         bool Initialize(EntityService& entities, const core::Diagnostics& diagnostics);
 
+        [[nodiscard]] bool Activate(const std::string& questName) const;
         [[nodiscard]] bool IsActive(const std::string& questName) const;
         [[nodiscard]] bool IsRegistered(const std::string& questName) const;
         [[nodiscard]] bool IsCompleted(const std::string& questName) const;
@@ -23,6 +24,7 @@ namespace fable::game
 
         EntityService* entities_ = nullptr;
         core::Diagnostics diagnostics_ = {};
+        mutable bool activationValidated_ = false;
         mutable bool apiValidated_ = false;
     };
 }

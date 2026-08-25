@@ -141,7 +141,9 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.cpp" />
     <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroCombatController.cpp" />
+    <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.cpp" />
     <ClCompile Include="Game\HeroPawn\Equipment\Hooks\HeroEquipmentMutationObserver.cpp" />
+    <ClCompile Include="Game\HeroPawn\Equipment\Hooks\RemoteRangedWeaponOrientationHook.cpp" />
     <ClCompile Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponent.cpp" />
     <ClCompile Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponentProvisioner.cpp" />
     <ClCompile Include="Game\HeroPawn\Equipment\RemoteHeroEquipmentController.cpp" />
@@ -177,6 +179,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Multiplayer\Combat\CombatActionLedger.cpp" />
     <ClCompile Include="Multiplayer\Combat\CombatHitApplicator.cpp" />
     <ClCompile Include="Multiplayer\Combat\CombatHitCandidateBuilder.cpp" />
+    <ClCompile Include="Multiplayer\Combat\PlayerDeathCoordinator.cpp" />
     <ClCompile Include="Multiplayer\Movement\ReplicatedActorMovement.cpp" />
     <ClCompile Include="Multiplayer\Movement\EntityMovementReplication.cpp" />
     <ClCompile Include="Multiplayer\Persistence\HostWorldStateProjection.cpp" />
@@ -331,6 +334,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Creature\Locomotion\Bindings\CreatureLocomotionBindings.h" />
     <ClInclude Include="Game\Creature\Locomotion\CreatureLocomotionService.h" />
     <ClInclude Include="Game\Creature\Locomotion\CreatureLocomotionState.h" />
+    <ClInclude Include="Game\Creature\Locomotion\CreatureModeSourceEvent.h" />
     <ClInclude Include="Game\Creature\Locomotion\Hooks\CreatureModeManagerObserver.h" />
     <ClInclude Include="Game\Creature\Locomotion\Hooks\CreatureFrameInputRouterHook.h" />
     <ClInclude Include="Game\Creature\Locomotion\Hooks\FollowCreatureActionHook.h" />
@@ -380,8 +384,10 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.h" />
     <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroCombatController.h" />
+    <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.h" />
     <ClInclude Include="Game\HeroPawn\Equipment\HeroEquipmentState.h" />
     <ClInclude Include="Game\HeroPawn\Equipment\Hooks\HeroEquipmentMutationObserver.h" />
+    <ClInclude Include="Game\HeroPawn\Equipment\Hooks\RemoteRangedWeaponOrientationHook.h" />
     <ClInclude Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponent.h" />
     <ClInclude Include="Game\HeroPawn\Equipment\Native\HeroWeaponComponentProvisioner.h" />
     <ClInclude Include="Game\HeroPawn\Equipment\RemoteHeroEquipmentController.h" />
@@ -426,6 +432,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Multiplayer\Combat\CombatTerminalTransitionState.h" />
     <ClInclude Include="Multiplayer\Combat\CombatHitApplicator.h" />
     <ClInclude Include="Multiplayer\Combat\CombatHitCandidateBuilder.h" />
+    <ClInclude Include="Multiplayer\Combat\PlayerDeathCoordinator.h" />
+    <ClInclude Include="Multiplayer\Combat\PlayerDeathPolicy.h" />
     <ClInclude Include="Multiplayer\Movement\ReplicatedActorMovement.h" />
     <ClInclude Include="Multiplayer\Movement\EntityMovementReplication.h" />
     <ClInclude Include="Multiplayer\Persistence\HostWorldStateProjection.h" />
@@ -459,6 +467,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h" />
     <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h" />
     <ClInclude Include="Multiplayer\Replication\PlayerActionEventQueue.h" />
+    <ClInclude Include="Multiplayer\Replication\PlayerActionSemantics.h" />
     <ClInclude Include="Multiplayer\Replication\PlayerActorStateReplication.h" />
     <ClInclude Include="Multiplayer\Replication\PlayerActorStatePublicationQueue.h" />
     <ClInclude Include="Multiplayer\Replication\EntityVitalsReplication.h" />

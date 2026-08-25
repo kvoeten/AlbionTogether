@@ -63,10 +63,12 @@ namespace fable::game::creature::combat
     void CreatureCombatService::Shutdown() noexcept
     {
         ClearPlayerCombat();
-        SetHealthMutationSink(nullptr, nullptr);
         AcquireSRWLockExclusive(&abilitySinkLock_);
         abilitySinks_ = {};
         ReleaseSRWLockExclusive(&abilitySinkLock_);
+        AcquireSRWLockExclusive(&healthMutationSinkLock_);
+        healthMutationSinks_ = {};
+        ReleaseSRWLockExclusive(&healthMutationSinkLock_);
         AcquireSRWLockExclusive(&resolvedHitSinkLock_);
         resolvedHitSinks_ = {};
         ReleaseSRWLockExclusive(&resolvedHitSinkLock_);
@@ -107,6 +109,11 @@ namespace fable::game::creature::combat
         {
             creatureHitResolutionHook_.SetEventSink(
                 &CreatureCombatService::CaptureResolvedHit, this);
+        }
+        if (healthHookInstalled)
+        {
+            combatHealthMutationHook_.SetEventSink(
+                &CreatureCombatService::CaptureHealthMutation, this);
         }
         diagnostics_.Event(
             "CreatureCombatAbiValidated",
@@ -430,6 +437,114 @@ namespace fable::game::creature::combat
             (submissionObserved && accepted));
     }
 
+    bool CreatureCombatService::SubmitReplicatedRangedFire(
+        void* creature,
+        void* rangedWeapon,
+        const char* resolvedActionType,
+        const std::uint32_t resolvedAnimationId) noexcept
+    {
+        return SubmitReplicatedRangedAction(
+            creature,
+            rangedWeapon,
+            resolvedActionType,
+            resolvedAnimationId,
+            false);
+    }
+
+    bool CreatureCombatService::SubmitReplicatedRangedAim(
+        void* creature,
+        void* rangedWeapon,
+        const char* resolvedActionType,
+        const std::uint32_t resolvedAnimationId) noexcept
+    {
+        return SubmitReplicatedRangedAction(
+            creature,
+            rangedWeapon,
+            resolvedActionType,
+            resolvedAnimationId,
+            true);
+    }
+
+    bool CreatureCombatService::SubmitReplicatedRangedAction(
+        void* creature,
+        void* rangedWeapon,
+        const char* resolvedActionType,
+        const std::uint32_t resolvedAnimationId,
+        const bool aimStage) noexcept
+    {
+        if (entities_ == nullptr || creature == nullptr ||
+            rangedWeapon == nullptr)
+        {
+            return false;
+        }
+        const HMODULE gameModule = entities_->GameModule();
+        const bool creatureValid =
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidateCreature(gameModule, creature) ||
+            ::fable::game::creature::native::CreatureFrameFunctions::
+                ValidatePlayerCreature(gameModule, creature);
+        if (!creatureValid)
+        {
+            return false;
+        }
+
+        const AuthoritativeReplayScope replay;
+        const bool selectionArmed = resolvedActionType != nullptr &&
+            resolvedActionType[0] != '\0' && resolvedAnimationId != 0 &&
+            actionAnimationSelectionHook_.BeginSelection(
+                creature, resolvedActionType, resolvedAnimationId);
+        const bool receiptArmed = actions::CreatureActionLifecycleObserver::
+            BeginSubmissionReceipt(creature);
+        const auto result = aimStage
+            ? actions::native::CreatureActionFunctions::SubmitRangedAim(
+                gameModule, creature, rangedWeapon)
+            : actions::native::CreatureActionFunctions::SubmitRangedFire(
+                gameModule, creature, rangedWeapon);
+        if (selectionArmed)
+        {
+            actionAnimationSelectionHook_.EndSelection();
+        }
+        bool receiptAccepted = false;
+        const bool submissionObserved = receiptArmed &&
+            actions::CreatureActionLifecycleObserver::EndSubmissionReceipt(
+                creature, receiptAccepted);
+        const bool accepted = result.accepted && (!receiptArmed ||
+            (submissionObserved && receiptAccepted));
+        if (accepted && !result.cleanupSucceeded)
+        {
+            diagnostics_.Event(
+                aimStage
+                    ? "CreatureRangedAimAcceptedWithCleanupFault"
+                    : "CreatureRangedFireAcceptedWithCleanupFault",
+                aimStage
+                    ? "native HeroLoadRangedWeapon accepted; caller action cleanup faulted without retry"
+                    : "native FireMissileWeapon accepted; caller action cleanup faulted without retry");
+        }
+
+        // The remote Hero accepts the native ranged action and advances the
+        // carried weapon, but unlike the local player path it does not ask its
+        // AnimationComplex to play the action's body animation. Submit that
+        // exact owner-selected animation while the native action is active.
+        // Animation failure must not retry an already accepted action: doing
+        // so would duplicate arrows and weapon state transitions.
+        const bool bodyAnimationPlayed = accepted &&
+            resolvedAnimationId != 0 && animation_ != nullptr &&
+            animation_->PlayAuthoritative(creature, resolvedAnimationId);
+        if (accepted && !bodyAnimationPlayed)
+        {
+            char detail[224] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "stage=%s creature=%p animation_id=%u",
+                aimStage ? "aim" : "fire",
+                creature,
+                resolvedAnimationId);
+            diagnostics_.Event("CreatureRangedBodyAnimationFailed", detail);
+        }
+        return accepted;
+    }
+
     bool CreatureCombatService::SubmitReplicatedImmediateAttack(
         void* creature,
         void* targetCreature) noexcept
@@ -687,11 +802,72 @@ namespace fable::game::creature::combat
         return submitted;
     }
 
-    void CreatureCombatService::SetHealthMutationSink(
+    void CreatureCombatService::CaptureHealthMutation(
+        void* context,
+        const CombatHealthMutationEvent& event) noexcept
+    {
+        auto* const service = static_cast<CreatureCombatService*>(context);
+        if (service == nullptr)
+        {
+            return;
+        }
+        std::array<HealthMutationSinkEntry, HealthMutationSinkCapacity>
+            sinks = {};
+        AcquireSRWLockShared(&service->healthMutationSinkLock_);
+        sinks = service->healthMutationSinks_;
+        ReleaseSRWLockShared(&service->healthMutationSinkLock_);
+        for (const HealthMutationSinkEntry& entry : sinks)
+        {
+            if (entry.sink != nullptr)
+            {
+                entry.sink(entry.context, event);
+            }
+        }
+    }
+
+    bool CreatureCombatService::AddHealthMutationSink(
         HealthMutationSink sink,
         void* context) noexcept
     {
-        combatHealthMutationHook_.SetEventSink(sink, context);
+        if (sink == nullptr)
+        {
+            return false;
+        }
+        AcquireSRWLockExclusive(&healthMutationSinkLock_);
+        for (const HealthMutationSinkEntry& entry : healthMutationSinks_)
+        {
+            if (entry.sink == sink && entry.context == context)
+            {
+                ReleaseSRWLockExclusive(&healthMutationSinkLock_);
+                return true;
+            }
+        }
+        for (HealthMutationSinkEntry& entry : healthMutationSinks_)
+        {
+            if (entry.sink == nullptr)
+            {
+                entry = {sink, context};
+                ReleaseSRWLockExclusive(&healthMutationSinkLock_);
+                return true;
+            }
+        }
+        ReleaseSRWLockExclusive(&healthMutationSinkLock_);
+        return false;
+    }
+
+    void CreatureCombatService::RemoveHealthMutationSink(
+        HealthMutationSink sink,
+        void* context) noexcept
+    {
+        AcquireSRWLockExclusive(&healthMutationSinkLock_);
+        for (HealthMutationSinkEntry& entry : healthMutationSinks_)
+        {
+            if (entry.sink == sink && entry.context == context)
+            {
+                entry = {};
+            }
+        }
+        ReleaseSRWLockExclusive(&healthMutationSinkLock_);
     }
 
     void CreatureCombatService::CaptureResolvedHit(
@@ -793,5 +969,13 @@ namespace fable::game::creature::combat
     {
         return combatHealthMutationHook_.ApplyOwnedCombatDamage(
             creature, damage);
+    }
+
+    bool CreatureCombatService::ApplyOwnedCombatHealing(
+        void* creature,
+        const float healing) noexcept
+    {
+        return combatHealthMutationHook_.ApplyOwnedCombatHealing(
+            creature, healing);
     }
 }

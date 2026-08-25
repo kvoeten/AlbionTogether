@@ -2,6 +2,7 @@
 
 #include "Game/Creature/Actions/CreatureActionLifecycleEvent.h"
 #include "Game/Creature/Combat/CreatureAbilityEvent.h"
+#include "Game/Creature/Locomotion/CreatureModeSourceEvent.h"
 #include "Game/HeroPawn/Abilities/HeroAbilityEvent.h"
 
 #include <atomic>
@@ -29,6 +30,8 @@ namespace fable::multiplayer::replication
                 actions;
             std::deque<game::hero_pawn::abilities::HeroAbilityEvent>
                 heroAbilities;
+            std::deque<game::creature::locomotion::CreatureModeSourceEvent>
+                modeSources;
         };
 
         void SetAccepting(bool accepting) noexcept;
@@ -44,9 +47,11 @@ namespace fable::multiplayer::replication
         void Enqueue(
             const game::hero_pawn::abilities::HeroAbilityEvent& event)
             noexcept;
+        void Enqueue(
+            const game::creature::locomotion::CreatureModeSourceEvent& event)
+            noexcept;
 
     private:
-        static bool IsWeaponTransitionAction(const char* actionType) noexcept;
         void CountDrop() noexcept;
 
         std::mutex mutex_;
@@ -55,6 +60,8 @@ namespace fable::multiplayer::replication
             actions_;
         std::deque<game::hero_pawn::abilities::HeroAbilityEvent>
             heroAbilities_;
+        std::deque<game::creature::locomotion::CreatureModeSourceEvent>
+            modeSources_;
         std::atomic_bool accepting_{false};
         std::atomic_uint dropped_{0};
     };

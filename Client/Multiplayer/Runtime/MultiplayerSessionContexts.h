@@ -8,6 +8,7 @@
 #include "Multiplayer/Authority/EntitySimulationAuthority.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Combat/CombatActionLedger.h"
+#include "Multiplayer/Combat/PlayerDeathCoordinator.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityMaterializationService.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
@@ -79,6 +80,7 @@ namespace fable::multiplayer
         replication::PlayerActionReplication playerActions;
         replication::CombatHitReplication combatHits;
         replication::EntityVitalsReplication entityVitals;
+        combat::PlayerDeathCoordinator playerDeath;
     };
 
     struct MultiplayerSessionContexts final

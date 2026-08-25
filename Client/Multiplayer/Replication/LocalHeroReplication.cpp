@@ -30,6 +30,8 @@ namespace fable::multiplayer::replication
 {
     namespace
     {
+        constexpr std::uint64_t EquipmentMutationSettleMilliseconds = 100;
+
         std::uint64_t ReadNativeThingUid(void* thing) noexcept
         {
             if (thing == nullptr)
@@ -617,7 +619,24 @@ namespace fable::multiplayer::replication
         {
             return;
         }
-        nextEquipmentCaptureAt_ = now + 100;
+
+        // A native draw/stow operation removes and reattaches several Things
+        // over a short sequence of callbacks. Publishing during that sequence
+        // exposes a transient empty or mixed loadout to remote Heroes. Wait
+        // until the complete mutation batch has been quiet, then capture its
+        // final state as one actor-property update.
+        const std::uint64_t lastMutationAt = lastEquipmentMutationAt_.load(
+            std::memory_order_acquire);
+        if (lastMutationAt != 0 &&
+            (now < lastMutationAt ||
+                now - lastMutationAt < EquipmentMutationSettleMilliseconds))
+        {
+            nextEquipmentCaptureAt_ =
+                lastMutationAt + EquipmentMutationSettleMilliseconds;
+            return;
+        }
+
+        nextEquipmentCaptureAt_ = now + EquipmentMutationSettleMilliseconds;
         game::hero_pawn::equipment::HeroEquipmentState equipment;
         if (!game::hero_pawn::equipment::native::HeroWeaponComponent::Capture(
                 nativeHero_, equipment))
@@ -759,6 +778,8 @@ namespace fable::multiplayer::replication
         {
             return;
         }
+        lastEquipmentMutationAt_.store(
+            GetTickCount64(), std::memory_order_release);
         equipmentDirty_.store(true, std::memory_order_release);
         diagnostics_.Event(
             "MultiplayerOwnerEquipmentDirty",
@@ -791,6 +812,8 @@ namespace fable::multiplayer::replication
         {
             return;
         }
+        lastEquipmentMutationAt_.store(
+            GetTickCount64(), std::memory_order_release);
         equipmentDirty_.store(true, std::memory_order_release);
         char detail[160] = {};
         std::snprintf(
@@ -889,6 +912,7 @@ namespace fable::multiplayer::replication
         appearanceDirty_.store(false, std::memory_order_release);
         equipmentReady_ = false;
         equipmentDirty_.store(false, std::memory_order_release);
+        lastEquipmentMutationAt_.store(0, std::memory_order_release);
         nativePresenceObserved_ = false;
         nextBindDiagnosticAt_ = 0;
         nextAppearanceCaptureAt_ = 0;
@@ -925,6 +949,7 @@ namespace fable::multiplayer::replication
         morphSelfTest_ = false;
         appearanceDirty_.store(false, std::memory_order_release);
         equipmentDirty_.store(false, std::memory_order_release);
+        lastEquipmentMutationAt_.store(0, std::memory_order_release);
     }
 
     bool LocalHeroReplication::IsWorldReady() const noexcept
@@ -945,6 +970,12 @@ namespace fable::multiplayer::replication
     void* LocalHeroReplication::NativeHero() const noexcept
     {
         return nativeHero_;
+    }
+
+    std::uint64_t LocalHeroReplication::LastEquipmentMutationAt() const
+        noexcept
+    {
+        return lastEquipmentMutationAt_.load(std::memory_order_acquire);
     }
 
     const std::string& LocalHeroReplication::MapName() const noexcept

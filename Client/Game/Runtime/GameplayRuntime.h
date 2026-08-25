@@ -9,6 +9,7 @@
 namespace fable::automation::runtime { class RuntimeConfiguration; }
 namespace fable::automation::appearance_cycle { class AppearanceCycleScenario; }
 namespace fable::game::creature::actions { class CreatureActionLifecycleObserver; }
+namespace fable::game::creature::locomotion { class CreatureModeManagerObserver; }
 namespace fable::game::creature::ai { class AiBrainUpdateObserver; }
 namespace fable::game::entity::presence { class ThingPresenceObserver; }
 namespace fable::game::entity::persistence
@@ -49,6 +50,8 @@ namespace fable::game
             npc::population::PopulationSimulationHook& hook);
         bool AttachCreatureActionObserver(
             creature::actions::CreatureActionLifecycleObserver& observer);
+        bool AttachCreatureModeObserver(
+            creature::locomotion::CreatureModeManagerObserver& observer);
         bool AttachAiBrainUpdateObserver(
             creature::ai::AiBrainUpdateObserver& observer);
         bool AttachWorldTravelObserver(

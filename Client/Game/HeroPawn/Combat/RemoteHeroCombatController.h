@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/Creature/Equipment/CreatureWeaponFamily.h"
+#include "Game/HeroPawn/Combat/RemoteHeroRangedAimController.h"
 #include "Game/HeroPawn/Equipment/HeroEquipmentState.h"
 
 #include <cstdint>
@@ -55,6 +56,7 @@ namespace fable::game::hero_pawn::combat
             void* targetCreature,
             const std::string& resolvedActionType,
             std::uint32_t resolvedAnimationId);
+        [[nodiscard]] bool EndRangedAim() noexcept;
         void Unbind() noexcept;
         void Shutdown() noexcept;
 
@@ -68,7 +70,9 @@ namespace fable::game::hero_pawn::combat
         std::uint64_t actorId_ = 0;
         void* healthCreature_ = nullptr;
         std::uint32_t appliedHealthRevision_ = 0;
+        bool deathSubmitted_ = false;
         bool healthReplicaProtected_ = false;
+        RemoteHeroRangedAimController rangedAim_;
         core::Diagnostics diagnostics_ = {};
     };
 }

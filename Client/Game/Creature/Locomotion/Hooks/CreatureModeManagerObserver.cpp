@@ -316,10 +316,63 @@ namespace fable::game::creature::locomotion
             evaluateLocomotionTrampoline_ != nullptr;
     }
 
+    bool CreatureModeManagerObserver::AddModeSourceEventSink(
+        ModeSourceEventSink sink,
+        void* context) noexcept
+    {
+        if (sink == nullptr)
+        {
+            return false;
+        }
+        AcquireSRWLockExclusive(&modeSourceEventSinkLock_);
+        for (const auto& subscription : modeSourceEventSinks_)
+        {
+            if (subscription.sink == sink &&
+                subscription.context == context)
+            {
+                ReleaseSRWLockExclusive(&modeSourceEventSinkLock_);
+                return true;
+            }
+        }
+        for (auto& subscription : modeSourceEventSinks_)
+        {
+            if (subscription.sink == nullptr)
+            {
+                subscription = {sink, context};
+                ReleaseSRWLockExclusive(&modeSourceEventSinkLock_);
+                return true;
+            }
+        }
+        ReleaseSRWLockExclusive(&modeSourceEventSinkLock_);
+        return false;
+    }
+
+    void CreatureModeManagerObserver::RemoveModeSourceEventSink(
+        ModeSourceEventSink sink,
+        void* context) noexcept
+    {
+        AcquireSRWLockExclusive(&modeSourceEventSinkLock_);
+        for (auto& subscription : modeSourceEventSinks_)
+        {
+            if (subscription.sink == sink &&
+                subscription.context == context)
+            {
+                subscription = {};
+            }
+        }
+        ReleaseSRWLockExclusive(&modeSourceEventSinkLock_);
+    }
+
     void CreatureModeManagerObserver::Shutdown() noexcept
     {
         ClearReplicatedAnimationMotions();
         ClearAnimationMotionSource();
+        AcquireSRWLockExclusive(&modeSourceEventSinkLock_);
+        for (auto& subscription : modeSourceEventSinks_)
+        {
+            subscription = {};
+        }
+        ReleaseSRWLockExclusive(&modeSourceEventSinkLock_);
 #if defined(_M_IX86)
         if (addSourceTarget_ != nullptr && removeSourceTarget_ != nullptr &&
             evaluateLocomotionTarget_ != nullptr)
@@ -408,6 +461,47 @@ namespace fable::game::creature::locomotion
             }
         }
         return false;
+    }
+
+    bool CreatureModeManagerObserver::AddReplicatedSource(
+        void* manager,
+        int source) noexcept
+    {
+        CreatureModeManagerObserver* const observer = active_;
+        if (observer == nullptr || manager == nullptr ||
+            observer->originalAddSource_ == nullptr)
+        {
+            return false;
+        }
+        __try
+        {
+            return observer->originalAddSource_(manager, source);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool CreatureModeManagerObserver::RemoveReplicatedSource(
+        void* manager,
+        int source) noexcept
+    {
+        CreatureModeManagerObserver* const observer = active_;
+        if (observer == nullptr || manager == nullptr ||
+            observer->originalRemoveSource_ == nullptr)
+        {
+            return false;
+        }
+        __try
+        {
+            observer->originalRemoveSource_(manager, source);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
     }
 
     bool CreatureModeManagerObserver::BindAnimationMotionSource(
@@ -812,6 +906,24 @@ namespace fable::game::creature::locomotion
         diagnostics_.Event("CreatureLocomotionModeEvaluated", detail);
     }
 
+    void CreatureModeManagerObserver::NotifyModeSource(
+        const CreatureModeSourceEvent& event) noexcept
+    {
+        std::array<
+            ModeSourceEventSubscription,
+            ModeSourceEventSinkCapacity> subscriptions = {};
+        AcquireSRWLockShared(&modeSourceEventSinkLock_);
+        subscriptions = modeSourceEventSinks_;
+        ReleaseSRWLockShared(&modeSourceEventSinkLock_);
+        for (const auto& subscription : subscriptions)
+        {
+            if (subscription.sink != nullptr)
+            {
+                subscription.sink(subscription.context, event);
+            }
+        }
+    }
+
     bool __fastcall CreatureModeManagerObserver::ObserveAddSource(
         void* manager,
         void*,
@@ -839,6 +951,15 @@ namespace fable::game::creature::locomotion
                 before,
                 after,
                 ordinal);
+        }
+        if (source == 25)
+        {
+            observer->NotifyModeSource({
+                after.owner != nullptr ? after.owner : before.owner,
+                source,
+                GetTickCount64(),
+                true,
+                result});
         }
         return result;
     }
@@ -870,6 +991,18 @@ namespace fable::game::creature::locomotion
                 before,
                 after,
                 ordinal);
+        }
+        if (source == 25)
+        {
+            const bool changed = before.count != after.count ||
+                before.activeMode != after.activeMode ||
+                before.activeModeVtable != after.activeModeVtable;
+            observer->NotifyModeSource({
+                after.owner != nullptr ? after.owner : before.owner,
+                source,
+                GetTickCount64(),
+                false,
+                changed});
         }
     }
 

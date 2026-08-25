@@ -43,6 +43,11 @@ namespace fable::game::hero_pawn::abilities
     class HeroWillAbilityService;
 }
 
+namespace fable::game::hero_pawn::equipment::hooks
+{
+    class RemoteRangedWeaponOrientationHook;
+}
+
 namespace fable::multiplayer::combat
 {
     class PlayerCombatantDirectory;
@@ -77,7 +82,9 @@ namespace fable::game::hero_pawn::remote
             multiplayer::combat::PlayerCombatantDirectory& combatants,
             const core::Diagnostics& diagnostics,
             game::hero_pawn::appearance::hooks::
-                RemoteHeroPresentationFactoryHook& presentationFactory);
+                RemoteHeroPresentationFactoryHook& presentationFactory,
+            game::hero_pawn::equipment::hooks::
+                RemoteRangedWeaponOrientationHook& orientationHook);
         void Reconcile(
             const multiplayer::replication::RemotePlayerSnapshot& snapshot,
             const std::string& localMap,
@@ -107,6 +114,7 @@ namespace fable::game::hero_pawn::remote
             void* targetCreature,
             const std::string& resolvedActionType,
             std::uint32_t resolvedAnimationId);
+        bool EndRangedAim() noexcept;
         bool PerformWeaponTransition(
             game::creature::equipment::CreatureWeaponFamily weaponFamily,
             const game::hero_pawn::equipment::HeroWeaponDefinitions&

@@ -23,6 +23,11 @@ namespace fable::game::creature::actions
     class CreatureActionLifecycleObserver;
 }
 
+namespace fable::game::creature::locomotion
+{
+    class CreatureModeManagerObserver;
+}
+
 namespace fable::game::hero_pawn::abilities
 {
     class HeroWillAbilityService;
@@ -87,6 +92,9 @@ namespace fable::multiplayer::replication
         bool AttachActionObserver(
             game::creature::actions::CreatureActionLifecycleObserver&
                 observer);
+        bool AttachModeObserver(
+            game::creature::locomotion::CreatureModeManagerObserver&
+                observer);
         bool ProcessPending();
         bool HandleReliableMessage(
             const TransportMessage& message) override;
@@ -102,9 +110,9 @@ namespace fable::multiplayer::replication
         static constexpr std::uint64_t
             WeaponTransitionCaptureWindowMilliseconds = 1'500;
         // Fable mutates CTCCarrying in several steps after accepting a
-        // draw/stow action. Sampling in the acceptance frame can observe the
-        // new active weapon before the inactive weapon has returned to its
-        // final carry slot.
+        // draw/stow action. Publish only after a mutation belonging to the
+        // action has occurred and the carrying graph has been quiet long
+        // enough to represent its final state.
         static constexpr std::uint64_t
             WeaponTransitionMutationSettleMilliseconds = 100;
         static constexpr std::uint64_t TargetResolutionGraceMilliseconds =
@@ -137,6 +145,10 @@ namespace fable::multiplayer::replication
         static void CaptureHeroAbility(
             void* context,
             const game::hero_pawn::abilities::HeroAbilityEvent& event);
+        static void CaptureModeSource(
+            void* context,
+            const game::creature::locomotion::CreatureModeSourceEvent&
+                event);
         bool PairAcceptedLocalActions();
         bool CaptureLocal(
             const game::creature::combat::CreatureAbilityEvent& event,
@@ -146,6 +158,12 @@ namespace fable::multiplayer::replication
             const game::creature::actions::CreatureActionLifecycleEvent&
                 action,
             const game::hero_pawn::equipment::HeroEquipmentState& equipment);
+        bool CaptureLocalRangedAction(
+            const game::creature::actions::CreatureActionLifecycleEvent&
+                action);
+        bool CaptureLocalRangedAimEnd(
+            const game::creature::locomotion::CreatureModeSourceEvent&
+                event);
         bool CaptureLocalHeroAbility(
             const game::hero_pawn::abilities::HeroAbilityEvent& event);
         bool AcceptIntent(
@@ -182,6 +200,8 @@ namespace fable::multiplayer::replication
             nullptr;
         game::creature::actions::CreatureActionLifecycleObserver*
             actionObserver_ = nullptr;
+        game::creature::locomotion::CreatureModeManagerObserver*
+            modeObserver_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
