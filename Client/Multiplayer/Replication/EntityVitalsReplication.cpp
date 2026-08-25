@@ -48,8 +48,14 @@ namespace fable::multiplayer::replication
         diagnostics_ = diagnostics;
         initialized_ = true;
         acceptingEvents_.store(true, std::memory_order_release);
-        combat_->SetHealthMutationSink(
-            &EntityVitalsReplication::CaptureMutation, this);
+        if (!combat_->AddHealthMutationSink(
+                &EntityVitalsReplication::CaptureMutation, this))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-entity-vitals-health-observer");
+            Shutdown();
+            return;
+        }
         diagnostics_.Event(
             "MultiplayerEntityVitalsReady",
             "reliable player/NPC health replication is bound to the native mutation boundary");
@@ -1182,7 +1188,8 @@ namespace fable::multiplayer::replication
         ClearReplicaHealthProtection();
         if (combat_ != nullptr)
         {
-            combat_->SetHealthMutationSink(nullptr, nullptr);
+            combat_->RemoveHealthMutationSink(
+                &EntityVitalsReplication::CaptureMutation, this);
         }
         {
             std::lock_guard<std::mutex> lock(eventMutex_);

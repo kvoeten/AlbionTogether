@@ -37,6 +37,7 @@ namespace fable::game::native
         inline constexpr std::uintptr_t UnsheatheRangedWeapon = 0x0188E890;
         inline constexpr std::uintptr_t AddScreenMessage = 0x018916A0;
         inline constexpr std::uintptr_t SetNoDialogCamera = 0x0188ADF0;
+        inline constexpr std::uintptr_t ActivateQuest = 0x01891D90;
         inline constexpr std::uintptr_t IsQuestActive = 0x01891E50;
         inline constexpr std::uintptr_t IsQuestRegistered = 0x01891E60;
         inline constexpr std::uintptr_t IsQuestCompleted = 0x01891E70;
@@ -95,6 +96,7 @@ namespace fable::game::native
         inline constexpr std::size_t UnsheatheRangedWeapon = 528;
         inline constexpr std::size_t AddScreenMessage = 118;
         inline constexpr std::size_t SetNoDialogCamera = 0x614 / sizeof(void*);
+        inline constexpr std::size_t ActivateQuest = 291;
         inline constexpr std::size_t IsQuestActive = 299;
         inline constexpr std::size_t IsQuestRegistered = 300;
         inline constexpr std::size_t IsQuestCompleted = 301;

@@ -1,6 +1,5 @@
 #include "PlayerActionEventQueue.h"
-
-#include <cstring>
+#include "PlayerActionSemantics.h"
 
 namespace fable::multiplayer::replication
 {
@@ -15,6 +14,7 @@ namespace fable::multiplayer::replication
         batch.abilities.swap(abilities_);
         batch.actions.swap(actions_);
         batch.heroAbilities.swap(heroAbilities_);
+        batch.modeSources.swap(modeSources_);
     }
 
     void PlayerActionEventQueue::Clear() noexcept
@@ -23,20 +23,13 @@ namespace fable::multiplayer::replication
         abilities_.clear();
         actions_.clear();
         heroAbilities_.clear();
+        modeSources_.clear();
         dropped_.store(0, std::memory_order_release);
     }
 
     void PlayerActionEventQueue::CountDrop() noexcept
     {
         dropped_.fetch_add(1, std::memory_order_acq_rel);
-    }
-
-    bool PlayerActionEventQueue::IsWeaponTransitionAction(
-        const char* actionType) noexcept
-    {
-        return actionType != nullptr &&
-            (std::strstr(actionType, "UnsheatheItemFromInventory") != nullptr ||
-                std::strstr(actionType, "SheatheItemToInventory") != nullptr);
     }
 
     void PlayerActionEventQueue::Enqueue(
@@ -66,9 +59,9 @@ namespace fable::multiplayer::replication
         if (!accepting_.load(std::memory_order_acquire) ||
             event.phase != game::creature::actions::
                 CreatureActionLifecyclePhase::Submitted ||
-            (std::strstr(event.actionType, "InterruptableMidAttack") == nullptr &&
-                std::strstr(event.actionType, "InterruptableNearAttack") == nullptr &&
-                !IsWeaponTransitionAction(event.actionType)))
+            !player_action_semantics::IsReplicatedAction(event.actionType) ||
+            (player_action_semantics::IsRangedAimStart(event.actionType) &&
+                !event.accepted))
         {
             return;
         }
@@ -103,5 +96,28 @@ namespace fable::multiplayer::replication
             return;
         }
         heroAbilities_.push_back(event);
+    }
+
+    void PlayerActionEventQueue::Enqueue(
+        const game::creature::locomotion::CreatureModeSourceEvent& event)
+        noexcept
+    {
+        if (!accepting_.load(std::memory_order_acquire) ||
+            event.owner == nullptr || event.source != 25 || event.added ||
+            !event.changed)
+        {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!accepting_.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        if (modeSources_.size() >= Capacity)
+        {
+            CountDrop();
+            return;
+        }
+        modeSources_.push_back(event);
     }
 }

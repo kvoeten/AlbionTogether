@@ -35,6 +35,17 @@ namespace fable::game::creature::actions::native
             void* action,
             void* creature,
             std::int32_t mode);
+        using CarriedWeaponActionConstructorPointer = void* (__thiscall*)(
+            void* action,
+            void* creature,
+            void* rangedWeapon);
+
+        struct CarriedWeaponActionSubmissionResult final
+        {
+            bool invoked = false;
+            bool accepted = false;
+            bool cleanupSucceeded = false;
+        };
 
         static constexpr std::uintptr_t UpdateAddressRva = 0x01B42E20;
         static constexpr std::uintptr_t UpdateExceptionHandlerRva = 0x02549BC8;
@@ -88,6 +99,33 @@ namespace fable::game::creature::actions::native
             WeaponTransitionConstructorPrefix = {
                 0x83, 0xEC, 0x08, 0x33, 0xC0, 0x56, 0x89,
             };
+        // CCreatureAction_FireMissileWeapon is the retail one-shot ranged
+        // action. Its constructor consumes the firing creature and the
+        // materialized ranged weapon retained by CTCCarrying. Submitting this
+        // action preserves Fable's release animation and projectile creation
+        // without replicating the continuous bow-charge input state.
+        static constexpr std::uintptr_t RangedFireConstructorAddressRva =
+            0x017F1410;
+        static constexpr std::uintptr_t
+            RangedFireConstructorExceptionHandlerRva = 0x02512D24;
+        static constexpr std::uintptr_t RangedFireActionVtableRva =
+            0x02AD2B14;
+        static constexpr std::uintptr_t
+            RangedFireActionDeletingDestructorRva = 0x017F1570;
+        // HeroLoadRangedWeapon is the matching preparation stage emitted once
+        // when the owner starts aiming. It uses the same creature + carried
+        // weapon constructor contract as FireMissileWeapon, but selects its
+        // own weapon-specific load/aim animation.
+        static constexpr std::uintptr_t RangedAimConstructorAddressRva =
+            0x019C64F0;
+        static constexpr std::uintptr_t
+            RangedAimConstructorExceptionHandlerRva = 0x0253242E;
+        static constexpr std::uintptr_t RangedAimActionVtableRva =
+            0x02AF948C;
+        static constexpr std::uintptr_t
+            RangedAimActionDeletingDestructorRva = 0x017F6F80;
+        static constexpr std::size_t RangedFireStorageSize = 0xD4;
+        static constexpr std::size_t RangedAimStorageSize = 0xC4;
         static constexpr std::size_t ImmediateAttackStorageSize = 0x130;
         static constexpr std::size_t UntargetedAttackStorageSize = 0x144;
         static constexpr std::size_t DisplacedBytes = 7;
@@ -110,8 +148,27 @@ namespace fable::game::creature::actions::native
             HMODULE gameModule,
             void* creature,
             game::creature::equipment::CreatureWeaponFamily family) noexcept;
+        [[nodiscard]] static CarriedWeaponActionSubmissionResult
+            SubmitRangedAim(
+            HMODULE gameModule,
+            void* creature,
+            void* rangedWeapon) noexcept;
+        [[nodiscard]] static CarriedWeaponActionSubmissionResult
+            SubmitRangedFire(
+            HMODULE gameModule,
+            void* creature,
+            void* rangedWeapon) noexcept;
 
     private:
+        [[nodiscard]] static CarriedWeaponActionSubmissionResult
+            SubmitCarriedWeaponAction(
+            HMODULE gameModule,
+            void* creature,
+            void* rangedWeapon,
+            std::uintptr_t constructorRva,
+            std::uintptr_t constructorExceptionHandlerRva,
+            std::uintptr_t vtableRva,
+            std::uintptr_t deletingDestructorRva) noexcept;
         static bool Resolve(
             HMODULE gameModule,
             std::uintptr_t addressRva,

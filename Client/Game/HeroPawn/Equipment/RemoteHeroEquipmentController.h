@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/HeroPawn/Equipment/HeroEquipmentState.h"
+#include "Game/HeroPawn/Equipment/Hooks/RemoteRangedWeaponOrientationHook.h"
 #include "Game/HeroPawn/Equipment/Transitions/RemoteHeroWeaponTransitionController.h"
 
 #include <cstdint>
@@ -22,6 +23,7 @@ namespace fable::game::hero_pawn::equipment
     public:
         bool Initialize(
             game::EntityService& entities,
+            hooks::RemoteRangedWeaponOrientationHook& orientationHook,
             const core::Diagnostics& diagnostics) noexcept;
         [[nodiscard]] bool Bind(
             game::Entity& hero,
@@ -46,7 +48,12 @@ namespace fable::game::hero_pawn::equipment
         void Shutdown() noexcept;
 
     private:
+        void TrackRangedOrientation(
+            game::creature::equipment::CreatureWeaponFamily family,
+            void* rangedWeapon) noexcept;
+
         game::EntityService* entities_ = nullptr;
+        hooks::RemoteRangedWeaponOrientationHook* orientationHook_ = nullptr;
         game::Entity* hero_ = nullptr;
         void* nativeHero_ = nullptr;
         std::uint64_t actorId_ = 0;
@@ -65,8 +72,9 @@ namespace fable::game::hero_pawn::equipment
         std::uint64_t actionOverrideUntil_ = 0;
         std::uint64_t nextPruneAttemptAt_ = 0;
         std::uint32_t attemptCount_ = 0;
+        hooks::RemoteRangedWeaponOrientationHook::RegistrationToken
+            orientationToken_ = 0;
         bool pendingReported_ = false;
-        bool usesHeroInventory_ = false;
         bool activeWeaponReady_ = false;
         transitions::RemoteHeroWeaponTransitionController transitions_;
         core::Diagnostics diagnostics_ = {};

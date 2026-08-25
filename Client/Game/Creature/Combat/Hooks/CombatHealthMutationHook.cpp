@@ -387,6 +387,58 @@ namespace fable::game::creature::combat
         return true;
     }
 
+    bool CombatHealthMutationHook::ApplyOwnedCombatHealing(
+        void* creature,
+        const float healing) noexcept
+    {
+        if (!IsInstalled() || creature == nullptr ||
+            !std::isfinite(healing) || healing <= 0.0f ||
+            IsReplicaProtected(creature))
+        {
+            return false;
+        }
+        float previous = -1.0f;
+        float previousMaximum = -1.0f;
+        if (!Read(creature, previous, previousMaximum))
+        {
+            return false;
+        }
+        __try
+        {
+            original_(creature, healing, false);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        float current = -1.0f;
+        float maximum = -1.0f;
+        if (!Read(creature, current, maximum))
+        {
+            return false;
+        }
+        if (std::fabs(current - previous) < 0.0001f &&
+            std::fabs(maximum - previousMaximum) < 0.0001f)
+        {
+            return current > 0.0f;
+        }
+        const EventSink sink = eventSink_.load(std::memory_order_acquire);
+        if (sink != nullptr)
+        {
+            CombatHealthMutationEvent event;
+            event.creature = creature;
+            event.thingUid = ReadThingUid(creature);
+            event.previousHealth = previous;
+            event.currentHealth = current;
+            event.maximumHealth = maximum;
+            event.requestedDelta = healing;
+            event.observedAt = GetTickCount64();
+            event.combatFlag = false;
+            sink(eventSinkContext_.load(std::memory_order_acquire), event);
+        }
+        return current > 0.0f;
+    }
+
     bool CombatHealthMutationHook::IsInstalled() const noexcept
     {
         return active_ == this && original_ != nullptr &&

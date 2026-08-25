@@ -1,5 +1,6 @@
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
+#include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/HeroPawn/Abilities/Hooks/PillarAbilityLifecycleHook.h"
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
@@ -39,6 +40,12 @@ namespace fable::multiplayer::replication
     void* LocalHeroReplication::NativeHero() const noexcept
     {
         return nullptr;
+    }
+
+    std::uint64_t LocalHeroReplication::LastEquipmentMutationAt() const
+        noexcept
+    {
+        return 0;
     }
 
     bool PlayerActionReplication::ReplayPending()
@@ -85,7 +92,14 @@ namespace fable::game::creature::combat
     {
     }
 
-    void CreatureCombatService::SetHealthMutationSink(
+    bool CreatureCombatService::AddHealthMutationSink(
+        HealthMutationSink,
+        void*) noexcept
+    {
+        return true;
+    }
+
+    void CreatureCombatService::RemoveHealthMutationSink(
         HealthMutationSink,
         void*) noexcept
     {
@@ -107,11 +121,39 @@ namespace fable::game::creature::combat
         return false;
     }
 
+    bool CreatureCombatService::ApplyOwnedCombatHealing(
+        void*,
+        float) noexcept
+    {
+        return false;
+    }
+
     bool CreatureCombatService::SetReplicaHealthProtection(
         void*,
         bool) noexcept
     {
         return true;
+    }
+}
+
+namespace fable::game::creature::locomotion
+{
+    bool CreatureModeManagerObserver::IsInstalled() const noexcept
+    {
+        return true;
+    }
+
+    bool CreatureModeManagerObserver::AddModeSourceEventSink(
+        ModeSourceEventSink,
+        void*) noexcept
+    {
+        return true;
+    }
+
+    void CreatureModeManagerObserver::RemoveModeSourceEventSink(
+        ModeSourceEventSink,
+        void*) noexcept
+    {
     }
 }
 

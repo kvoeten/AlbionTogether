@@ -38,7 +38,9 @@ namespace fable::game::hero_pawn::remote
         multiplayer::combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics,
         game::hero_pawn::appearance::hooks::
-            RemoteHeroPresentationFactoryHook& presentationFactory)
+            RemoteHeroPresentationFactoryHook& presentationFactory,
+        game::hero_pawn::equipment::hooks::
+            RemoteRangedWeaponOrientationHook& orientationHook)
     {
         Shutdown();
         entities_ = &entities;
@@ -49,7 +51,7 @@ namespace fable::game::hero_pawn::remote
         presentationFactory_ = &presentationFactory;
         movement_.Initialize(locomotion, diagnostics);
         appearance_.Initialize(diagnostics);
-        equipment_.Initialize(entities, diagnostics);
+        equipment_.Initialize(entities, orientationHook, diagnostics);
         combat_.Initialize(entities, combat, equipment_, diagnostics);
         abilities_.Initialize(entities, abilities, diagnostics);
         initialized_ = true;
@@ -88,6 +90,12 @@ namespace fable::game::hero_pawn::remote
                 targetCreature, resolvedActionType, resolvedAnimationId);
     }
 
+    bool RemoteHeroActor::EndRangedAim() noexcept
+    {
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
+            combat_.EndRangedAim();
+    }
+
     bool RemoteHeroActor::PerformWeaponTransition(
         game::creature::equipment::CreatureWeaponFamily weaponFamily,
         const game::hero_pawn::equipment::HeroWeaponDefinitions&
@@ -106,9 +114,17 @@ namespace fable::game::hero_pawn::remote
         equipment.meleeAttachmentSlot = meleeAttachmentSlot;
         equipment.rangedAttachmentSlot = rangedAttachmentSlot;
         equipment.activeFamily = weaponFamily;
-        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
-            equipment_.PerformTransition(
-                equipment, resolvedActionType, resolvedAnimationId);
+        if (!initialized_ || !IsLifecycleActive() || avatarSuspended_)
+        {
+            return false;
+        }
+        if (weaponFamily != game::creature::equipment::
+                CreatureWeaponFamily::Ranged)
+        {
+            (void)combat_.EndRangedAim();
+        }
+        return equipment_.PerformTransition(
+            equipment, resolvedActionType, resolvedAnimationId);
     }
 
     bool RemoteHeroActor::PerformHeroAbility(

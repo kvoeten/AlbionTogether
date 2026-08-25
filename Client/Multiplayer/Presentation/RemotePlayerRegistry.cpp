@@ -30,6 +30,14 @@ namespace fable::multiplayer::presentation
         combatants_ = &combatants;
         diagnostics_ = diagnostics;
         localActorId_ = localActorId;
+        if (!rangedOrientation_.Install(entities.GameModule(), diagnostics))
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-remote-ranged-orientation-hook");
+            Shutdown();
+            return false;
+        }
         if (!presentationFactory_.Install(entities.GameModule(), diagnostics))
         {
             diagnostics_.Event(
@@ -54,7 +62,7 @@ namespace fable::multiplayer::presentation
                 *entities_, *npcs_, *locomotion_, *look_, *combat_,
                 *abilities_,
                 *combatants_, diagnostics_,
-                presentationFactory_))
+                presentationFactory_, rangedOrientation_))
         {
             return nullptr;
         }
@@ -207,6 +215,15 @@ namespace fable::multiplayer::presentation
                 targetCreature, resolvedActionType, resolvedAnimationId);
     }
 
+    bool RemotePlayerRegistry::EndRangedAim(
+        std::uint64_t actorId) noexcept
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->EndRangedAim();
+    }
+
     bool RemotePlayerRegistry::PerformWeaponTransition(
         std::uint64_t actorId,
         game::creature::equipment::CreatureWeaponFamily weaponFamily,
@@ -251,6 +268,7 @@ namespace fable::multiplayer::presentation
             presentation->Shutdown();
         }
         presentations_.clear();
+        rangedOrientation_.Shutdown();
         presentationFactory_.Cancel();
         presentationFactory_.Shutdown();
         entities_ = nullptr;

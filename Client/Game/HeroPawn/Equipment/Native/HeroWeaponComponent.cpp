@@ -461,8 +461,13 @@ namespace fable::game::hero_pawn::equipment::native
             return false;
         }
         HeroWeaponInspection verified;
-        return Inspect(nativeThing, verified) && verified.readable &&
+        // This operation owns only the inventory definitions. A freshly
+        // provisioned remote Hero can have both smart pointers initialized
+        // before CTCCarrying exposes a complete readable presentation; the
+        // caller applies and verifies those carry slots separately.
+        return Inspect(nativeThing, verified) &&
             verified.meleeDefinitionIndex == state.meleeDefinitionIndex &&
             verified.rangedDefinitionIndex == state.rangedDefinitionIndex;
     }
+
 }

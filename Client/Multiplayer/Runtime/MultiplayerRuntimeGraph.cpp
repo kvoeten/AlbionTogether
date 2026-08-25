@@ -5,6 +5,7 @@
 #include "Game/Creature/Combat/CreatureCombatService.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/Entity/EntityService.h"
+#include "Game/Quest/QuestService.h"
 #include "Game/NPC/Simulation/DummyVillager/DummyVillagerService.h"
 #include "Game/NPC/Village/VillageMembershipService.h"
 #include "Game/World/Travel/Hooks/WorldTravelObserver.h"
@@ -72,6 +73,7 @@ namespace fable::multiplayer
         game::creature::look::CreatureLookService& look,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+        game::QuestService& quests,
         game::npc::village::VillageMembershipService& villages,
         game::npc::simulation::DummyVillagerService& dummyVillagers,
         const core::Diagnostics& diagnostics)
@@ -124,6 +126,13 @@ namespace fable::multiplayer
         w.villageMembership.Initialize(role, actorId, w.authority, e.entityLifecycle, e.entityIdentities, villages, diagnostics_);
         w.entitySimulation.Initialize(actorId, w.authority, e.entityLifecycle, e.entityIdentities, e.entityPresence, p.playerCombatants, diagnostics_);
         MarkStage(InitializationStage::Components);
+        if (!a.playerDeath.Initialize(combat, quests, diagnostics_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-player-death-initialization");
+            Shutdown();
+            return false;
+        }
         t.reliableMessages.Initialize(t.transport, diagnostics_);
         MarkStage(InitializationStage::ReliableDispatcher);
         w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, w.authority, diagnostics_);
@@ -154,6 +163,7 @@ namespace fable::multiplayer
     bool MultiplayerRuntimeGraph::AttachThingSaveProjectionHook(game::entity::persistence::ThingSaveProjectionHook& hook) { return !enabled_ || contexts_.world.hostWorldState.Attach(hook); }
     bool MultiplayerRuntimeGraph::AttachPopulationSimulationHook(game::npc::population::PopulationSimulationHook& hook) { return !enabled_ || contexts_.world.populationSimulation.Attach(hook); }
     bool MultiplayerRuntimeGraph::AttachCreatureActionObserver(game::creature::actions::CreatureActionLifecycleObserver& observer) { return !enabled_ || (contexts_.actions.entityActions.Attach(observer) && contexts_.actions.playerActions.AttachActionObserver(observer) && contexts_.world.entitySimulation.AttachActionObserver(observer)); }
+    bool MultiplayerRuntimeGraph::AttachCreatureModeObserver(game::creature::locomotion::CreatureModeManagerObserver& observer) { return !enabled_ || contexts_.actions.playerActions.AttachModeObserver(observer); }
     bool MultiplayerRuntimeGraph::AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer) { return !enabled_ || contexts_.world.entitySimulation.AttachBrainObserver(observer); }
     bool MultiplayerRuntimeGraph::AttachWorldTravelObserver(game::world::travel::WorldTravelObserver& observer) { return !enabled_ || contexts_.world.mapTransitionAuthority.Attach(observer); }
     bool MultiplayerRuntimeGraph::OnWorldReady() { return !enabled_ || contexts_.players.localHero.OnWorldReady(); }
@@ -204,6 +214,7 @@ namespace fable::multiplayer
         }
         if (HasStage(InitializationStage::Components))
         {
+            a.playerDeath.Shutdown();
             w.villageMembership.Shutdown();
             e.entityLowSimulation.Shutdown();
             a.entityVitals.Shutdown();

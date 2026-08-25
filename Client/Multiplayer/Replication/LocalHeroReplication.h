@@ -78,6 +78,7 @@ namespace fable::multiplayer::replication
         [[nodiscard]] const std::string& MapName() const noexcept;
         [[nodiscard]] std::uint16_t MapId() const noexcept;
         [[nodiscard]] const PlayerState* CurrentState() const noexcept;
+        [[nodiscard]] std::uint64_t LastEquipmentMutationAt() const noexcept;
 
     private:
         static void ObservePlayerFrame(void* context, void* playerCreature);
@@ -118,6 +119,7 @@ namespace fable::multiplayer::replication
             carryingObserver_;
         std::atomic_bool appearanceDirty_{false};
         std::atomic_bool equipmentDirty_{false};
+        std::atomic_uint64_t lastEquipmentMutationAt_{0};
         std::mutex ownerStateMutex_;
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t actorId_ = 0;

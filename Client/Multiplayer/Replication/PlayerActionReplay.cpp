@@ -199,6 +199,23 @@ namespace fable::multiplayer::replication
                 iterator = pendingReplays_.erase(iterator);
                 continue;
             }
+            if (owner != nullptr && sameMap && targetReady &&
+                message.kind == protocol::PlayerActionKind::RangedAimEnd &&
+                remotePlayers_->EndRangedAim(message.ownerActorId))
+            {
+                char detail[192] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "actor_id=%llu action_id=%llu semantic=%s",
+                    static_cast<unsigned long long>(message.ownerActorId),
+                    static_cast<unsigned long long>(message.actionId),
+                    message.semanticName.c_str());
+                diagnostics_.Event(
+                    "MultiplayerRemoteRangedAimEndReplayed", detail);
+                iterator = pendingReplays_.erase(iterator);
+                continue;
+            }
             if (heroAbilityReady &&
                 nativeAttemptAge >= NativeReplayFailureGraceMilliseconds)
             {
@@ -220,7 +237,8 @@ namespace fable::multiplayer::replication
                 continue;
             }
             if (owner != nullptr && sameMap && targetReady &&
-                message.kind == protocol::PlayerActionKind::AbilityRequest &&
+                (message.kind == protocol::PlayerActionKind::AbilityRequest ||
+                    message.kind == protocol::PlayerActionKind::RangedAim) &&
                 remotePlayers_->PerformAbility(
                     message.ownerActorId,
                     message.weaponFamily,

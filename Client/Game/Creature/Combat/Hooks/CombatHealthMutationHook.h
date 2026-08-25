@@ -32,6 +32,12 @@ namespace fable::game::creature::combat
         bool ApplyOwnedCombatDamage(
             void* creature,
             float damage) noexcept;
+        // Applies owner-authored recovery and emits the ordinary mutation
+        // event. Remote authoritative application must continue using
+        // ApplyAuthoritative so it cannot republish received state.
+        bool ApplyOwnedCombatHealing(
+            void* creature,
+            float healing) noexcept;
         bool Read(
             void* creature,
             float& currentHealth,

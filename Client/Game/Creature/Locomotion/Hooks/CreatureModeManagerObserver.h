@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
+#include "Game/Creature/Locomotion/CreatureModeSourceEvent.h"
 #include "Game/Creature/Locomotion/Native/CreatureModeManagerFunctions.h"
 #include "Game/Math/Vector3.h"
 
@@ -18,9 +19,23 @@ namespace fable::game::creature::locomotion
     class CreatureModeManagerObserver final
     {
     public:
+        using ModeSourceEventSink = void(*)(
+            void* context,
+            const CreatureModeSourceEvent& event);
+
         bool Install(HMODULE gameModule, const core::Diagnostics& diagnostics);
         void Shutdown() noexcept;
+        bool AddModeSourceEventSink(
+            ModeSourceEventSink sink,
+            void* context) noexcept;
+        void RemoveModeSourceEventSink(
+            ModeSourceEventSink sink,
+            void* context) noexcept;
         static bool WatchOwner(void* nativeThing) noexcept;
+        // Replicated presentations deliberately bypass the observation sink;
+        // only owner-native mode mutations are published back to the network.
+        static bool AddReplicatedSource(void* manager, int source) noexcept;
+        static bool RemoveReplicatedSource(void* manager, int source) noexcept;
         static bool BindAnimationMotionSource(
             void* sourcePlayerCreature,
             void* targetCreature) noexcept;
@@ -39,6 +54,7 @@ namespace fable::game::creature::locomotion
     private:
         static constexpr std::size_t ModeSnapshotDwordCount = 16;
         static constexpr std::size_t WatchedOwnerLimit = 3;
+        static constexpr std::size_t ModeSourceEventSinkCapacity = 2;
 
         struct Snapshot
         {
@@ -60,6 +76,12 @@ namespace fable::game::creature::locomotion
             float angularVelocity = 0.0f;
             std::atomic_uint64_t updatedAt{0};
             std::atomic_uint64_t evaluatedAt{0};
+        };
+
+        struct ModeSourceEventSubscription final
+        {
+            ModeSourceEventSink sink = nullptr;
+            void* context = nullptr;
         };
 
         [[nodiscard]] std::shared_ptr<ReplicatedAnimationMotion>
@@ -103,6 +125,8 @@ namespace fable::game::creature::locomotion
             float angularVelocity,
             float evaluationSeconds,
             unsigned int ordinal) const;
+        void NotifyModeSource(
+            const CreatureModeSourceEvent& event) noexcept;
 
         static CreatureModeManagerObserver* active_;
 
@@ -129,6 +153,10 @@ namespace fable::game::creature::locomotion
         std::atomic<void*> animationMotionSource_{nullptr};
         std::atomic<void*> animationMotionTarget_{nullptr};
         std::atomic_uint mirroredAnimationMotionCount_{0};
+        mutable SRWLOCK modeSourceEventSinkLock_ = SRWLOCK_INIT;
+        std::array<
+            ModeSourceEventSubscription,
+            ModeSourceEventSinkCapacity> modeSourceEventSinks_ = {};
         mutable SRWLOCK replicatedAnimationMotionLock_ = SRWLOCK_INIT;
         std::unordered_map<
             void*,

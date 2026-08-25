@@ -166,7 +166,9 @@ namespace
             return rollback();
         }
         if ((appearance || multiplayer) &&
-            !hooks.creatureModes.Install(core.gameModule, diagnostics))
+            (!hooks.creatureModes.Install(core.gameModule, diagnostics) ||
+             (multiplayer &&
+                !gameplay.AttachCreatureModeObserver(hooks.creatureModes))))
         {
             return rollback();
         }

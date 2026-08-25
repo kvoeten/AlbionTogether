@@ -1,9 +1,11 @@
 #include "PlayerActionReplication.h"
+#include "PlayerActionSemantics.h"
 #include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
 #include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
+#include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
@@ -20,30 +22,13 @@
 #include <array>
 #include <algorithm>
 #include <cstdio>
-#include <cstring>
 #include <unordered_set>
 #include <utility>
 
 namespace
 {
-    bool IsWeaponTransitionAction(const char* actionType) noexcept
-    {
-        return actionType != nullptr &&
-            (std::strstr(actionType, "UnsheatheItemFromInventory") !=
-                    nullptr ||
-                std::strstr(actionType, "SheatheItemToInventory") !=
-                    nullptr);
-    }
+    constexpr std::uint32_t HeroAttackAbilityId = 1101;
 
-    bool IsUnsheatheAction(const char* actionType) noexcept
-    {
-        return actionType != nullptr &&
-            std::strstr(actionType, "UnsheatheItemFromInventory") != nullptr;
-    }
-}
-
-namespace
-{
     fable::multiplayer::ReliableMessageSink* ResolvePlayerActionSink(
         fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
     {
@@ -129,6 +114,22 @@ namespace fable::multiplayer::replication
         return true;
     }
 
+    bool PlayerActionReplication::AttachModeObserver(
+        game::creature::locomotion::CreatureModeManagerObserver& observer)
+    {
+        if (!initialized_ || !observer.IsInstalled() ||
+            !observer.AddModeSourceEventSink(
+                &PlayerActionReplication::CaptureModeSource, this))
+        {
+            return false;
+        }
+        modeObserver_ = &observer;
+        diagnostics_.Event(
+            "MultiplayerPlayerRangedModeAttached",
+            "native Hero ranged aim source 25 publishes ordered cancel state");
+        return true;
+    }
+
     bool PlayerActionReplication::ProcessPending()
     {
         if (!initialized_ || transport_ == nullptr || localHero_ == nullptr ||
@@ -201,7 +202,20 @@ namespace fable::multiplayer::replication
             message.requiredRangedAttachmentSlot =
                 liveEquipment.rangedAttachmentSlot;
         }
-        if (event.attackCommand &&
+        const bool rangedAttack = resolvedAction != nullptr &&
+            player_action_semantics::IsRangedFire(
+                resolvedAction->actionType);
+        if (rangedAttack &&
+            message.requiredWeapons.rangedDefinitionIndex > 0)
+        {
+            // FireMissileWeapon can be accepted in the same frame that the
+            // Hero's carrying component finishes switching families. Carry
+            // the action's semantic family so the remote Hero prepares the
+            // bow before replaying the native ability.
+            message.weaponFamily =
+                game::creature::equipment::CreatureWeaponFamily::Ranged;
+        }
+        else if (event.attackCommand &&
             message.weaponFamily ==
                 game::creature::equipment::CreatureWeaponFamily::None &&
             message.requiredWeapons.meleeDefinitionIndex > 0)
@@ -223,7 +237,7 @@ namespace fable::multiplayer::replication
             : 0;
         message.mapName = state->mapName;
         message.semanticName = event.attackCommand
-            ? "AttackAbility"
+            ? (rangedAttack ? "RangedAttackAbility" : "AttackAbility")
             : "CreatureAbility";
         if (resolvedAction != nullptr)
         {
@@ -315,6 +329,133 @@ namespace fable::multiplayer::replication
                 : "intent");
         diagnostics_.Event(
             "MultiplayerLocalWeaponTransitionCaptured", detail);
+        return Queue(std::move(message));
+    }
+
+    bool PlayerActionReplication::CaptureLocalRangedAction(
+        const game::creature::actions::CreatureActionLifecycleEvent& action)
+    {
+        if (!action.accepted || action.creature == nullptr ||
+            action.creature != localHero_->NativeHero() ||
+            action.animationId == 0)
+        {
+            return true;
+        }
+        const PlayerState* const state = localHero_->CurrentState();
+        if (state == nullptr || state->actorId != localActorId_ ||
+            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
+            state->mapEpoch == 0 || state->mapName.empty())
+        {
+            return true;
+        }
+
+        game::hero_pawn::equipment::HeroEquipmentState equipment;
+        if (!game::hero_pawn::equipment::native::HeroWeaponComponent::Capture(
+                localHero_->NativeHero(), equipment))
+        {
+            equipment = state->heroEquipment;
+        }
+        if (!equipment.IsSane() ||
+            equipment.rangedDefinitionIndex <= 0)
+        {
+            diagnostics_.Event(
+                "MultiplayerLocalRangedShotSuppressed",
+                "accepted FireMissileWeapon had no readable ranged loadout");
+            return true;
+        }
+
+        protocol::PlayerActionMessage message;
+        message.phase = role_ == PeerRole::Host
+            ? protocol::PlayerActionPhase::Perform
+            : protocol::PlayerActionPhase::Intent;
+        const bool aimStart = player_action_semantics::IsRangedAimStart(
+            action.actionType);
+        message.kind = aimStart
+            ? protocol::PlayerActionKind::RangedAim
+            : protocol::PlayerActionKind::AbilityRequest;
+        message.ownerActorId = localActorId_;
+        message.actionId = NextActionId();
+        message.authorityEpoch = state->authorityEpoch;
+        message.actorGeneration = state->actorGeneration;
+        message.mapEpoch = state->mapEpoch;
+        message.abilityId = aimStart ? 0 : HeroAttackAbilityId;
+        message.weaponFamily =
+            game::creature::equipment::CreatureWeaponFamily::Ranged;
+        message.requiredWeapons = equipment.WeaponDefinitions();
+        message.requiredMeleeAttachmentSlot = equipment.meleeAttachmentSlot;
+        message.requiredRangedAttachmentSlot =
+            equipment.rangedAttachmentSlot;
+        message.targetPlayerActorId = combatants_ != nullptr
+            ? combatants_->FindActor(action.targetCreature)
+            : 0;
+        message.targetThingUid = message.targetPlayerActorId == 0
+            ? (identities_ != nullptr
+                ? identities_->CanonicalizeLocalObservation(
+                    action.targetThingUid)
+                : action.targetThingUid)
+            : 0;
+        message.mapName = state->mapName;
+        message.semanticName = aimStart
+            ? "RangedAimStart"
+            : "RangedAttackAbility";
+        message.resolvedAnimationId = action.animationId;
+        message.resolvedActionType = action.actionType;
+
+        char detail[448] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "actor_id=%llu action_id=%llu ranged=%d target_player=%llu target_uid=%016llX native_action=%s animation_id=%u map=%s phase=%s",
+            static_cast<unsigned long long>(message.ownerActorId),
+            static_cast<unsigned long long>(message.actionId),
+            message.requiredWeapons.rangedDefinitionIndex,
+            static_cast<unsigned long long>(message.targetPlayerActorId),
+            static_cast<unsigned long long>(message.targetThingUid),
+            message.resolvedActionType.c_str(),
+            message.resolvedAnimationId,
+            message.mapName.c_str(),
+            message.phase == protocol::PlayerActionPhase::Perform
+                ? "perform"
+                : "intent");
+        diagnostics_.Event(
+            aimStart
+                ? "MultiplayerLocalRangedAimCaptured"
+                : "MultiplayerLocalRangedShotCaptured",
+            detail);
+        return Queue(std::move(message));
+    }
+
+    bool PlayerActionReplication::CaptureLocalRangedAimEnd(
+        const game::creature::locomotion::CreatureModeSourceEvent& event)
+    {
+        if (event.owner == nullptr || event.owner != localHero_->NativeHero() ||
+            event.source != 25 || event.added || !event.changed)
+        {
+            return true;
+        }
+        const PlayerState* const state = localHero_->CurrentState();
+        if (state == nullptr || state->actorId != localActorId_ ||
+            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
+            state->mapEpoch == 0 || state->mapName.empty())
+        {
+            return true;
+        }
+
+        protocol::PlayerActionMessage message;
+        message.phase = role_ == PeerRole::Host
+            ? protocol::PlayerActionPhase::Perform
+            : protocol::PlayerActionPhase::Intent;
+        message.kind = protocol::PlayerActionKind::RangedAimEnd;
+        message.ownerActorId = localActorId_;
+        message.actionId = NextActionId();
+        message.authorityEpoch = state->authorityEpoch;
+        message.actorGeneration = state->actorGeneration;
+        message.mapEpoch = state->mapEpoch;
+        message.mapName = state->mapName;
+        message.semanticName = "RangedAimEnd";
+        diagnostics_.Event(
+            "MultiplayerLocalRangedAimEndCaptured",
+            "native Hero removed ranged movement source 25");
         return Queue(std::move(message));
     }
 
@@ -433,7 +574,9 @@ namespace fable::multiplayer::replication
             diagnostics_.Event(
                 "MultiplayerRemoteHeroAbilityReceived", detail);
         }
-        else if (message.kind == protocol::PlayerActionKind::AbilityRequest)
+        else if (message.kind == protocol::PlayerActionKind::AbilityRequest ||
+            message.kind == protocol::PlayerActionKind::RangedAim ||
+            message.kind == protocol::PlayerActionKind::RangedAimEnd)
         {
             char detail[224] = {};
             std::snprintf(
@@ -544,6 +687,10 @@ namespace fable::multiplayer::replication
         const protocol::PlayerActionMessage& message,
         const char* const rejectionDetail)
     {
+        if (message.kind == protocol::PlayerActionKind::RangedAimEnd)
+        {
+            return true;
+        }
         const bool predictedLocalIntent =
             message.phase == protocol::PlayerActionPhase::Intent &&
             message.ownerActorId == localActorId_;
@@ -733,7 +880,11 @@ namespace fable::multiplayer::replication
                     "MultiplayerLocalHeroAbilityPublished", detail);
             }
             else if (pendingMessages_.front().message.kind ==
-                protocol::PlayerActionKind::AbilityRequest)
+                    protocol::PlayerActionKind::AbilityRequest ||
+                pendingMessages_.front().message.kind ==
+                    protocol::PlayerActionKind::RangedAim ||
+                pendingMessages_.front().message.kind ==
+                    protocol::PlayerActionKind::RangedAimEnd)
             {
                 char detail[192] = {};
                 std::snprintf(
@@ -777,6 +928,7 @@ namespace fable::multiplayer::replication
         auto& abilities = batch.abilities;
         auto& actions = batch.actions;
         auto& heroAbilities = batch.heroAbilities;
+        auto& modeSources = batch.modeSources;
         while (!heroAbilities.empty())
         {
             if (!CaptureLocalHeroAbility(heroAbilities.front()))
@@ -792,15 +944,37 @@ namespace fable::multiplayer::replication
         }
         while (!actions.empty())
         {
-            if (IsWeaponTransitionAction(actions.front().actionType))
+            if (player_action_semantics::IsWeaponTransition(
+                    actions.front().actionType))
             {
                 pendingWeaponTransitions_.push_back(actions.front());
+            }
+            else if (player_action_semantics::IsRangedAimStart(
+                    actions.front().actionType) ||
+                player_action_semantics::IsRangedFire(
+                    actions.front().actionType))
+            {
+                if (!CaptureLocalRangedAction(actions.front()))
+                {
+                    return false;
+                }
             }
             else
             {
                 unmatchedActions_.push_back(actions.front());
             }
             actions.pop_front();
+        }
+        // Process mode exits after accepted actions from the same drain. A
+        // fire action therefore remains ordered before the native mode exit,
+        // while a cancelled draw publishes only the exit.
+        while (!modeSources.empty())
+        {
+            if (!CaptureLocalRangedAimEnd(modeSources.front()))
+            {
+                return false;
+            }
+            modeSources.pop_front();
         }
         while (unmatchedAbilities_.size() > PendingEventCapacity)
         {
@@ -828,10 +1002,34 @@ namespace fable::multiplayer::replication
                 transition = pendingWeaponTransitions_.erase(transition);
                 continue;
             }
-            if (transition->observedAt != 0 &&
-                now < transition->observedAt +
+            const std::uint64_t lastMutationAt = localHero_ != nullptr
+                ? localHero_->LastEquipmentMutationAt()
+                : 0;
+            const bool actionMutationObserved =
+                transition->observedAt != 0 &&
+                lastMutationAt >= transition->observedAt;
+            if (!actionMutationObserved ||
+                now < lastMutationAt +
                     WeaponTransitionMutationSettleMilliseconds)
             {
+                if (transition->observedAt != 0 &&
+                    now > transition->observedAt +
+                        WeaponTransitionCaptureWindowMilliseconds)
+                {
+                    char detail[320] = {};
+                    std::snprintf(
+                        detail,
+                        sizeof(detail),
+                        "native_action=%s animation_id=%u mutation_at=%llu reason=final-carry-state-not-observed",
+                        transition->actionType,
+                        transition->animationId,
+                        static_cast<unsigned long long>(lastMutationAt));
+                    diagnostics_.Event(
+                        "MultiplayerLocalWeaponTransitionSuppressed",
+                        detail);
+                    transition = pendingWeaponTransitions_.erase(transition);
+                    continue;
+                }
                 ++transition;
                 continue;
             }
@@ -839,7 +1037,7 @@ namespace fable::multiplayer::replication
             const bool captured = game::hero_pawn::equipment::native::
                 HeroWeaponComponent::Capture(localHero, equipment);
             const bool finalStateReady = captured && equipment.IsSane() &&
-                (IsUnsheatheAction(transition->actionType)
+                (player_action_semantics::IsUnsheathe(transition->actionType)
                     ? equipment.activeFamily != game::creature::equipment::
                           CreatureWeaponFamily::None
                     : equipment.activeFamily == game::creature::equipment::
@@ -1000,6 +1198,17 @@ namespace fable::multiplayer::replication
         }
     }
 
+    void PlayerActionReplication::CaptureModeSource(
+        void* context,
+        const game::creature::locomotion::CreatureModeSourceEvent& event)
+    {
+        if (context != nullptr)
+        {
+            static_cast<PlayerActionReplication*>(context)->eventQueue_.
+                Enqueue(event);
+        }
+    }
+
     void PlayerActionReplication::CaptureHeroAbility(
         void* context,
         const game::hero_pawn::abilities::HeroAbilityEvent& event)
@@ -1111,6 +1320,11 @@ namespace fable::multiplayer::replication
             actionObserver_->RemoveEventSink(
                 &PlayerActionReplication::CaptureAction, this);
         }
+        if (modeObserver_ != nullptr)
+        {
+            modeObserver_->RemoveModeSourceEventSink(
+                &PlayerActionReplication::CaptureModeSource, this);
+        }
         if (combat_ != nullptr)
         {
             combat_->RemoveAbilitySink(
@@ -1138,6 +1352,7 @@ namespace fable::multiplayer::replication
         combat_ = nullptr;
         abilities_ = nullptr;
         actionObserver_ = nullptr;
+        modeObserver_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
         localActorId_ = 0;

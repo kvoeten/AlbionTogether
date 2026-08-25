@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroPresentationFactoryHook.h"
+#include "Game/HeroPawn/Equipment/Hooks/RemoteRangedWeaponOrientationHook.h"
 #include "Game/HeroPawn/Remote/RemoteHeroActor.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 
@@ -85,6 +86,7 @@ namespace fable::multiplayer::presentation
             void* targetCreature,
             const std::string& resolvedActionType,
             std::uint32_t resolvedAnimationId);
+        bool EndRangedAim(std::uint64_t actorId) noexcept;
         bool PerformWeaponTransition(
             std::uint64_t actorId,
             game::creature::equipment::CreatureWeaponFamily weaponFamily,
@@ -124,6 +126,8 @@ namespace fable::multiplayer::presentation
         core::Diagnostics diagnostics_ = {};
         game::hero_pawn::appearance::hooks::RemoteHeroPresentationFactoryHook
             presentationFactory_;
+        game::hero_pawn::equipment::hooks::
+            RemoteRangedWeaponOrientationHook rangedOrientation_;
         std::unordered_map<
             std::uint64_t,
             std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>>

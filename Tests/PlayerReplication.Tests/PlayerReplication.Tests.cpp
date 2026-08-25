@@ -13,6 +13,7 @@
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Combat/CombatActionLedger.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Combat/PlayerDeathPolicy.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
 #include "Multiplayer/Entities/EntityPresenceReplication.h"
@@ -22,6 +23,7 @@
 #include "Multiplayer/Replication/EntityVitalsReplication.h"
 #include "Multiplayer/Replication/LocalHeroReplication.h"
 #include "Multiplayer/Replication/PlayerActionReplication.h"
+#include "Multiplayer/Replication/PlayerActionEventQueue.h"
 #include "Multiplayer/Replication/PlayerActorStatePublicationQueue.h"
 #include "Multiplayer/Replication/PlayerActorStateReplication.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
@@ -3504,6 +3506,154 @@ namespace
         CHECK(test, revision.NeedsReconcile(2, 3));
     }
 
+    void TestRangedFireActionEntersOrderedPlayerStream()
+    {
+        constexpr const char* test =
+            "ranged fire action enters ordered player stream";
+        fable::multiplayer::replication::PlayerActionEventQueue queue;
+        queue.SetAccepting(true);
+        fable::game::creature::actions::CreatureActionLifecycleEvent fire;
+        fire.phase = fable::game::creature::actions::
+            CreatureActionLifecyclePhase::Submitted;
+        fire.accepted = true;
+        strcpy_s(
+            fire.actionType,
+            "CCreatureAction_FireMissileWeapon");
+        queue.Enqueue(fire);
+
+        fable::game::creature::actions::CreatureActionLifecycleEvent reload;
+        reload.phase = fable::game::creature::actions::
+            CreatureActionLifecyclePhase::Submitted;
+        reload.accepted = true;
+        strcpy_s(
+            reload.actionType,
+            "CCreatureAction_HeroLoadRangedWeapon");
+        queue.Enqueue(reload);
+
+        auto rejectedReload = reload;
+        rejectedReload.accepted = false;
+        queue.Enqueue(rejectedReload);
+
+        fable::multiplayer::replication::PlayerActionEventQueue::Batch batch;
+        queue.Drain(batch);
+        CHECK(test, batch.actions.size() == 2);
+        if (!batch.actions.empty())
+        {
+            CHECK(test, std::strstr(
+                batch.actions.front().actionType,
+                "FireMissileWeapon") != nullptr);
+        }
+        if (batch.actions.size() == 2)
+        {
+            CHECK(test, std::strstr(
+                batch.actions.back().actionType,
+                "HeroLoadRangedWeapon") != nullptr);
+            CHECK(test, batch.actions.back().accepted);
+        }
+
+        fable::game::creature::locomotion::CreatureModeSourceEvent aimEnd;
+        aimEnd.owner = reinterpret_cast<void*>(0x1000);
+        aimEnd.source = 25;
+        aimEnd.observedAt = 100;
+        aimEnd.added = false;
+        aimEnd.changed = true;
+        queue.Enqueue(aimEnd);
+        queue.Drain(batch);
+        CHECK(test, batch.modeSources.size() == 1);
+        CHECK(test, !batch.modeSources.front().added);
+
+        aimEnd.added = true;
+        queue.Enqueue(aimEnd);
+        queue.Drain(batch);
+        CHECK(test, batch.modeSources.empty());
+    }
+
+    void TestRangedAimUsesDedicatedOrderedActionKind()
+    {
+        constexpr const char* test =
+            "ranged aim uses dedicated ordered action kind";
+        fable::multiplayer::protocol::PlayerActionMessage aim;
+        aim.phase = fable::multiplayer::protocol::PlayerActionPhase::Perform;
+        aim.kind = fable::multiplayer::protocol::PlayerActionKind::RangedAim;
+        aim.ownerActorId = 1001;
+        aim.actionId = 7;
+        aim.authorityEpoch = 3;
+        aim.actorGeneration = 4;
+        aim.mapEpoch = 5;
+        aim.weaponFamily = fable::game::creature::equipment::
+            CreatureWeaponFamily::Ranged;
+        aim.requiredWeapons.rangedDefinitionIndex = 5649;
+        aim.requiredRangedAttachmentSlot = 18;
+        aim.resolvedAnimationId = 2770;
+        aim.mapName = "FrescoDome";
+        aim.semanticName = "RangedAimStart";
+        aim.resolvedActionType =
+            "CCreatureAction_HeroLoadRangedWeapon";
+
+        std::array<std::uint8_t, 1472> bytes = {};
+        std::size_t encodedSize = 0;
+        CHECK(test, fable::multiplayer::protocol::EncodePlayerActionMessage(
+            aim, bytes.data(), bytes.size(), encodedSize));
+        fable::multiplayer::protocol::PlayerActionMessage decoded;
+        CHECK(test, fable::multiplayer::protocol::DecodePlayerActionMessage(
+            bytes.data(), encodedSize, decoded));
+        CHECK(test, decoded.kind ==
+            fable::multiplayer::protocol::PlayerActionKind::RangedAim);
+        CHECK(test, decoded.resolvedAnimationId == 2770);
+        CHECK(test, decoded.requiredWeapons.rangedDefinitionIndex == 5649);
+
+        aim.abilityId = 1101;
+        CHECK(test, !fable::multiplayer::protocol::EncodePlayerActionMessage(
+            aim, bytes.data(), bytes.size(), encodedSize));
+    }
+
+    void TestRangedAimEndUsesDedicatedOrderedActionKind()
+    {
+        constexpr const char* test =
+            "ranged aim end uses dedicated ordered action kind";
+        fable::multiplayer::protocol::PlayerActionMessage aimEnd;
+        aimEnd.phase = fable::multiplayer::protocol::PlayerActionPhase::Perform;
+        aimEnd.kind =
+            fable::multiplayer::protocol::PlayerActionKind::RangedAimEnd;
+        aimEnd.ownerActorId = 1001;
+        aimEnd.actionId = 8;
+        aimEnd.authorityEpoch = 3;
+        aimEnd.actorGeneration = 4;
+        aimEnd.mapEpoch = 5;
+        aimEnd.mapName = "FrescoDome";
+        aimEnd.semanticName = "RangedAimEnd";
+
+        std::array<std::uint8_t, 1472> bytes = {};
+        std::size_t encodedSize = 0;
+        CHECK(test, fable::multiplayer::protocol::EncodePlayerActionMessage(
+            aimEnd, bytes.data(), bytes.size(), encodedSize));
+        fable::multiplayer::protocol::PlayerActionMessage decoded;
+        CHECK(test, fable::multiplayer::protocol::DecodePlayerActionMessage(
+            bytes.data(), encodedSize, decoded));
+        CHECK(test, decoded.kind ==
+            fable::multiplayer::protocol::PlayerActionKind::RangedAimEnd);
+        CHECK(test, decoded.resolvedAnimationId == 0);
+
+        aimEnd.resolvedAnimationId = 2770;
+        CHECK(test, !fable::multiplayer::protocol::EncodePlayerActionMessage(
+            aimEnd, bytes.data(), bytes.size(), encodedSize));
+    }
+
+    void TestPlayerDeathUsesPostNativeHealthOutcome()
+    {
+        constexpr const char* test =
+            "player death uses post-native health outcome";
+        using fable::multiplayer::combat::ClassifyPlayerDeath;
+        using fable::multiplayer::combat::PlayerDeathOutcome;
+        CHECK(test, ClassifyPlayerDeath(25.0f, 100.0f) ==
+            PlayerDeathOutcome::Alive);
+        CHECK(test, ClassifyPlayerDeath(0.0f, 100.0f) ==
+            PlayerDeathOutcome::GuildRespawnRequired);
+        CHECK(test, ClassifyPlayerDeath(
+            std::numeric_limits<float>::quiet_NaN(), 100.0f) ==
+            PlayerDeathOutcome::Invalid);
+    }
+
     void TestStaleDeltaDoesNotOverwrite()
     {
         constexpr const char* test = "stale component delta";
@@ -3613,6 +3763,10 @@ int main()
     TestLostMapPreparationRequestRetriesUntilAcknowledged();
     TestRemoteEntityHealthProtectionFencesLifecycle();
     TestReplicaHealthProtectionRevisionGatesUnchangedTicks();
+    TestRangedFireActionEntersOrderedPlayerStream();
+    TestRangedAimUsesDedicatedOrderedActionKind();
+    TestRangedAimEndUsesDedicatedOrderedActionKind();
+    TestPlayerDeathUsesPostNativeHealthOutcome();
     TestStaleDeltaDoesNotOverwrite();
     TestNewAuthorityRequiresNewIncarnation();
     TestRetirePreventsResurrection();

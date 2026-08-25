@@ -11,18 +11,20 @@ namespace fable::multiplayer
         game::creature::look::CreatureLookService& look,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+        game::QuestService& quests,
         game::npc::village::VillageMembershipService& villages,
         game::npc::simulation::DummyVillagerService& dummyVillagers,
         const core::Diagnostics& diagnostics)
     {
         lifecycle_.Reset();
-        return graph_.Initialize(configuration, entities, npcs, locomotion, look, combat, abilities, villages, dummyVillagers, diagnostics);
+        return graph_.Initialize(configuration, entities, npcs, locomotion, look, combat, abilities, quests, villages, dummyVillagers, diagnostics);
     }
     bool MultiplayerSession::AttachThingPresenceObserver(game::entity::presence::ThingPresenceObserver& observer) { return graph_.AttachThingPresenceObserver(observer); }
     bool MultiplayerSession::AttachSavedEntityMapBlobObserver(game::entity::persistence::SavedEntityMapBlobObserver& observer) { return graph_.AttachSavedEntityMapBlobObserver(observer); }
     bool MultiplayerSession::AttachThingSaveProjectionHook(game::entity::persistence::ThingSaveProjectionHook& hook) { return graph_.AttachThingSaveProjectionHook(hook); }
     bool MultiplayerSession::AttachPopulationSimulationHook(game::npc::population::PopulationSimulationHook& hook) { return graph_.AttachPopulationSimulationHook(hook); }
     bool MultiplayerSession::AttachCreatureActionObserver(game::creature::actions::CreatureActionLifecycleObserver& observer) { return graph_.AttachCreatureActionObserver(observer); }
+    bool MultiplayerSession::AttachCreatureModeObserver(game::creature::locomotion::CreatureModeManagerObserver& observer) { return graph_.AttachCreatureModeObserver(observer); }
     bool MultiplayerSession::AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer) { return graph_.AttachAiBrainUpdateObserver(observer); }
     bool MultiplayerSession::AttachWorldTravelObserver(game::world::travel::WorldTravelObserver& observer) { return graph_.AttachWorldTravelObserver(observer); }
     bool MultiplayerSession::OnWorldReady() { return graph_.OnWorldReady(); }

@@ -55,10 +55,14 @@ namespace
             message.weaponFamily == CreatureWeaponFamily::Ranged;
         const bool ability =
             message.kind == PlayerActionKind::AbilityRequest;
+        const bool rangedAim =
+            message.kind == PlayerActionKind::RangedAim;
         const bool weaponTransition =
             message.kind == PlayerActionKind::WeaponTransition;
         const bool heroAbility =
             message.kind == PlayerActionKind::HeroAbility;
+        const bool rangedAimEnd =
+            message.kind == PlayerActionKind::RangedAimEnd;
         const bool saneProgressionState = heroAbility
             ? message.heroAbilityProgressionState >= 0 &&
                 message.heroAbilityProgressionState <= 3
@@ -72,7 +76,9 @@ namespace
         };
         return (message.phase == PlayerActionPhase::Intent ||
                 message.phase == PlayerActionPhase::Perform) &&
-            (ability || weaponTransition || heroAbility) && saneFamily &&
+            (ability || rangedAim || weaponTransition || heroAbility ||
+                rangedAimEnd) &&
+            saneFamily &&
             saneProgressionState &&
             message.requiredWeapons.IsSane() &&
             message.requiredWeapons.Supports(message.weaponFamily) &&
@@ -91,10 +97,22 @@ namespace
                     message.abilityId <= 19 &&
                     fable::game::hero_pawn::abilities::IsValid(
                         message.heroAbilityCommand)) ||
+                (rangedAim && message.abilityId == 0 &&
+                    message.weaponFamily == CreatureWeaponFamily::Ranged &&
+                    message.targetPlayerActorId == 0 &&
+                    message.targetThingUid == 0 &&
+                    message.resolvedAnimationId != 0 &&
+                    !message.resolvedActionType.empty()) ||
                 (weaponTransition && message.abilityId == 0 &&
                     message.targetPlayerActorId == 0 &&
                     message.targetThingUid == 0 &&
-                    message.resolvedAnimationId != 0)) &&
+                    message.resolvedAnimationId != 0) ||
+                (rangedAimEnd && message.abilityId == 0 &&
+                    message.weaponFamily == CreatureWeaponFamily::None &&
+                    message.targetPlayerActorId == 0 &&
+                    message.targetThingUid == 0 &&
+                    message.resolvedAnimationId == 0 &&
+                    message.resolvedActionType.empty())) &&
             (message.targetPlayerActorId == 0 ||
                 message.targetThingUid == 0) &&
             std::isfinite(message.charge) &&

@@ -992,7 +992,10 @@ namespace fable::game::creature::equipment::native
             }
             if (rangedDefinitionIndex > 0 && !rangedPresent)
             {
-                functions.equip(creature, rangedDefinitionIndex, false);
+                // The definition supplies the weapon family. This flag picks
+                // its primary presentation slot; false selects the alternate
+                // slot that causes Hero bows to remain world pickups.
+                functions.equip(creature, rangedDefinitionIndex, true);
             }
             void* const meleeWeapon = meleeDefinitionIndex > 0
                 ? functions.find(carrying, meleeDefinitionIndex)
