@@ -1,4 +1,4 @@
-# FableTogether
+# FableTogether — Fable Anniversary Multiplayer Mod
 
 Experimental multiplayer mod for Fable Anniversary.
 
