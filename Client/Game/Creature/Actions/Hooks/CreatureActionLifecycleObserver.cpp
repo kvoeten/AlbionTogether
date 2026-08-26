@@ -1,5 +1,7 @@
 #include "CreatureActionLifecycleObserver.h"
 
+#include "Game/Creature/Expression/Native/CreatureExpressionActionInspector.h"
+
 #include <array>
 #include <climits>
 #include <cstdio>
@@ -821,9 +823,26 @@ namespace fable::game::creature::actions
                 ActionMayCarryAnimation(event.actionType)
             ? ReadAnimationId(event.action)
             : 0;
-        event.targetCreature = accepted
-            ? ReadAttackTarget(gameModule_, event.action, event.actionType)
-            : nullptr;
+        expression::native::CreatureExpressionActionDetails expression;
+        const bool expressionRead = accepted &&
+            expression::native::CreatureExpressionActionInspector::Inspect(
+                gameModule_, event.action, event.actionType, expression);
+        if (expressionRead)
+        {
+            strncpy_s(
+                event.expressionName,
+                expression.definition,
+                _TRUNCATE);
+            event.expressionDurationTicks = expression.durationTicks;
+            event.expressionTriggerTicks = expression.triggerTicks;
+            event.targetCreature = expression.target;
+        }
+        else
+        {
+            event.targetCreature = accepted
+                ? ReadAttackTarget(gameModule_, event.action, event.actionType)
+                : nullptr;
+        }
         event.targetThingUid = ReadThingContext(event.targetCreature).uid;
         Notify(event);
         if (ordinal > DiagnosticEventLimit)
@@ -835,7 +854,7 @@ namespace fable::game::creature::actions
         std::snprintf(
             detail,
             std::size(detail),
-            "ordinal=%u accepted=%s authority_denied=%s thing_uid=%016llX map_id=%u creature=%p requested=%p requested_type=%s active=%p active_type=%s animation_id=%u target=%p target_uid=%016llX context_readable=%s thread=%lu",
+            "ordinal=%u accepted=%s authority_denied=%s thing_uid=%016llX map_id=%u creature=%p requested=%p requested_type=%s active=%p active_type=%s animation_id=%u expression=%s expression_duration_ticks=%d expression_trigger_ticks=%d target=%p target_uid=%016llX context_readable=%s thread=%lu",
             ordinal,
             accepted ? "true" : "false",
             authorityDenied ? "true" : "false",
@@ -847,6 +866,11 @@ namespace fable::game::creature::actions
             activeAction,
             activeType[0] != '\0' ? activeType : "<unknown>",
             event.animationId,
+            event.expressionName[0] != '\0'
+                ? event.expressionName
+                : "<none>",
+            event.expressionDurationTicks,
+            event.expressionTriggerTicks,
             event.targetCreature,
             static_cast<unsigned long long>(event.targetThingUid),
             context.readable ? "true" : "false",
@@ -1008,6 +1032,7 @@ namespace fable::game::creature::actions
             "Cast",
             "Spell",
             "Ability",
+            "Expression",
         };
         for (const char* marker : markers)
         {

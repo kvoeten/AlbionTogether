@@ -33,6 +33,13 @@ namespace fable::multiplayer::replication::player_action_semantics
             std::strstr(actionType, "UnsheatheItemFromInventory") != nullptr;
     }
 
+    [[nodiscard]] inline bool IsExpression(
+        const char* actionType) noexcept
+    {
+        return actionType != nullptr &&
+            std::strstr(actionType, "PerformExpression") != nullptr;
+    }
+
     [[nodiscard]] inline bool IsReplicatedAction(
         const char* actionType) noexcept
     {
@@ -41,6 +48,7 @@ namespace fable::multiplayer::replication::player_action_semantics
                 std::strstr(actionType, "InterruptableNearAttack") != nullptr ||
                 IsRangedAimStart(actionType) ||
                 IsRangedFire(actionType) ||
-                IsWeaponTransition(actionType));
+                IsWeaponTransition(actionType) ||
+                IsExpression(actionType));
     }
 }

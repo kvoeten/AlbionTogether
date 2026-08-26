@@ -7,6 +7,7 @@
 #include "Game/HeroPawn/Equipment/RemoteHeroEquipmentController.h"
 #include "Game/HeroPawn/Combat/RemoteHeroCombatController.h"
 #include "Game/HeroPawn/Abilities/RemoteHeroAbilityController.h"
+#include "Game/HeroPawn/Expression/RemoteHeroExpressionController.h"
 #include "Multiplayer/Movement/ReplicatedActorMovement.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 #include "Multiplayer/Protocol/PlayerState.h"
@@ -36,6 +37,11 @@ namespace fable::game::creature::look
 namespace fable::game::creature::combat
 {
     class CreatureCombatService;
+}
+
+namespace fable::game::creature::animation
+{
+    class CreatureAnimationService;
 }
 
 namespace fable::game::hero_pawn::abilities
@@ -77,6 +83,7 @@ namespace fable::game::hero_pawn::remote
             game::NpcService& npcs,
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
+            game::creature::animation::CreatureAnimationService& animation,
             game::creature::combat::CreatureCombatService& combat,
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
             multiplayer::combat::PlayerCombatantDirectory& combatants,
@@ -128,6 +135,13 @@ namespace fable::game::hero_pawn::remote
             game::hero_pawn::abilities::HeroAbilityCommand command,
             std::int32_t progressionState,
             void* targetCreature);
+        bool PerformExpression(
+            const std::string& expressionDefinition,
+            void* targetCreature,
+            const std::string& resolvedActionType,
+            std::uint32_t resolvedAnimationId,
+            std::int32_t expressionDurationTicks,
+            std::int32_t expressionTriggerTicks);
         void Shutdown() noexcept;
         [[nodiscard]] bool IsActive() const;
         [[nodiscard]] RemoteHeroLifecyclePhase LifecyclePhase() const noexcept
@@ -180,6 +194,8 @@ namespace fable::game::hero_pawn::remote
         game::hero_pawn::equipment::RemoteHeroEquipmentController equipment_;
         game::hero_pawn::combat::RemoteHeroCombatController combat_;
         game::hero_pawn::abilities::RemoteHeroAbilityController abilities_;
+        game::hero_pawn::expression::RemoteHeroExpressionController
+            expressions_;
         game::hero_pawn::appearance::hooks::
             RemoteHeroPresentationFactoryHook::ArmToken factoryArmToken_ = 0;
         game::Entity* avatar_ = nullptr;

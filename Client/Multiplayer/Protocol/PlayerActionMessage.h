@@ -32,6 +32,9 @@ namespace fable::multiplayer::protocol
         // Ends the held native ranged movement mode without inventing a pose.
         // Fire also closes this state, while this event covers aim cancel.
         RangedAimEnd = 5,
+        // A semantic Fable expression definition. Replaying the native action
+        // preserves animation, audio, effects, and NPC social reactions.
+        Expression = 6,
     };
 
     struct PlayerActionMessage final
@@ -60,6 +63,12 @@ namespace fable::multiplayer::protocol
         // published. Observers replay that action family rather than treating
         // every input request as an accepted attack.
         std::uint32_t resolvedAnimationId = 0;
+        // Native expression timing derived from the owner-selected animation.
+        // The remote actor may resolve a different local animation resource,
+        // so these bounded values keep the real expression action alive for
+        // the same lifecycle while the owner animation is played.
+        std::int32_t expressionDurationTicks = 0;
+        std::int32_t expressionTriggerTicks = 0;
         // Player targets use stable actor identity because every process owns
         // a different native Hero pointer/Thing UID for that presentation.
         std::uint64_t targetPlayerActorId = 0;

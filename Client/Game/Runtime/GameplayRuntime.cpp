@@ -1,5 +1,7 @@
 #include "GameplayRuntime.h"
 
+#include "Game/Creature/Animation/CreatureAnimationService.h"
+
 #include "Automation/Runtime/AutomationRunner.h"
 #include "Automation/AppearanceCycle/AppearanceCycleScenario.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
@@ -59,6 +61,7 @@ namespace fable::game
                 state_->services.Npcs(),
                 state_->services.Locomotion(),
                 state_->services.Look(),
+                state_->services.Animation(),
                 state_->services.Combat(),
                 state_->services.HeroWill(),
                 state_->services.Quests(),
@@ -132,13 +135,14 @@ namespace fable::game
         {
             return false;
         }
-        if (!state_->services.Combat().AttachActionLifecycleObserver(observer))
+        if (!state_->services.Animation().AttachActionLifecycleObserver(
+                observer))
         {
             return false;
         }
         if (!state_->services.HeroWill().AttachActionLifecycleObserver(observer))
         {
-            state_->services.Combat().DetachActionLifecycleObserver();
+            state_->services.Animation().DetachActionLifecycleObserver();
             return false;
         }
         if (state_->multiplayer.AttachCreatureActionObserver(observer))
@@ -146,7 +150,7 @@ namespace fable::game
             return true;
         }
         state_->services.HeroWill().DetachActionLifecycleObserver();
-        state_->services.Combat().DetachActionLifecycleObserver();
+        state_->services.Animation().DetachActionLifecycleObserver();
         return false;
     }
 

@@ -70,7 +70,7 @@ namespace fable::game::hero_pawn::combat
         std::uint64_t actorId_ = 0;
         void* healthCreature_ = nullptr;
         std::uint32_t appliedHealthRevision_ = 0;
-        bool deathSubmitted_ = false;
+        bool terminalHealthObserved_ = false;
         bool healthReplicaProtected_ = false;
         RemoteHeroRangedAimController rangedAim_;
         core::Diagnostics diagnostics_ = {};

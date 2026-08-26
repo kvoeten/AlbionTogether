@@ -57,7 +57,9 @@ namespace fable::game::hero_pawn::abilities
         entities_ = &entities;
         diagnostics_ = diagnostics;
         const bool installed =
-            hook_.Install(entities.GameModule(), *this, diagnostics_);
+            hook_.Install(entities.GameModule(), *this, diagnostics_) &&
+            assassinRushPresentationHook_.Install(
+                entities.GameModule(), diagnostics_);
         diagnostics_.Event(
             "HeroWillAbilityAbiValidated",
             installed
@@ -74,6 +76,7 @@ namespace fable::game::hero_pawn::abilities
     void HeroWillAbilityService::Shutdown() noexcept
     {
         pillarLifecycleHook_.Shutdown();
+        assassinRushPresentationHook_.Shutdown();
         hook_.Shutdown();
         AcquireSRWLockExclusive(&sinkLock_);
         sinks_ = {};
@@ -208,6 +211,19 @@ namespace fable::game::hero_pawn::abilities
             hero, entities_->GameModule());
         return native::HeroWillAbilityFunctions::HasActiveAction(
             component, ability);
+    }
+
+    bool HeroWillAbilityService::BindRemotePresentationHero(
+        void* hero,
+        std::uint64_t actorId) noexcept
+    {
+        return assassinRushPresentationHook_.BindRemoteHero(hero, actorId);
+    }
+
+    void HeroWillAbilityService::UnbindRemotePresentationHero(
+        void* hero) noexcept
+    {
+        assassinRushPresentationHook_.UnbindRemoteHero(hero);
     }
 
     bool HeroWillAbilityService::Submit(

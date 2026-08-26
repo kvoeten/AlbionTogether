@@ -332,6 +332,73 @@ namespace fable::multiplayer::replication
         return Queue(std::move(message));
     }
 
+    bool PlayerActionReplication::CaptureLocalExpression(
+        const game::creature::actions::CreatureActionLifecycleEvent& action)
+    {
+        void* const localHero = localHero_ != nullptr
+            ? localHero_->NativeHero()
+            : nullptr;
+        const PlayerState* const state = localHero_ != nullptr
+            ? localHero_->CurrentState()
+            : nullptr;
+        if (!action.accepted || action.creature == nullptr ||
+            action.creature != localHero || action.expressionName[0] == '\0' ||
+            action.actionType[0] == '\0' || state == nullptr ||
+            state->actorId != localActorId_ || state->authorityEpoch == 0 ||
+            state->actorGeneration == 0 || state->mapEpoch == 0 ||
+            state->mapName.empty())
+        {
+            return true;
+        }
+
+        protocol::PlayerActionMessage message;
+        message.phase = role_ == PeerRole::Host
+            ? protocol::PlayerActionPhase::Perform
+            : protocol::PlayerActionPhase::Intent;
+        message.kind = protocol::PlayerActionKind::Expression;
+        message.ownerActorId = localActorId_;
+        message.actionId = NextActionId();
+        message.authorityEpoch = state->authorityEpoch;
+        message.actorGeneration = state->actorGeneration;
+        message.mapEpoch = state->mapEpoch;
+        message.targetPlayerActorId = combatants_ != nullptr
+            ? combatants_->FindActor(action.targetCreature)
+            : 0;
+        message.targetThingUid = message.targetPlayerActorId == 0
+            ? (identities_ != nullptr
+                ? identities_->CanonicalizeLocalObservation(
+                    action.targetThingUid)
+                : action.targetThingUid)
+            : 0;
+        message.mapName = state->mapName;
+        message.semanticName = action.expressionName;
+        message.resolvedActionType = action.actionType;
+        message.resolvedAnimationId = action.animationId;
+        message.expressionDurationTicks = action.expressionDurationTicks;
+        message.expressionTriggerTicks = action.expressionTriggerTicks;
+
+        char detail[448] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "actor_id=%llu action_id=%llu expression=%s target_player=%llu target_uid=%016llX native_action=%s animation_id=%u duration_ticks=%d trigger_ticks=%d map=%s phase=%s",
+            static_cast<unsigned long long>(message.ownerActorId),
+            static_cast<unsigned long long>(message.actionId),
+            message.semanticName.c_str(),
+            static_cast<unsigned long long>(message.targetPlayerActorId),
+            static_cast<unsigned long long>(message.targetThingUid),
+            message.resolvedActionType.c_str(),
+            message.resolvedAnimationId,
+            message.expressionDurationTicks,
+            message.expressionTriggerTicks,
+            message.mapName.c_str(),
+            message.phase == protocol::PlayerActionPhase::Perform
+                ? "perform"
+                : "intent");
+        diagnostics_.Event("MultiplayerLocalExpressionCaptured", detail);
+        return Queue(std::move(message));
+    }
+
     bool PlayerActionReplication::CaptureLocalRangedAction(
         const game::creature::actions::CreatureActionLifecycleEvent& action)
     {
@@ -576,7 +643,8 @@ namespace fable::multiplayer::replication
         }
         else if (message.kind == protocol::PlayerActionKind::AbilityRequest ||
             message.kind == protocol::PlayerActionKind::RangedAim ||
-            message.kind == protocol::PlayerActionKind::RangedAimEnd)
+            message.kind == protocol::PlayerActionKind::RangedAimEnd ||
+            message.kind == protocol::PlayerActionKind::Expression)
         {
             char detail[224] = {};
             std::snprintf(
@@ -687,7 +755,8 @@ namespace fable::multiplayer::replication
         const protocol::PlayerActionMessage& message,
         const char* const rejectionDetail)
     {
-        if (message.kind == protocol::PlayerActionKind::RangedAimEnd)
+        if (message.kind == protocol::PlayerActionKind::RangedAimEnd ||
+            message.kind == protocol::PlayerActionKind::Expression)
         {
             return true;
         }
@@ -884,7 +953,9 @@ namespace fable::multiplayer::replication
                 pendingMessages_.front().message.kind ==
                     protocol::PlayerActionKind::RangedAim ||
                 pendingMessages_.front().message.kind ==
-                    protocol::PlayerActionKind::RangedAimEnd)
+                    protocol::PlayerActionKind::RangedAimEnd ||
+                pendingMessages_.front().message.kind ==
+                    protocol::PlayerActionKind::Expression)
             {
                 char detail[192] = {};
                 std::snprintf(
@@ -944,7 +1015,15 @@ namespace fable::multiplayer::replication
         }
         while (!actions.empty())
         {
-            if (player_action_semantics::IsWeaponTransition(
+            if (player_action_semantics::IsExpression(
+                    actions.front().actionType))
+            {
+                if (!CaptureLocalExpression(actions.front()))
+                {
+                    return false;
+                }
+            }
+            else if (player_action_semantics::IsWeaponTransition(
                     actions.front().actionType))
             {
                 pendingWeaponTransitions_.push_back(actions.front());

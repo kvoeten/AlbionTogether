@@ -75,7 +75,6 @@ namespace fable::game::creature::combat
         creatureHitResolutionHook_.Shutdown();
         combatHealthMutationHook_.Shutdown();
         playerAttackAbilityHook_.Shutdown();
-        actionAnimationSelectionHook_.Shutdown();
         entities_ = nullptr;
         animation_ = nullptr;
         diagnostics_ = {};
@@ -96,9 +95,6 @@ namespace fable::game::creature::combat
                 entities.GameModule(),
                 *this,
                 diagnostics_);
-        const bool animationSelectionHookInstalled =
-            actionAnimationSelectionHook_.Install(
-                entities.GameModule(), diagnostics_);
         const bool healthHookInstalled =
             combatHealthMutationHook_.Install(
                 entities.GameModule(), diagnostics_);
@@ -117,32 +113,18 @@ namespace fable::game::creature::combat
         }
         diagnostics_.Event(
             "CreatureCombatAbiValidated",
-            attackHookInstalled && healthHookInstalled && hitHookInstalled &&
-                    animationSelectionHookInstalled
-                ? "CThingCreature ability submission, player ATTACK caller, shared health mutation, native OnHit resolution, and action animation selection validated"
+            attackHookInstalled && healthHookInstalled && hitHookInstalled
+                ? "CThingCreature ability submission, player ATTACK caller, shared health mutation, and native OnHit resolution validated"
                 : "one or more CThingCreature combat definitions failed validation");
         diagnostics_.Log(attackHookInstalled
             ? "Creature combat: deep native player ATTACK-to-creature ability routing validated."
             : "Creature combat: current-build player ATTACK ability routing definition failed validation.");
-        if (!attackHookInstalled || !healthHookInstalled || !hitHookInstalled ||
-            !animationSelectionHookInstalled)
+        if (!attackHookInstalled || !healthHookInstalled || !hitHookInstalled)
         {
             Shutdown();
             return false;
         }
         return true;
-    }
-
-    bool CreatureCombatService::AttachActionLifecycleObserver(
-        actions::CreatureActionLifecycleObserver& observer) noexcept
-    {
-        return actionAnimationSelectionHook_.AttachActionLifecycleObserver(
-            observer);
-    }
-
-    void CreatureCombatService::DetachActionLifecycleObserver() noexcept
-    {
-        actionAnimationSelectionHook_.DetachActionLifecycleObserver();
     }
 
     bool CreatureCombatService::RoutePlayerCombat(Entity* hero, Entity* puppet)
@@ -419,7 +401,7 @@ namespace fable::game::creature::combat
         const AuthoritativeReplayScope replay;
         const bool selectionArmed = resolvedActionType != nullptr &&
             resolvedActionType[0] != '\0' && resolvedAnimationId != 0 &&
-            actionAnimationSelectionHook_.BeginSelection(
+            animation_->BeginReplicatedActionSelection(
                 creature, resolvedActionType, resolvedAnimationId);
         const bool receiptArmed = actions::CreatureActionLifecycleObserver::
             BeginSubmissionReceipt(creature);
@@ -427,7 +409,7 @@ namespace fable::game::creature::combat
             creature, abilityId, charge);
         if (selectionArmed)
         {
-            actionAnimationSelectionHook_.EndSelection();
+            animation_->EndReplicatedActionSelection();
         }
         bool accepted = false;
         const bool submissionObserved = receiptArmed &&
@@ -491,7 +473,7 @@ namespace fable::game::creature::combat
         const AuthoritativeReplayScope replay;
         const bool selectionArmed = resolvedActionType != nullptr &&
             resolvedActionType[0] != '\0' && resolvedAnimationId != 0 &&
-            actionAnimationSelectionHook_.BeginSelection(
+            animation_->BeginReplicatedActionSelection(
                 creature, resolvedActionType, resolvedAnimationId);
         const bool receiptArmed = actions::CreatureActionLifecycleObserver::
             BeginSubmissionReceipt(creature);
@@ -502,7 +484,7 @@ namespace fable::game::creature::combat
                 gameModule, creature, rangedWeapon);
         if (selectionArmed)
         {
-            actionAnimationSelectionHook_.EndSelection();
+            animation_->EndReplicatedActionSelection();
         }
         bool receiptAccepted = false;
         const bool submissionObserved = receiptArmed &&
@@ -663,7 +645,7 @@ namespace fable::game::creature::combat
             ? "CCombatAction_GenericStrikeResponseKnockdown"
             : "CCombatAction_GenericStrikeResponse";
         const bool selectionArmed = resolvedAnimationId != 0 &&
-            actionAnimationSelectionHook_.BeginSelection(
+            animation_->BeginReplicatedActionSelection(
                 target, reactionType, resolvedAnimationId);
         const bool receiptArmed = actions::CreatureActionLifecycleObserver::
             BeginSubmissionReceipt(target);
@@ -677,7 +659,7 @@ namespace fable::game::creature::combat
             knockdown);
         if (selectionArmed)
         {
-            actionAnimationSelectionHook_.EndSelection();
+            animation_->EndReplicatedActionSelection();
         }
         if (result.accepted && !result.cleanupSucceeded)
         {
@@ -790,14 +772,14 @@ namespace fable::game::creature::combat
         const AuthoritativeReplayScope replay;
         const bool selectionArmed = resolvedActionType != nullptr &&
             resolvedActionType[0] != '\0' && resolvedAnimationId != 0 &&
-            actionAnimationSelectionHook_.BeginSelection(
+            animation_->BeginReplicatedActionSelection(
                 creature, resolvedActionType, resolvedAnimationId);
         const bool submitted = ::fable::game::creature::actions::native::
             CreatureActionFunctions::SubmitUntargetedAttack(
                 gameModule, creature, targetPosition);
         if (selectionArmed)
         {
-            actionAnimationSelectionHook_.EndSelection();
+            animation_->EndReplicatedActionSelection();
         }
         return submitted;
     }

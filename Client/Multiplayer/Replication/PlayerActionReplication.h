@@ -158,6 +158,9 @@ namespace fable::multiplayer::replication
             const game::creature::actions::CreatureActionLifecycleEvent&
                 action,
             const game::hero_pawn::equipment::HeroEquipmentState& equipment);
+        bool CaptureLocalExpression(
+            const game::creature::actions::CreatureActionLifecycleEvent&
+                action);
         bool CaptureLocalRangedAction(
             const game::creature::actions::CreatureActionLifecycleEvent&
                 action);

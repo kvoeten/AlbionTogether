@@ -10,6 +10,7 @@ namespace fable::game { class EntityService; class NpcService; class QuestServic
 namespace fable::game::creature::locomotion { class CreatureLocomotionService; }
 namespace fable::game::creature::look { class CreatureLookService; }
 namespace fable::game::creature::combat { class CreatureCombatService; }
+namespace fable::game::creature::animation { class CreatureAnimationService; }
 namespace fable::game::hero_pawn::abilities { class HeroWillAbilityService; }
 namespace fable::game::npc::village { class VillageMembershipService; }
 namespace fable::game::npc::simulation { class DummyVillagerService; }
@@ -32,6 +33,7 @@ namespace fable::multiplayer
             game::NpcService& npcs,
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
+            game::creature::animation::CreatureAnimationService& animation,
             game::creature::combat::CreatureCombatService& combat,
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
             game::QuestService& quests,

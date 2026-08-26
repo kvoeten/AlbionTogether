@@ -51,6 +51,15 @@ namespace fable::game::hero_pawn::abilities
         }
         nativeHero_ = nativeHero;
         actorId_ = actorId;
+        if (!abilities_->BindRemotePresentationHero(nativeHero_, actorId_))
+        {
+            nativeHero_ = nullptr;
+            actorId_ = 0;
+            diagnostics_.Event(
+                "MultiplayerRemoteHeroAbilityBindFailed",
+                "reason=assassin-rush-presentation-routing");
+            return false;
+        }
         nativeAbilityInventoryPresent_ =
             provisioning.abilityInventoryPresent;
         char detail[256] = {};
@@ -208,6 +217,10 @@ namespace fable::game::hero_pawn::abilities
 
     void RemoteHeroAbilityController::Unbind() noexcept
     {
+        if (abilities_ != nullptr && nativeHero_ != nullptr)
+        {
+            abilities_->UnbindRemotePresentationHero(nativeHero_);
+        }
         nativeHero_ = nullptr;
         actorId_ = 0;
         nativeAbilityInventoryPresent_ = false;

@@ -25,6 +25,8 @@ namespace
         std::uint32_t requiredMeleeAttachmentSlot = 0;
         std::uint32_t requiredRangedAttachmentSlot = 0;
         std::uint32_t resolvedAnimationId = 0;
+        std::int32_t expressionDurationTicks = 0;
+        std::int32_t expressionTriggerTicks = 0;
         float charge = 0.0f;
         std::uint64_t targetPlayerActorId = 0;
         std::uint64_t targetThingUid = 0;
@@ -35,7 +37,7 @@ namespace
 #pragma pack(pop)
 
     static_assert(std::is_trivially_copyable_v<WirePlayerActionMessage>);
-    static_assert(sizeof(WirePlayerActionMessage) == 432);
+    static_assert(sizeof(WirePlayerActionMessage) == 440);
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept
@@ -63,6 +65,15 @@ namespace
             message.kind == PlayerActionKind::HeroAbility;
         const bool rangedAimEnd =
             message.kind == PlayerActionKind::RangedAimEnd;
+        const bool expression =
+            message.kind == PlayerActionKind::Expression;
+        const bool saneExpressionTiming = expression
+            ? message.expressionDurationTicks > 0 &&
+                message.expressionDurationTicks <= 1'000'000 &&
+                message.expressionTriggerTicks >= 0 &&
+                message.expressionTriggerTicks <= 1'000'000
+            : message.expressionDurationTicks == 0 &&
+                message.expressionTriggerTicks == 0;
         const bool saneProgressionState = heroAbility
             ? message.heroAbilityProgressionState >= 0 &&
                 message.heroAbilityProgressionState <= 3
@@ -77,9 +88,10 @@ namespace
         return (message.phase == PlayerActionPhase::Intent ||
                 message.phase == PlayerActionPhase::Perform) &&
             (ability || rangedAim || weaponTransition || heroAbility ||
-                rangedAimEnd) &&
+                rangedAimEnd || expression) &&
             saneFamily &&
             saneProgressionState &&
+            saneExpressionTiming &&
             message.requiredWeapons.IsSane() &&
             message.requiredWeapons.Supports(message.weaponFamily) &&
             saneAttachment(
@@ -112,7 +124,12 @@ namespace
                     message.targetPlayerActorId == 0 &&
                     message.targetThingUid == 0 &&
                     message.resolvedAnimationId == 0 &&
-                    message.resolvedActionType.empty())) &&
+                    message.resolvedActionType.empty()) ||
+                (expression && message.abilityId == 0 &&
+                    message.weaponFamily == CreatureWeaponFamily::None &&
+                    message.charge == 0.0f &&
+                    message.resolvedAnimationId != 0 &&
+                    !message.resolvedActionType.empty())) &&
             (message.targetPlayerActorId == 0 ||
                 message.targetThingUid == 0) &&
             std::isfinite(message.charge) &&
@@ -161,6 +178,8 @@ namespace fable::multiplayer::protocol
         wire.requiredRangedAttachmentSlot =
             message.requiredRangedAttachmentSlot;
         wire.resolvedAnimationId = message.resolvedAnimationId;
+        wire.expressionDurationTicks = message.expressionDurationTicks;
+        wire.expressionTriggerTicks = message.expressionTriggerTicks;
         wire.charge = message.charge;
         wire.targetPlayerActorId = message.targetPlayerActorId;
         wire.targetThingUid = message.targetThingUid;
@@ -217,6 +236,8 @@ namespace fable::multiplayer::protocol
         message.requiredRangedAttachmentSlot =
             wire.requiredRangedAttachmentSlot;
         message.resolvedAnimationId = wire.resolvedAnimationId;
+        message.expressionDurationTicks = wire.expressionDurationTicks;
+        message.expressionTriggerTicks = wire.expressionTriggerTicks;
         message.charge = wire.charge;
         message.targetPlayerActorId = wire.targetPlayerActorId;
         message.targetThingUid = wire.targetThingUid;

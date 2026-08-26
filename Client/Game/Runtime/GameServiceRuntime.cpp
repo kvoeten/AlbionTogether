@@ -97,6 +97,10 @@ namespace fable::game
 
     void GameServiceRuntime::Shutdown() noexcept
     {
+        if (Reached(InitializationStage::HeroPawns))
+        {
+            heroPawnService_->Shutdown();
+        }
         if (Reached(InitializationStage::PlayerInput))
         {
             playerInputService_->Shutdown();
@@ -116,6 +120,10 @@ namespace fable::game
         if (Reached(InitializationStage::Combat))
         {
             creatureCombatService_->Shutdown();
+        }
+        if (Reached(InitializationStage::Animation))
+        {
+            creatureAnimationService_->Shutdown();
         }
         if (Reached(InitializationStage::Look))
         {

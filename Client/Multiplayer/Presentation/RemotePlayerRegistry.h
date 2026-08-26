@@ -34,6 +34,11 @@ namespace fable::game::creature::combat
     class CreatureCombatService;
 }
 
+namespace fable::game::creature::animation
+{
+    class CreatureAnimationService;
+}
+
 namespace fable::game::hero_pawn::abilities
 {
     class HeroWillAbilityService;
@@ -56,6 +61,7 @@ namespace fable::multiplayer::presentation
             game::NpcService& npcs,
             game::creature::locomotion::CreatureLocomotionService& locomotion,
             game::creature::look::CreatureLookService& look,
+            game::creature::animation::CreatureAnimationService& animation,
             game::creature::combat::CreatureCombatService& combat,
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
             multiplayer::combat::PlayerCombatantDirectory& combatants,
@@ -102,6 +108,14 @@ namespace fable::multiplayer::presentation
             game::hero_pawn::abilities::HeroAbilityCommand command,
             std::int32_t progressionState,
             void* targetCreature);
+        bool PerformExpression(
+            std::uint64_t actorId,
+            const std::string& expressionDefinition,
+            void* targetCreature,
+            const std::string& resolvedActionType,
+            std::uint32_t resolvedAnimationId,
+            std::int32_t expressionDurationTicks,
+            std::int32_t expressionTriggerTicks);
         void Shutdown() noexcept;
         [[nodiscard]] std::size_t Size() const noexcept;
         [[nodiscard]] std::size_t ActiveCount() const;
@@ -119,6 +133,8 @@ namespace fable::multiplayer::presentation
         game::creature::locomotion::CreatureLocomotionService* locomotion_ =
             nullptr;
         game::creature::look::CreatureLookService* look_ = nullptr;
+        game::creature::animation::CreatureAnimationService* animation_ =
+            nullptr;
         game::creature::combat::CreatureCombatService* combat_ = nullptr;
         game::hero_pawn::abilities::HeroWillAbilityService* abilities_ =
             nullptr;

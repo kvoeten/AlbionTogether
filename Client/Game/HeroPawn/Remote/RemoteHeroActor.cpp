@@ -1,6 +1,7 @@
 #include "RemoteHeroActor.h"
 
 #include "Game/Creature/Companion/Native/CompanionFunctions.h"
+#include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/Creature/Control/ScriptControl.h"
 #include "Game/Creature/Look/CreatureLookService.h"
 #include "Game/Creature/Locomotion/CreatureLocomotionService.h"
@@ -20,7 +21,6 @@
 namespace
 {
     constexpr float kMinimumVisiblePlayerSeparation = 1.25f;
-
 }
 
 namespace fable::game::hero_pawn::remote
@@ -33,6 +33,7 @@ namespace fable::game::hero_pawn::remote
         game::NpcService& npcs,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
+        game::creature::animation::CreatureAnimationService& animation,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
         multiplayer::combat::PlayerCombatantDirectory& combatants,
@@ -54,6 +55,7 @@ namespace fable::game::hero_pawn::remote
         equipment_.Initialize(entities, orientationHook, diagnostics);
         combat_.Initialize(entities, combat, equipment_, diagnostics);
         abilities_.Initialize(entities, abilities, diagnostics);
+        expressions_.Initialize(entities, animation, diagnostics);
         initialized_ = true;
         return true;
     }
@@ -136,6 +138,29 @@ namespace fable::game::hero_pawn::remote
         return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
             abilities_.Perform(
                 ability, command, progressionState, targetCreature);
+    }
+
+    bool RemoteHeroActor::PerformExpression(
+        const std::string& expressionDefinition,
+        void* targetCreature,
+        const std::string& resolvedActionType,
+        const std::uint32_t resolvedAnimationId,
+        const std::int32_t expressionDurationTicks,
+        const std::int32_t expressionTriggerTicks)
+    {
+        if (!initialized_ || !IsLifecycleActive() || avatarSuspended_ ||
+            nativeAvatar_ == nullptr || expressionDefinition.empty())
+        {
+            return false;
+        }
+        return expressions_.Perform(
+            nativeAvatar_,
+            targetCreature,
+            expressionDefinition,
+            resolvedActionType,
+            resolvedAnimationId,
+            expressionDurationTicks,
+            expressionTriggerTicks);
     }
 
     movement::ReplicatedMovementSample
@@ -846,6 +871,7 @@ namespace fable::game::hero_pawn::remote
         ReapQuarantinedAvatars();
         movement_.Detach();
         abilities_.Shutdown();
+        expressions_.Shutdown();
         combat_.Shutdown();
         equipment_.Shutdown();
         appearance_.Shutdown();

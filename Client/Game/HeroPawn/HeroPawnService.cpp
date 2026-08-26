@@ -9,9 +9,27 @@ namespace fable::game
         EntityService& entities,
         const core::Diagnostics& diagnostics)
     {
+        Shutdown();
         entities_ = &entities;
         diagnostics_ = diagnostics;
-        return entities.GameModule() != nullptr;
+        if (entities.GameModule() == nullptr ||
+            !mapTransitionUiActionSafetyHook_.Install(
+                entities.GameModule(), diagnostics_) ||
+            !guildTeleportSafetyHook_.Install(
+                entities.GameModule(), diagnostics_))
+        {
+            Shutdown();
+            return false;
+        }
+        return true;
+    }
+
+    void HeroPawnService::Shutdown() noexcept
+    {
+        guildTeleportSafetyHook_.Shutdown();
+        mapTransitionUiActionSafetyHook_.Shutdown();
+        entities_ = nullptr;
+        diagnostics_ = {};
     }
 
     Entity* HeroPawnService::Get() const

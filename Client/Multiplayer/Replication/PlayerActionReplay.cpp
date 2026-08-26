@@ -144,6 +144,50 @@ namespace fable::multiplayer::replication
                 ++iterator;
                 continue;
             }
+            const bool expressionReady = owner != nullptr && sameMap &&
+                targetReady &&
+                message.kind == protocol::PlayerActionKind::Expression;
+                if (expressionReady && remotePlayers_->PerformExpression(
+                    message.ownerActorId,
+                    message.semanticName,
+                    targetCreature,
+                    message.resolvedActionType,
+                    message.resolvedAnimationId,
+                    message.expressionDurationTicks,
+                    message.expressionTriggerTicks))
+            {
+                char detail[320] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "actor_id=%llu action_id=%llu expression=%s target=%p",
+                    static_cast<unsigned long long>(message.ownerActorId),
+                    static_cast<unsigned long long>(message.actionId),
+                    message.semanticName.c_str(),
+                    targetCreature);
+                diagnostics_.Event(
+                    "MultiplayerRemoteExpressionReplayed", detail);
+                iterator = pendingReplays_.erase(iterator);
+                continue;
+            }
+            if (expressionReady &&
+                nativeAttemptAge >= NativeReplayFailureGraceMilliseconds)
+            {
+                char detail[320] = {};
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "actor_id=%llu action_id=%llu expression=%s age_ms=%llu reason=native-replay-rejected",
+                    static_cast<unsigned long long>(message.ownerActorId),
+                    static_cast<unsigned long long>(message.actionId),
+                    message.semanticName.c_str(),
+                    static_cast<unsigned long long>(age));
+                diagnostics_.Event(
+                    "MultiplayerRemotePlayerActionRetired", detail);
+                blockedActors.insert(message.ownerActorId);
+                iterator = pendingReplays_.erase(iterator);
+                continue;
+            }
             const bool heroAbilityReady = owner != nullptr && sameMap &&
                 targetReady &&
                 message.kind == protocol::PlayerActionKind::HeroAbility;

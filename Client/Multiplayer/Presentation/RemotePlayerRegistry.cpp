@@ -1,6 +1,7 @@
 #include "RemotePlayerRegistry.h"
 
 #include "Game/Entity/EntityService.h"
+#include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/HeroPawn/Remote/RemoteHeroActor.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 
@@ -14,6 +15,7 @@ namespace fable::multiplayer::presentation
         game::NpcService& npcs,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
+        game::creature::animation::CreatureAnimationService& animation,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
         multiplayer::combat::PlayerCombatantDirectory& combatants,
@@ -25,6 +27,7 @@ namespace fable::multiplayer::presentation
         npcs_ = &npcs;
         locomotion_ = &locomotion;
         look_ = &look;
+        animation_ = &animation;
         combat_ = &combat;
         abilities_ = &abilities;
         combatants_ = &combatants;
@@ -59,7 +62,8 @@ namespace fable::multiplayer::presentation
         auto presentation = std::make_unique<
             game::hero_pawn::remote::RemoteHeroActor>();
         if (!presentation->Initialize(
-                *entities_, *npcs_, *locomotion_, *look_, *combat_,
+                *entities_, *npcs_, *locomotion_, *look_, *animation_,
+                *combat_,
                 *abilities_,
                 *combatants_, diagnostics_,
                 presentationFactory_, rangedOrientation_))
@@ -260,6 +264,27 @@ namespace fable::multiplayer::presentation
                 ability, command, progressionState, targetCreature);
     }
 
+    bool RemotePlayerRegistry::PerformExpression(
+        const std::uint64_t actorId,
+        const std::string& expressionDefinition,
+        void* targetCreature,
+        const std::string& resolvedActionType,
+        const std::uint32_t resolvedAnimationId,
+        const std::int32_t expressionDurationTicks,
+        const std::int32_t expressionTriggerTicks)
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->PerformExpression(
+                expressionDefinition,
+                targetCreature,
+                resolvedActionType,
+                resolvedAnimationId,
+                expressionDurationTicks,
+                expressionTriggerTicks);
+    }
+
     void RemotePlayerRegistry::Shutdown() noexcept
     {
         for (auto& [actorId, presentation] : presentations_)
@@ -275,6 +300,7 @@ namespace fable::multiplayer::presentation
         npcs_ = nullptr;
         locomotion_ = nullptr;
         look_ = nullptr;
+        animation_ = nullptr;
         combat_ = nullptr;
         abilities_ = nullptr;
         combatants_ = nullptr;
