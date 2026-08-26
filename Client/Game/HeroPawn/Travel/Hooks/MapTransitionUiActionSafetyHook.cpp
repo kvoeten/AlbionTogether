@@ -13,6 +13,8 @@ namespace
     constexpr std::uintptr_t UiManagerActionRva = 0x01B7BB67;
     constexpr std::size_t UiActionRegistryStateOffset = 0x48;
     constexpr std::uintptr_t LowestReadableAddress = 0x10000;
+    constexpr unsigned int GuildTeleportSelectAction = 0x05;
+    constexpr unsigned int GuildTeleportConfirmAction = 0x50;
 
     constexpr std::array<std::uint8_t, 8> UiManagerActionPrefix = {
         0x55, 0x83, 0xEC, 0x70, 0x8D, 0x6C, 0x24, 0xFC
@@ -80,6 +82,12 @@ namespace
 #else
         return false;
 #endif
+    }
+
+    bool IsGuildTeleportNavigationAction(unsigned int actionType) noexcept
+    {
+        return actionType == GuildTeleportSelectAction ||
+            actionType == GuildTeleportConfirmAction;
     }
 }
 
@@ -187,6 +195,7 @@ namespace fable::game::hero_pawn::travel::hooks
             active_ = nullptr;
         }
         suppressedEvents_.store(0, std::memory_order_release);
+        allowedWithoutRegistryEvents_.store(0, std::memory_order_release);
         original_ = nullptr;
         diagnostics_ = {};
     }
@@ -210,11 +219,17 @@ namespace fable::game::hero_pawn::travel::hooks
 
         std::uintptr_t registryState = 0;
         unsigned int actionType = 0;
-        if (!ReadActionState(
-                manager, action, registryState, actionType))
+        const bool registryReady = ReadActionState(
+            manager, action, registryState, actionType);
+        if (!registryReady &&
+            !IsGuildTeleportNavigationAction(actionType))
         {
             hook->LogSuppressed(registryState, actionType);
             return;
+        }
+        if (!registryReady)
+        {
+            hook->LogAllowedWithoutRegistry(actionType);
         }
         hook->original_(manager, action);
     }
@@ -237,5 +252,25 @@ namespace fable::game::hero_pawn::travel::hooks
             actionType,
             reinterpret_cast<void*>(registryState));
         diagnostics_.Event("MapTransitionUiActionSuppressed", detail);
+    }
+
+    void MapTransitionUiActionSafetyHook::LogAllowedWithoutRegistry(
+        unsigned int actionType) noexcept
+    {
+        const unsigned int ordinal = allowedWithoutRegistryEvents_.fetch_add(
+            1, std::memory_order_acq_rel);
+        if (ordinal >= 8)
+        {
+            return;
+        }
+        char detail[160] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "action_type=0x%X path=guild-teleport-navigation",
+            actionType);
+        diagnostics_.Event(
+            "MapTransitionUiActionAllowedWithoutRegistry",
+            detail);
     }
 }

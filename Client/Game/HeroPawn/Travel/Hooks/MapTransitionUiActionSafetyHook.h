@@ -31,6 +31,7 @@ namespace fable::game::hero_pawn::travel::hooks
         void LogSuppressed(
             std::uintptr_t registryState,
             unsigned int actionType) noexcept;
+        void LogAllowedWithoutRegistry(unsigned int actionType) noexcept;
 
         static MapTransitionUiActionSafetyHook* active_;
 
@@ -38,5 +39,6 @@ namespace fable::game::hero_pawn::travel::hooks
         core::hooking::CodePatch actionPatch_;
         ActionFunction original_ = nullptr;
         std::atomic_uint suppressedEvents_{0};
+        std::atomic_uint allowedWithoutRegistryEvents_{0};
     };
 }
