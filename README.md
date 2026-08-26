@@ -69,3 +69,13 @@ The project also includes an embedded AngelScript runtime and native scripting A
 ## License
 
 FableTogether is available under the [MIT License](LICENSE).
+
+## Disclaimer
+
+FableTogether is an unofficial fan project and is not affiliated with,
+authorized, sponsored, or endorsed by Microsoft.
+
+Fable, Fable Anniversary, and all related names, trademarks, characters,
+imagery, and game content belong to Microsoft and/or their respective rights
+holders. The FableTogether license applies only to this project's original
+source code and does not grant rights to any Fable or third-party content.
