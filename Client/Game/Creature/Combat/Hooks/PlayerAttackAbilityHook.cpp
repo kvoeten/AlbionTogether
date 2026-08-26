@@ -4,11 +4,8 @@
 
 #include <intrin.h>
 
-#include <array>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <iterator>
 #include <cmath>
 
@@ -50,83 +47,20 @@ namespace fable::game::creature::combat
             return false;
         }
 
-        constexpr std::size_t displacedBytes =
-            native::CreatureAbilitySubmissionFunction::DisplacedBytes;
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(originalBytes_.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t interceptorDisplacement =
-            reinterpret_cast<std::intptr_t>(&PlayerAttackAbilityHook::Intercept) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            interceptorDisplacement < INT32_MIN ||
-            interceptorDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t interceptorRelative =
-            static_cast<std::int32_t>(interceptorDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &interceptorRelative,
-            sizeof(interceptorRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        if (!hook_.Install(
                 target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                native::CreatureAbilitySubmissionFunction::ExpectedPrefix.data(),
+                native::CreatureAbilitySubmissionFunction::ExpectedPrefix.size(),
+                reinterpret_cast<void*>(&PlayerAttackAbilityHook::Intercept),
+                native::CreatureAbilitySubmissionFunction::DisplacedBytes))
         {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             return false;
         }
 
         service_ = &service;
-        target_ = target;
-        trampoline_ = trampoline;
         original_ = reinterpret_cast<
-            native::CreatureAbilitySubmissionFunction::Pointer>(trampoline_);
+            native::CreatureAbilitySubmissionFunction::Pointer>(hook_.Original());
         active_ = this;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-
-        DWORD discardedProtection = 0;
-        VirtualProtect(
-            target,
-            patch.size(),
-            previousProtection,
-            &discardedProtection);
 
         char detail[320] = {};
         std::snprintf(
@@ -135,7 +69,7 @@ namespace fable::game::creature::combat
             "target=%p replacement=%p trampoline=%p function_rva=0x%08X player_attack_caller_return_rva=0x%08X",
             target,
             &PlayerAttackAbilityHook::Intercept,
-            trampoline_,
+            hook_.Original(),
             static_cast<unsigned int>(
                 native::CreatureAbilitySubmissionFunction::AddressRva),
             static_cast<unsigned int>(
@@ -150,33 +84,20 @@ namespace fable::game::creature::combat
 
     void PlayerAttackAbilityHook::Shutdown() noexcept
     {
+        if (hook_.IsInstalled() && !hook_.Shutdown())
+        {
+            diagnostics_.Log(
+                "Hook: player attack ability shutdown skipped because its target changed.");
+            return;
+        }
+        if (hook_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: player attack ability bytes restored, but code protection restoration failed.");
+        }
         service_ = nullptr;
-        if (active_ == this)
-        {
-            active_ = nullptr;
-        }
-        if (target_ != nullptr && trampoline_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_, originalBytes_.size(), PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(target_, originalBytes_.data(), originalBytes_.size());
-                FlushInstructionCache(GetCurrentProcess(), target_, originalBytes_.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_, originalBytes_.size(), previousProtection, &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
-        target_ = nullptr;
-        trampoline_ = nullptr;
+        if (active_ == this) active_ = nullptr;
         original_ = nullptr;
-        originalBytes_ = {};
         gameModule_ = nullptr;
         interceptedAttackCount_.store(0, std::memory_order_release);
         diagnostics_ = {};
@@ -185,7 +106,7 @@ namespace fable::game::creature::combat
     bool PlayerAttackAbilityHook::IsInstalled() const noexcept
     {
         return active_ == this && service_ != nullptr && original_ != nullptr &&
-            trampoline_ != nullptr && gameModule_ != nullptr;
+            hook_.IsInstalled() && gameModule_ != nullptr;
     }
 
     unsigned int PlayerAttackAbilityHook::InterceptedAttackCount() const noexcept

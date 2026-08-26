@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Multiplayer/Runtime/MultiplayerSession.h"
 
 #include <cstdint>
 
@@ -9,11 +10,6 @@ namespace fable::game
     class Entity;
     class EntityService;
     class NpcService;
-}
-
-namespace fable::multiplayer
-{
-    class MultiplayerSession;
 }
 
 namespace fable::automation::multiplayer::transition

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Animation/Native/AnimationPlaybackFunctions.h"
 
 #include <Windows.h>
@@ -91,11 +92,9 @@ namespace fable::game::creature::animation
         static thread_local std::uint64_t scopedSelectionToken_;
 
         HMODULE gameModule_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        std::uint8_t* trampoline_ = nullptr;
+        core::hooking::InlineHook submitHook_;
         SubmitRequestPointer original_ = nullptr;
         ValidateAnimationPointer validateAnimation_ = nullptr;
-        std::array<std::uint8_t, 7> originalBytes_ = {};
         mutable SRWLOCK selectionLock_ = SRWLOCK_INIT;
         std::array<Selection, SelectionCapacity> selections_ = {};
         std::atomic_uint64_t nextSelectionToken_{0};

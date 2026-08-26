@@ -55,6 +55,11 @@ namespace
 
 namespace fable::multiplayer
 {
+    MultiplayerRuntimeGraph::~MultiplayerRuntimeGraph()
+    {
+        Shutdown();
+    }
+
     void MultiplayerRuntimeGraph::MarkStage(
         const InitializationStage stage) noexcept
     {
@@ -169,6 +174,7 @@ namespace fable::multiplayer
     bool MultiplayerRuntimeGraph::AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer) { return !enabled_ || contexts_.world.entitySimulation.AttachBrainObserver(observer); }
     bool MultiplayerRuntimeGraph::AttachWorldTravelObserver(game::world::travel::WorldTravelObserver& observer) { return !enabled_ || contexts_.world.mapTransitionAuthority.Attach(observer); }
     bool MultiplayerRuntimeGraph::OnWorldReady() { return !enabled_ || contexts_.players.localHero.OnWorldReady(); }
+    bool MultiplayerRuntimeGraph::ProcessPresentationLifecycle() { return lifecycle_.Process(*this); }
     bool MultiplayerRuntimeGraph::ProcessPlayerActorState() { return !enabled_ || contexts_.players.actorState.Process(); }
 
     bool MultiplayerRuntimeGraph::ReconcileEntityLifecycle(const std::string& mapName, std::uint16_t mapId, bool publishLocalChanges, std::uint16_t ignoredDepartingMapId)
@@ -200,6 +206,7 @@ namespace fable::multiplayer
 
     void MultiplayerRuntimeGraph::Shutdown() noexcept
     {
+        lifecycle_.Reset();
         auto& t = contexts_.transport;
         auto& p = contexts_.players;
         auto& w = contexts_.world;

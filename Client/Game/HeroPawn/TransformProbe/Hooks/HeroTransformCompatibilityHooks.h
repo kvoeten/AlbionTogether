@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -36,12 +37,9 @@ namespace fable::game::hero_pawn::transform_probe
         static HeroTransformCompatibilityHooks* active_;
 
         core::Diagnostics diagnostics_ = {};
-        std::uint8_t* fractionalTarget_ = nullptr;
-        std::uint8_t* discreteTarget_ = nullptr;
-        std::uint8_t* component11Target_ = nullptr;
-        std::array<std::uint8_t, 6> fractionalOriginal_ = {};
-        std::array<std::uint8_t, 8> discreteOriginal_ = {};
-        std::array<std::uint8_t, 7> component11Original_ = {};
+        core::hooking::InlineHook fractionalPatch_;
+        core::hooking::InlineHook discretePatch_;
+        core::hooking::InlineHook component11Patch_;
         std::atomic_uint component68NullFallbacksLogged_{0};
         std::atomic_uint missingComponent11SkipsLogged_{0};
         bool installed_ = false;

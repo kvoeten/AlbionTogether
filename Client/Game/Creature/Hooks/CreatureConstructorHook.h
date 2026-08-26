@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Native/CreatureConstructorFunction.h"
 
 #include <Windows.h>
@@ -28,8 +29,7 @@ namespace fable::game::creature
 
         core::Diagnostics diagnostics_;
         native::CreatureConstructorFunction::Pointer original_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        void* trampoline_ = nullptr;
+        core::hooking::InlineHook hook_;
         std::atomic_uint constructionCount_{0};
         std::atomic<DWORD> firstConstructionThread_{0};
         std::atomic<DWORD> lastConstructionThread_{0};

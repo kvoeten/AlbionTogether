@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -81,14 +82,11 @@ namespace fable::game::hero_pawn::equipment::hooks
         bool InstallDetour(
             std::uint8_t* target,
             void* replacement) noexcept;
-        void RestoreDetour() noexcept;
 
         static RemoteRangedWeaponOrientationHook* active_;
         core::Diagnostics diagnostics_ = {};
         ResolveTransform original_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        void* trampoline_ = nullptr;
-        std::array<std::uint8_t, 6> originalBytes_ = {};
+        core::hooking::InlineHook patch_;
         std::array<Registration, RegistrationCapacity> registrations_ = {};
         std::atomic<RegistrationToken> nextToken_{1};
     };

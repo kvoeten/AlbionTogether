@@ -66,50 +66,31 @@ namespace fable::automation::local_instance
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        original_ = imported.importedFunction;
+        native::UnrealSingletonImport::Function replacement =
+            &UnrealSingletonHook::CreateMutexRedirect;
+        if (!patch_.Install(
                 imported.slot,
+                &imported.importedFunction,
                 sizeof(*imported.slot),
-                PAGE_READWRITE,
-                &previousProtection))
+                &replacement,
+                sizeof(replacement)))
         {
+            original_ = nullptr;
             namespacedMutex_.clear();
             return false;
         }
-
-        original_ = imported.importedFunction;
-        slot_ = imported.slot;
         active_ = this;
-        *imported.slot = &UnrealSingletonHook::CreateMutexRedirect;
-
-        DWORD discardedProtection = 0;
-        VirtualProtect(
-            imported.slot,
-            sizeof(*imported.slot),
-            previousProtection,
-            &discardedProtection);
-        FlushInstructionCache(
-            GetCurrentProcess(), imported.slot, sizeof(*imported.slot));
-        installed_ = true;
         return true;
     }
 
     void UnrealSingletonHook::Shutdown() noexcept
     {
-        if (slot_ != nullptr && original_ != nullptr)
+        if (!patch_.Shutdown())
         {
-            DWORD protection = 0;
-            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
-            {
-                if (*slot_ == &UnrealSingletonHook::CreateMutexRedirect) *slot_ = original_;
-                DWORD discarded = 0;
-                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
-                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
-            }
+            return;
         }
         if (active_ == this) active_ = nullptr;
-        installed_ = false;
-        slot_ = nullptr;
         original_ = nullptr;
         namespacedMutex_.clear();
     }
@@ -144,7 +125,7 @@ namespace fable::automation::local_instance
 
     bool UnrealSingletonHook::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this && original_ != nullptr &&
+        return active_ == this && original_ != nullptr && patch_.IsInstalled() &&
             !namespacedMutex_.empty();
     }
 

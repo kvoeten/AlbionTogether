@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Entity/Persistence/Native/ThingSaveFunctions.h"
 
 #include <Windows.h>
@@ -36,15 +37,6 @@ namespace fable::game::entity::persistence
     private:
         static constexpr unsigned int DiagnosticEventLimit = 128;
 
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<
-                std::uint8_t,
-                native::ThingSaveFunctions::DisplacedBytes> originalBytes = {};
-        };
-
         static void __fastcall SaveProjected(
             void* thing,
             void* unused,
@@ -56,8 +48,8 @@ namespace fable::game::entity::persistence
         bool InstallDetour(
             std::uint8_t* target,
             void* replacement,
-            Detour& detour) noexcept;
-        static void RestoreDetour(Detour& detour) noexcept;
+            core::hooking::InlineHook& detour) noexcept;
+        static bool RestoreDetour(core::hooking::InlineHook& detour) noexcept;
         void ReportProjection(
             const char* phase,
             std::uint64_t thingUid,
@@ -69,8 +61,8 @@ namespace fable::game::entity::persistence
         core::Diagnostics diagnostics_ = {};
         native::ThingSaveFunctions::SavePointer originalSave_ = nullptr;
         native::ThingSaveFunctions::LoadPointer originalLoad_ = nullptr;
-        Detour saveDetour_ = {};
-        Detour loadDetour_ = {};
+        core::hooking::InlineHook saveDetour_;
+        core::hooking::InlineHook loadDetour_;
         std::atomic<MapOverrideSink> sink_{nullptr};
         std::atomic<void*> sinkContext_{nullptr};
         std::atomic_uint projectionCount_{0};

@@ -12,6 +12,7 @@
 namespace
 {
     constexpr float kBoneScaleQuantization = 4'095.0f;
+    constexpr std::uint16_t kMinimumQuantizedBoneScale = 41;
     constexpr std::size_t kPlayerIdBytes = 48;
     constexpr std::size_t kMapNameBytes = 96;
     constexpr std::size_t kAppearanceDefinitionBytes = 96;
@@ -19,7 +20,6 @@ namespace
 #pragma pack(push, 1)
     struct WireHeroBoneScale final
     {
-        std::uint16_t boneIndex = 0;
         std::uint16_t x = 0;
         std::uint16_t y = 0;
         std::uint16_t z = 0;
@@ -49,28 +49,29 @@ namespace
         std::int32_t heroAppearanceModifierDefinitionIndices[
             fable::game::hero_pawn::appearance::HeroAppearanceModifierState::
                 MaximumEntries] = {};
-        std::uint16_t heroBoneScaleCount = 0;
-        WireHeroBoneScale heroBoneScales[
-            fable::game::hero_pawn::appearance::HeroBoneScaleState::
-                MaximumEntries] = {};
         std::int32_t meleeWeaponDefinitionIndex = 0;
         std::int32_t rangedWeaponDefinitionIndex = 0;
         std::uint32_t meleeWeaponAttachmentSlot = 0;
         std::uint32_t rangedWeaponAttachmentSlot = 0;
         std::uint8_t activeWeaponFamily = 0;
+        std::uint8_t heroBoneScalePresenceMask[
+            (fable::game::hero_pawn::appearance::HeroBoneScaleState::
+                MaximumEntries + 7) / 8] = {};
+        WireHeroBoneScale heroBoneScales[
+            fable::game::hero_pawn::appearance::HeroBoneScaleState::
+                MaximumEntries] = {};
     };
 #pragma pack(pop)
 
     static_assert(std::is_trivially_copyable_v<WireHeroBoneScale>);
-    static_assert(sizeof(WireHeroBoneScale) == 8);
+    static_assert(sizeof(WireHeroBoneScale) == 6);
     static_assert(
         std::is_trivially_copyable_v<WirePlayerActorStateMessage>);
-    static_assert(sizeof(WirePlayerActorStateMessage) == 1'387);
+    static_assert(sizeof(WirePlayerActorStateMessage) == 1'160);
     static_assert(
         sizeof(WirePlayerActorStateMessage) <=
-            fable::multiplayer::protocol::MaximumDatagramBytes -
-                fable::multiplayer::protocol::PacketHeaderBytes,
-        "The complete reliable actor construction message must fit one datagram.");
+            fable::multiplayer::protocol::MaximumReliableMessageBytes,
+        "The complete reliable actor construction message must fit the bounded reliable message buffer.");
 
     using fable::game::hero_pawn::appearance::HeroAppearanceModifierState;
     using fable::game::hero_pawn::appearance::HeroBoneScaleState;
@@ -80,6 +81,35 @@ namespace
     using fable::multiplayer::PeerRole;
     using fable::multiplayer::protocol::PlayerActorStateMessage;
     using fable::multiplayer::protocol::PlayerActorStateOperation;
+
+    constexpr std::size_t BoneScaleMaskBytes =
+        (HeroBoneScaleState::MaximumEntries + 7) / 8;
+    constexpr std::size_t BoneScalePrefixBytes =
+        offsetof(WirePlayerActorStateMessage, heroBoneScales);
+
+    std::size_t BoneScaleCount(
+        const WirePlayerActorStateMessage& wire) noexcept
+    {
+        std::size_t count = 0;
+        for (std::size_t byte = 0; byte < BoneScaleMaskBytes; ++byte)
+        {
+            std::uint8_t value = wire.heroBoneScalePresenceMask[byte];
+            while (value != 0)
+            {
+                count += value & 1u;
+                value = static_cast<std::uint8_t>(value >> 1);
+            }
+        }
+        return count;
+    }
+
+    bool HasBoneScale(
+        const WirePlayerActorStateMessage& wire,
+        const std::size_t boneIndex) noexcept
+    {
+        return (wire.heroBoneScalePresenceMask[boneIndex / 8] &
+            static_cast<std::uint8_t>(1u << (boneIndex % 8))) != 0;
+    }
 
     bool IsOperationValid(PlayerActorStateOperation operation) noexcept
     {
@@ -136,10 +166,12 @@ namespace
             player_actor_state_flag::AppearancePresent) != 0;
         if (!changed || !present)
         {
-            return true;
+            // Bone triples only have meaning alongside the appearance
+            // component.  Reject a packet that smuggles trailing bone data
+            // into an equipment-only or absent-component update.
+            return BoneScaleCount(wire) == 0;
         }
-        if (wire.heroBoneScaleCount > HeroBoneScaleState::MaximumEntries ||
-            wire.heroAppearanceModifierCount >
+        if (wire.heroAppearanceModifierCount >
                 HeroAppearanceModifierState::MaximumEntries)
         {
             return false;
@@ -186,10 +218,17 @@ namespace
                 }
             }
         }
-        for (std::size_t index = 0; index < wire.heroBoneScaleCount; ++index)
+        const std::size_t boneScaleCount = BoneScaleCount(wire);
+        if (boneScaleCount > HeroBoneScaleState::MaximumEntries)
+        {
+            return false;
+        }
+        for (std::size_t index = 0; index < boneScaleCount; ++index)
         {
             const WireHeroBoneScale& scale = wire.heroBoneScales[index];
-            if (scale.boneIndex >= 1'024 ||
+            if (scale.x < kMinimumQuantizedBoneScale ||
+                scale.y < kMinimumQuantizedBoneScale ||
+                scale.z < kMinimumQuantizedBoneScale ||
                 scale.x > 16 * kBoneScaleQuantization ||
                 scale.y > 16 * kBoneScaleQuantization ||
                 scale.z > 16 * kBoneScaleQuantization)
@@ -242,7 +281,8 @@ namespace
     }
 
     bool IsSaneConstruction(
-        const WirePlayerActorStateMessage& wire) noexcept
+        const WirePlayerActorStateMessage& wire,
+        const std::size_t byteCount) noexcept
     {
         const auto operation = static_cast<PlayerActorStateOperation>(
             wire.operation);
@@ -259,6 +299,13 @@ namespace
             wire.playerId[0] == '\0' || wire.mapName[0] == '\0' ||
             wire.appearanceDefinition[0] == '\0' ||
             !IsSaneAppearance(wire) || !IsSaneEquipment(wire))
+        {
+            return false;
+        }
+
+        const std::size_t boneScaleCount = BoneScaleCount(wire);
+        if (byteCount != BoneScalePrefixBytes +
+                boneScaleCount * sizeof(WireHeroBoneScale))
         {
             return false;
         }
@@ -323,7 +370,6 @@ namespace fable::multiplayer::protocol
     {
         encodedSize = 0;
         if (destination == nullptr ||
-            destinationCapacity < sizeof(WirePlayerActorStateMessage) ||
             !IsOperationValid(message.operation) || message.actorId == 0 ||
             message.authorityEpoch == 0 || message.actorGeneration == 0 ||
             message.mapEpoch == 0 || message.structuralRevision == 0 ||
@@ -372,8 +418,35 @@ namespace fable::multiplayer::protocol
         {
             return false;
         }
+        std::array<const fable::game::hero_pawn::appearance::HeroBoneScale*,
+            HeroBoneScaleState::MaximumEntries> bonesByIndex = {};
+        if (appearancePresent)
+        {
+            for (std::size_t index = 0; index < message.heroBoneScales.count;
+                 ++index)
+            {
+                const auto& bone = message.heroBoneScales.entries[index];
+                if (bone.boneIndex >= HeroBoneScaleState::MaximumEntries ||
+                    bonesByIndex[bone.boneIndex] != nullptr)
+                {
+                    return false;
+                }
+                bonesByIndex[bone.boneIndex] = &bone;
+            }
+        }
+        std::size_t encodedBoneScaleCount = 0;
+        if (appearancePresent)
+        {
+            encodedBoneScaleCount = message.heroBoneScales.count;
+        }
+        const std::size_t encodedSizeRequired = BoneScalePrefixBytes +
+            encodedBoneScaleCount * sizeof(WireHeroBoneScale);
+        if (destination == nullptr || destinationCapacity < encodedSizeRequired)
+        {
+            return false;
+        }
 
-        WirePlayerActorStateMessage wire;
+        WirePlayerActorStateMessage wire = {};
         wire.operation = static_cast<std::uint8_t>(message.operation);
         wire.componentFlags = message.componentFlags;
         wire.role = static_cast<std::uint8_t>(message.role);
@@ -416,18 +489,22 @@ namespace fable::multiplayer::protocol
                 wire.heroAppearanceModifierDefinitionIndices[index] =
                     message.heroAppearanceModifiers.definitionIndices[index];
             }
-            wire.heroBoneScaleCount = static_cast<std::uint16_t>(
-                message.heroBoneScales.count);
-            for (std::size_t index = 0;
-                 index < message.heroBoneScales.count;
-                 ++index)
+            std::size_t boneScaleIndex = 0;
+            for (std::size_t boneIndex = 0;
+                 boneIndex < HeroBoneScaleState::MaximumEntries;
+                 ++boneIndex)
             {
-                const auto& source = message.heroBoneScales.entries[index];
-                auto& target = wire.heroBoneScales[index];
-                target.boneIndex = source.boneIndex;
-                target.x = QuantizeBoneScale(source.x);
-                target.y = QuantizeBoneScale(source.y);
-                target.z = QuantizeBoneScale(source.z);
+                const auto* const source = bonesByIndex[boneIndex];
+                if (source == nullptr)
+                {
+                    continue;
+                }
+                wire.heroBoneScalePresenceMask[boneIndex / 8] |=
+                    static_cast<std::uint8_t>(1u << (boneIndex % 8));
+                auto& target = wire.heroBoneScales[boneScaleIndex++];
+                target.x = QuantizeBoneScale(source->x);
+                target.y = QuantizeBoneScale(source->y);
+                target.z = QuantizeBoneScale(source->z);
             }
         }
         if (equipmentPresent)
@@ -443,8 +520,8 @@ namespace fable::multiplayer::protocol
             wire.activeWeaponFamily = static_cast<std::uint8_t>(
                 message.heroEquipment.activeFamily);
         }
-        std::memcpy(destination, &wire, sizeof(wire));
-        encodedSize = sizeof(wire);
+        encodedSize = encodedSizeRequired;
+        std::memcpy(destination, &wire, encodedSize);
         return true;
     }
 
@@ -454,13 +531,14 @@ namespace fable::multiplayer::protocol
         PlayerActorStateMessage& message) noexcept
     {
         message = {};
-        if (bytes == nullptr || byteCount != sizeof(WirePlayerActorStateMessage))
+        if (bytes == nullptr || byteCount < BoneScalePrefixBytes ||
+            byteCount > sizeof(WirePlayerActorStateMessage))
         {
             return false;
         }
-        WirePlayerActorStateMessage wire;
-        std::memcpy(&wire, bytes, sizeof(wire));
-        if (!IsSaneConstruction(wire))
+        WirePlayerActorStateMessage wire = {};
+        std::memcpy(&wire, bytes, byteCount);
+        if (!IsSaneConstruction(wire, byteCount))
         {
             return false;
         }
@@ -511,14 +589,20 @@ namespace fable::multiplayer::protocol
                     wire.heroAppearanceModifierDefinitionIndices[index];
             }
             message.heroBoneScales.valid = true;
-            message.heroBoneScales.count = wire.heroBoneScaleCount;
-            for (std::size_t index = 0;
-                 index < wire.heroBoneScaleCount;
-                 ++index)
+            message.heroBoneScales.count = static_cast<std::uint32_t>(
+                BoneScaleCount(wire));
+            std::size_t boneScaleIndex = 0;
+            for (std::size_t boneIndex = 0;
+                 boneIndex < HeroBoneScaleState::MaximumEntries;
+                 ++boneIndex)
             {
-                const auto& source = wire.heroBoneScales[index];
-                auto& target = message.heroBoneScales.entries[index];
-                target.boneIndex = source.boneIndex;
+                if (!HasBoneScale(wire, boneIndex))
+                {
+                    continue;
+                }
+                const auto& source = wire.heroBoneScales[boneScaleIndex++];
+                auto& target = message.heroBoneScales.entries[boneScaleIndex - 1];
+                target.boneIndex = static_cast<std::uint16_t>(boneIndex);
                 target.x = DequantizeBoneScale(source.x);
                 target.y = DequantizeBoneScale(source.y);
                 target.z = DequantizeBoneScale(source.z);

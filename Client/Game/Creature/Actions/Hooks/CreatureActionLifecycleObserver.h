@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Actions/CreatureActionLifecycleEvent.h"
 #include "Game/Creature/Actions/Native/CreatureActionFunctions.h"
 
@@ -108,8 +109,7 @@ namespace fable::game::creature::actions
         struct Detour final
         {
             std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<std::uint8_t, 8> originalBytes = {};
+            core::hooking::InlineHook patch;
             std::size_t displacedBytes = 0;
         };
 
@@ -134,7 +134,7 @@ namespace fable::game::creature::actions
             void* replacement,
             std::size_t displacedBytes,
             Detour& detour) noexcept;
-        void RestoreDetour(Detour& detour) noexcept;
+        bool RestoreDetour(Detour& detour) noexcept;
         void ReportSubmission(
             void* creature,
             void* requestedAction,

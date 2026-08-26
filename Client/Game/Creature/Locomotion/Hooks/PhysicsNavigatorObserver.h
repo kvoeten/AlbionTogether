@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Locomotion/Native/PhysicsNavigatorFunctions.h"
 
 #include <Windows.h>
@@ -80,8 +81,8 @@ namespace fable::game::creature::locomotion
             originalRequest_ = nullptr;
         native::PhysicsNavigatorFunctions::UpdateMovementPointer
             originalUpdate_ = nullptr;
-        void** requestVtableSlot_ = nullptr;
-        void** updateVtableSlot_ = nullptr;
+        core::hooking::CodePatch requestPatch_;
+        core::hooking::CodePatch updatePatch_;
         std::array<std::atomic<void*>, TrackedNavigatorLimit>
             trackedNavigators_ = {};
         std::array<std::atomic_uint, TrackedNavigatorLimit> requestCounts_ = {};

@@ -47,35 +47,19 @@ namespace fable::game::creature::locomotion
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                PAGE_READWRITE,
-                &previousProtection))
+        void* const expected = reinterpret_cast<void*>(original);
+        void* const replacement = reinterpret_cast<void*>(
+            &CreatureFrameInputRouterHook::ObservePlayerUpdate);
+        if (!vtablePatch_.Install(
+                slot, &expected, sizeof(expected), &replacement, sizeof(replacement)))
         {
             diagnostics_.Log(
-                "Hook: player frame-update vtable protection change failed.");
+                "Hook: player frame-update vtable patch installation failed.");
             return false;
         }
 
         original_ = original;
-        vtableSlot_ = slot;
         active_ = this;
-        *slot = reinterpret_cast<void*>(
-            &CreatureFrameInputRouterHook::ObservePlayerUpdate);
-        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                previousProtection,
-                &discarded))
-        {
-            diagnostics_.Log(
-                "Hook: player frame-input router installed, but vtable protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -128,25 +112,24 @@ namespace fable::game::creature::locomotion
 
     void CreatureFrameInputRouterHook::Shutdown() noexcept
     {
+        if (vtablePatch_.IsInstalled())
+        {
+            if (!vtablePatch_.Shutdown())
+            {
+                diagnostics_.Log(
+                    "Hook: player frame-input router shutdown skipped because its vtable slot changed.");
+                return;
+            }
+        }
+        if (vtablePatch_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: player frame-input router bytes restored, but vtable protection restoration failed.");
+        }
         Clear();
         SetFrameObserver(nullptr, nullptr);
-        if (active_ == this && vtableSlot_ != nullptr && original_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &previousProtection))
-            {
-                if (*vtableSlot_ == reinterpret_cast<void*>(&ObservePlayerUpdate))
-                {
-                    *vtableSlot_ = reinterpret_cast<void*>(original_);
-                    FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
-                }
-                DWORD discarded = 0;
-                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), previousProtection, &discarded);
-            }
-            active_ = nullptr;
-        }
+        if (active_ == this) active_ = nullptr;
         original_ = nullptr;
-        vtableSlot_ = nullptr;
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -173,7 +156,7 @@ namespace fable::game::creature::locomotion
 
     bool CreatureFrameInputRouterHook::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
+        return active_ == this && original_ != nullptr && vtablePatch_.IsInstalled();
     }
 
     bool CreatureFrameInputRouterHook::IsBound() const noexcept

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -30,12 +31,14 @@ namespace fable::game::hero_pawn::travel::hooks
         void LogSuppressed(
             std::uintptr_t registryState,
             unsigned int actionType) noexcept;
+        void LogAllowedWithoutRegistry(unsigned int actionType) noexcept;
 
         static MapTransitionUiActionSafetyHook* active_;
 
         core::Diagnostics diagnostics_ = {};
-        void** vtableSlot_ = nullptr;
+        core::hooking::CodePatch actionPatch_;
         ActionFunction original_ = nullptr;
         std::atomic_uint suppressedEvents_{0};
+        std::atomic_uint allowedWithoutRegistryEvents_{0};
     };
 }

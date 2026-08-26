@@ -3,7 +3,6 @@
 #include "Game/HeroPawn/TransformProbe/Native/HeroTransformCompatibilityFunctions.h"
 
 #include <array>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -13,50 +12,6 @@ namespace
     std::uintptr_t g_component11Resume = 0;
     std::uintptr_t g_missingComponent11Cleanup = 0;
 
-    template <std::size_t Size>
-    bool BuildRelativeJump(
-        const std::uint8_t* target,
-        const void* replacement,
-        std::array<std::uint8_t, Size>& patch) noexcept
-    {
-        static_assert(Size >= 5, "An x86 relative jump requires five bytes.");
-        const std::intptr_t displacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (displacement < INT32_MIN || displacement > INT32_MAX)
-        {
-            return false;
-        }
-
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t relative = static_cast<std::int32_t>(displacement);
-        std::memcpy(patch.data() + 1, &relative, sizeof(relative));
-        return true;
-    }
-
-    void RestoreProtection(
-        void* address,
-        std::size_t size,
-        DWORD protection,
-        const fable::core::Diagnostics& diagnostics,
-        const char* name)
-    {
-        DWORD discardedProtection = 0;
-        if (VirtualProtect(address, size, protection, &discardedProtection))
-        {
-            return;
-        }
-
-        char message[256] = {};
-        std::snprintf(
-            message,
-            std::size(message),
-            "Hook: %s installed, but code protection restoration failed; error=%lu.",
-            name,
-            static_cast<unsigned long>(GetLastError()));
-        diagnostics.Log(message);
-    }
 }
 
 namespace fable::game::hero_pawn::transform_probe
@@ -150,138 +105,43 @@ namespace fable::game::hero_pawn::transform_probe
             return false;
         }
 
-        std::array<
-            std::uint8_t,
-            native::Component68FractionalProgressFunction::ExpectedPrefix.size()>
-            fractionalPatch = {};
-        std::array<
-            std::uint8_t,
-            native::Component68DiscreteLevelFunction::ExpectedPrefix.size()>
-            discretePatch = {};
-        std::array<
-            std::uint8_t,
-            native::HeroUpdateComponent11Branch::ExpectedPrefix.size()>
-            component11Patch = {};
-        if (!BuildRelativeJump(
-                fractionalTarget,
-                &SafeComponent68FractionalProgress,
-                fractionalPatch) ||
-            !BuildRelativeJump(
-                discreteTarget,
-                &SafeComponent68DiscreteLevel,
-                discretePatch) ||
-            !BuildRelativeJump(
-                component11.branch,
-                &HeroUpdateComponent11GuardThunk,
-                component11Patch))
-        {
-            diagnostics_.Log(
-                "Hook: Hero transform compatibility callbacks are outside the x86 relative-jump range.");
-            return false;
-        }
-
-        DWORD fractionalProtection = 0;
-        DWORD discreteProtection = 0;
-        DWORD component11Protection = 0;
-        if (!VirtualProtect(
-                fractionalTarget,
-                fractionalPatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &fractionalProtection))
-        {
-            diagnostics_.Log(
-                "Hook: component 0x68 fractional-progress guard could not change code protection.");
-            return false;
-        }
-        if (!VirtualProtect(
-                discreteTarget,
-                discretePatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &discreteProtection))
-        {
-            RestoreProtection(
-                fractionalTarget,
-                fractionalPatch.size(),
-                fractionalProtection,
-                diagnostics_,
-                "component 0x68 fractional-progress guard");
-            diagnostics_.Log(
-                "Hook: component 0x68 discrete-level guard could not change code protection.");
-            return false;
-        }
-        if (!VirtualProtect(
-                component11.branch,
-                component11Patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &component11Protection))
-        {
-            RestoreProtection(
-                discreteTarget,
-                discretePatch.size(),
-                discreteProtection,
-                diagnostics_,
-                "component 0x68 discrete-level guard");
-            RestoreProtection(
-                fractionalTarget,
-                fractionalPatch.size(),
-                fractionalProtection,
-                diagnostics_,
-                "component 0x68 fractional-progress guard");
-            diagnostics_.Log(
-                "Hook: Hero component type 0x11 guard could not change code protection.");
-            return false;
-        }
-
         g_component11Resume = component11.resume;
         g_missingComponent11Cleanup = component11.missingComponentCleanup;
-        fractionalTarget_ = fractionalTarget;
-        discreteTarget_ = discreteTarget;
-        component11Target_ = component11.branch;
-        std::memcpy(fractionalOriginal_.data(), fractionalTarget, fractionalOriginal_.size());
-        std::memcpy(discreteOriginal_.data(), discreteTarget, discreteOriginal_.size());
-        std::memcpy(component11Original_.data(), component11.branch, component11Original_.size());
         active_ = this;
-
-        std::memcpy(
-            fractionalTarget,
-            fractionalPatch.data(),
-            fractionalPatch.size());
-        std::memcpy(discreteTarget, discretePatch.data(), discretePatch.size());
-        std::memcpy(
-            component11.branch,
-            component11Patch.data(),
-            component11Patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            fractionalTarget,
-            fractionalPatch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            discreteTarget,
-            discretePatch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            component11.branch,
-            component11Patch.size());
-
-        RestoreProtection(
-            component11.branch,
-            component11Patch.size(),
-            component11Protection,
-            diagnostics_,
-            "Hero component type 0x11 guard");
-        RestoreProtection(
-            discreteTarget,
-            discretePatch.size(),
-            discreteProtection,
-            diagnostics_,
-            "component 0x68 discrete-level guard");
-        RestoreProtection(
-            fractionalTarget,
-            fractionalPatch.size(),
-            fractionalProtection,
-            diagnostics_,
-            "component 0x68 fractional-progress guard");
+        if (!fractionalPatch_.Install(
+                fractionalTarget,
+                fractionalTarget,
+                5,
+                reinterpret_cast<void*>(&SafeComponent68FractionalProgress),
+                native::Component68FractionalProgressFunction::ExpectedPrefix.size()) ||
+            !discretePatch_.Install(
+                discreteTarget,
+                discreteTarget,
+                5,
+                reinterpret_cast<void*>(&SafeComponent68DiscreteLevel),
+                native::Component68DiscreteLevelFunction::ExpectedPrefix.size()) ||
+            !component11Patch_.Install(
+                component11.branch,
+                component11.branch,
+                5,
+                reinterpret_cast<void*>(&HeroUpdateComponent11GuardThunk),
+                native::HeroUpdateComponent11Branch::ExpectedPrefix.size()))
+        {
+            const bool component11Restored = component11Patch_.Shutdown();
+            const bool discreteRestored = discretePatch_.Shutdown();
+            const bool fractionalRestored = fractionalPatch_.Shutdown();
+            if (!component11Restored || !discreteRestored ||
+                !fractionalRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: Hero transform rollback deferred because a target is owned by another hook.");
+                return false;
+            }
+            active_ = nullptr;
+            diagnostics_.Log(
+                "Hook: Hero transform compatibility guard patch installation failed.");
+            return false;
+        }
 
         installed_ = true;
         char detail[384] = {};
@@ -303,25 +163,17 @@ namespace fable::game::hero_pawn::transform_probe
 
     void HeroTransformCompatibilityHooks::Shutdown() noexcept
     {
-        auto restore = [](std::uint8_t* target, const auto& bytes) noexcept
+        bool allRestored = true;
+        allRestored = component11Patch_.Shutdown() && allRestored;
+        allRestored = discretePatch_.Shutdown() && allRestored;
+        allRestored = fractionalPatch_.Shutdown() && allRestored;
+        if (!allRestored)
         {
-            if (target == nullptr) return;
-            DWORD protection = 0;
-            if (VirtualProtect(target, bytes.size(), PAGE_EXECUTE_READWRITE, &protection))
-            {
-                std::memcpy(target, bytes.data(), bytes.size());
-                FlushInstructionCache(GetCurrentProcess(), target, bytes.size());
-                DWORD discarded = 0;
-                VirtualProtect(target, bytes.size(), protection, &discarded);
-            }
-        };
-        restore(component11Target_, component11Original_);
-        restore(discreteTarget_, discreteOriginal_);
-        restore(fractionalTarget_, fractionalOriginal_);
+            diagnostics_.Log(
+                "Hook: Hero transform shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         if (active_ == this) active_ = nullptr;
-        fractionalTarget_ = nullptr;
-        discreteTarget_ = nullptr;
-        component11Target_ = nullptr;
         installed_ = false;
         g_component11Resume = 0;
         g_missingComponent11Cleanup = 0;

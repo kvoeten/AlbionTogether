@@ -2,7 +2,6 @@
 
 #include <array>
 #include <algorithm>
-#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -10,11 +9,6 @@
 
 namespace
 {
-    using Patch = std::array<
-        std::uint8_t,
-        fable::game::creature::locomotion::native::
-            CreatureModeManagerFunctions::DisplacedBytes>;
-
     std::uint32_t HashDwords(
         const std::uint32_t* values,
         std::size_t count) noexcept
@@ -31,64 +25,6 @@ namespace
         return hash;
     }
 
-    bool BuildTrampoline(
-        std::uint8_t* target,
-        const void* replacement,
-        void*& trampolineResult,
-        Patch& patchResult) noexcept
-    {
-        constexpr std::size_t displacedBytes =
-            fable::game::creature::locomotion::native::
-                CreatureModeManagerFunctions::DisplacedBytes;
-        trampolineResult = nullptr;
-        patchResult.fill(0x90);
-
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resumeDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t observerDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resumeDisplacement < INT32_MIN || resumeDisplacement > INT32_MAX ||
-            observerDisplacement < INT32_MIN || observerDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        const std::int32_t resumeRelative =
-            static_cast<std::int32_t>(resumeDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        patchResult[0] = 0xE9;
-        const std::int32_t observerRelative =
-            static_cast<std::int32_t>(observerDisplacement);
-        std::memcpy(
-            patchResult.data() + 1,
-            &observerRelative,
-            sizeof(observerRelative));
-        trampolineResult = trampoline;
-        return true;
-    }
 }
 
 namespace fable::game::creature::locomotion
@@ -136,161 +72,89 @@ namespace fable::game::creature::locomotion
             return false;
         }
 
-        Patch addPatch = {};
-        Patch removePatch = {};
-        Patch evaluatePatch = {};
-        void* addTrampoline = nullptr;
-        void* removeTrampoline = nullptr;
-        void* evaluateTrampoline = nullptr;
-        if (!BuildTrampoline(
+        const bool addInstalled = addSourceHook_.Install(
                 addTarget,
-                reinterpret_cast<const void*>(
-                    &CreatureModeManagerObserver::ObserveAddSource),
-                addTrampoline,
-                addPatch) ||
-            !BuildTrampoline(
+                native::CreatureModeManagerFunctions::AddSourceExpectedPrefix.data(),
+                native::CreatureModeManagerFunctions::AddSourceExpectedPrefix.size(),
+                reinterpret_cast<void*>(&CreatureModeManagerObserver::ObserveAddSource),
+                native::CreatureModeManagerFunctions::DisplacedBytes);
+        const bool removeInstalled = addInstalled && removeSourceHook_.Install(
                 removeTarget,
-                reinterpret_cast<const void*>(
-                    &CreatureModeManagerObserver::ObserveRemoveSource),
-                removeTrampoline,
-                removePatch) ||
-            !BuildTrampoline(
+                native::CreatureModeManagerFunctions::RemoveSourceExpectedPrefix.data(),
+                native::CreatureModeManagerFunctions::RemoveSourceExpectedPrefix.size(),
+                reinterpret_cast<void*>(&CreatureModeManagerObserver::ObserveRemoveSource),
+                native::CreatureModeManagerFunctions::DisplacedBytes);
+        const bool evaluateInstalled = removeInstalled &&
+            evaluateLocomotionHook_.Install(
                 evaluateTarget,
-                reinterpret_cast<const void*>(
-                    &CreatureModeManagerObserver::ObserveLocomotionEvaluation),
-                evaluateTrampoline,
-                evaluatePatch))
+                native::CreatureModeManagerFunctions::EvaluateLocomotionExpectedPrefix.data(),
+                native::CreatureModeManagerFunctions::EvaluateLocomotionExpectedPrefix.size(),
+                reinterpret_cast<void*>(&CreatureModeManagerObserver::ObserveLocomotionEvaluation),
+                native::CreatureModeManagerFunctions::DisplacedBytes);
+        if (!addInstalled || !removeInstalled || !evaluateInstalled)
         {
-            if (addTrampoline != nullptr)
+            const bool addRemoved = !addSourceHook_.IsInstalled() ||
+                addSourceHook_.Shutdown();
+            const bool removeRemoved = !removeSourceHook_.IsInstalled() ||
+                removeSourceHook_.Shutdown();
+            const bool evaluateRemoved = !evaluateLocomotionHook_.IsInstalled() ||
+                evaluateLocomotionHook_.Shutdown();
+            if (!addRemoved || !removeRemoved || !evaluateRemoved)
             {
-                VirtualFree(addTrampoline, 0, MEM_RELEASE);
+                addSourceTarget_ = addSourceHook_.IsInstalled()
+                    ? addTarget
+                    : nullptr;
+                removeSourceTarget_ = removeSourceHook_.IsInstalled()
+                    ? removeTarget
+                    : nullptr;
+                evaluateLocomotionTarget_ = evaluateLocomotionHook_.IsInstalled()
+                    ? evaluateTarget
+                    : nullptr;
+                originalAddSource_ = addSourceHook_.IsInstalled()
+                    ? reinterpret_cast<
+                        native::CreatureModeManagerFunctions::AddSourcePointer>(
+                            addSourceHook_.Original())
+                    : nullptr;
+                originalRemoveSource_ = removeSourceHook_.IsInstalled()
+                    ? reinterpret_cast<
+                        native::CreatureModeManagerFunctions::RemoveSourcePointer>(
+                            removeSourceHook_.Original())
+                    : nullptr;
+                originalEvaluateLocomotion_ = evaluateLocomotionHook_.IsInstalled()
+                    ? reinterpret_cast<
+                        native::CreatureModeManagerFunctions::EvaluateLocomotionPointer>(
+                            evaluateLocomotionHook_.Original())
+                    : nullptr;
+                active_ = this;
+                diagnostics_.Log(
+                    "Hook: creature-mode install failed and installed patches could not all be rolled back; callback state retained.");
+                return false;
             }
-            if (removeTrampoline != nullptr)
+            if (addSourceHook_.ProtectionRestoreFailed() ||
+                removeSourceHook_.ProtectionRestoreFailed() ||
+                evaluateLocomotionHook_.ProtectionRestoreFailed())
             {
-                VirtualFree(removeTrampoline, 0, MEM_RELEASE);
-            }
-            if (evaluateTrampoline != nullptr)
-            {
-                VirtualFree(evaluateTrampoline, 0, MEM_RELEASE);
+                diagnostics_.Log(
+                    "Hook: creature-mode install rollback restored bytes, but code protection restoration failed.");
             }
             diagnostics_.Log(
-                "Hook: creature-mode trampoline construction failed.");
+                "Hook: creature-mode patch installation failed.");
             return false;
         }
 
-        DWORD addProtection = 0;
-        DWORD removeProtection = 0;
-        DWORD evaluateProtection = 0;
-        if (!VirtualProtect(
-                addTarget,
-                addPatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &addProtection))
-        {
-            VirtualFree(addTrampoline, 0, MEM_RELEASE);
-            VirtualFree(removeTrampoline, 0, MEM_RELEASE);
-            VirtualFree(evaluateTrampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: creature-mode AddSource protection change failed.");
-            return false;
-        }
-        if (!VirtualProtect(
-                removeTarget,
-                removePatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &removeProtection))
-        {
-            DWORD discarded = 0;
-            VirtualProtect(
-                addTarget,
-                addPatch.size(),
-                addProtection,
-                &discarded);
-            VirtualFree(addTrampoline, 0, MEM_RELEASE);
-            VirtualFree(removeTrampoline, 0, MEM_RELEASE);
-            VirtualFree(evaluateTrampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: creature-mode RemoveSource protection change failed.");
-            return false;
-        }
-        if (!VirtualProtect(
-                evaluateTarget,
-                evaluatePatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &evaluateProtection))
-        {
-            DWORD discarded = 0;
-            VirtualProtect(
-                removeTarget,
-                removePatch.size(),
-                removeProtection,
-                &discarded);
-            VirtualProtect(
-                addTarget,
-                addPatch.size(),
-                addProtection,
-                &discarded);
-            VirtualFree(addTrampoline, 0, MEM_RELEASE);
-            VirtualFree(removeTrampoline, 0, MEM_RELEASE);
-            VirtualFree(evaluateTrampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: locomotion-mode evaluation protection change failed.");
-            return false;
-        }
-
-        addSourceTrampoline_ = addTrampoline;
-        removeSourceTrampoline_ = removeTrampoline;
-        evaluateLocomotionTrampoline_ = evaluateTrampoline;
         addSourceTarget_ = addTarget;
         removeSourceTarget_ = removeTarget;
         evaluateLocomotionTarget_ = evaluateTarget;
         originalAddSource_ = reinterpret_cast<
             native::CreatureModeManagerFunctions::AddSourcePointer>(
-                addSourceTrampoline_);
+                addSourceHook_.Original());
         originalRemoveSource_ = reinterpret_cast<
             native::CreatureModeManagerFunctions::RemoveSourcePointer>(
-                removeSourceTrampoline_);
+                removeSourceHook_.Original());
         originalEvaluateLocomotion_ = reinterpret_cast<
             native::CreatureModeManagerFunctions::EvaluateLocomotionPointer>(
-                evaluateLocomotionTrampoline_);
+                evaluateLocomotionHook_.Original());
         active_ = this;
-
-        std::memcpy(addTarget, addPatch.data(), addPatch.size());
-        std::memcpy(removeTarget, removePatch.data(), removePatch.size());
-        std::memcpy(
-            evaluateTarget,
-            evaluatePatch.data(),
-            evaluatePatch.size());
-        FlushInstructionCache(GetCurrentProcess(), addTarget, addPatch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            removeTarget,
-            removePatch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            evaluateTarget,
-            evaluatePatch.size());
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(
-                evaluateTarget,
-                evaluatePatch.size(),
-                evaluateProtection,
-                &discarded) ||
-            !VirtualProtect(
-                removeTarget,
-                removePatch.size(),
-                removeProtection,
-                &discarded) ||
-            !VirtualProtect(
-                addTarget,
-                addPatch.size(),
-                addProtection,
-                &discarded))
-        {
-            diagnostics_.Log(
-                "Hook: creature-mode observers installed, but code protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -312,8 +176,8 @@ namespace fable::game::creature::locomotion
         return active_ == this &&
             originalAddSource_ != nullptr && originalRemoveSource_ != nullptr &&
             originalEvaluateLocomotion_ != nullptr &&
-            addSourceTrampoline_ != nullptr && removeSourceTrampoline_ != nullptr &&
-            evaluateLocomotionTrampoline_ != nullptr;
+            addSourceHook_.IsInstalled() && removeSourceHook_.IsInstalled() &&
+            evaluateLocomotionHook_.IsInstalled();
     }
 
     bool CreatureModeManagerObserver::AddModeSourceEventSink(
@@ -365,6 +229,24 @@ namespace fable::game::creature::locomotion
 
     void CreatureModeManagerObserver::Shutdown() noexcept
     {
+        const bool evaluateRemoved = !evaluateLocomotionHook_.IsInstalled() ||
+            evaluateLocomotionHook_.Shutdown();
+        const bool removeRemoved = !removeSourceHook_.IsInstalled() ||
+            removeSourceHook_.Shutdown();
+        const bool addRemoved = !addSourceHook_.IsInstalled() ||
+            addSourceHook_.Shutdown();
+        if (!evaluateRemoved || !removeRemoved || !addRemoved)
+        {
+            diagnostics_.Log("Hook: creature-mode shutdown skipped because a target changed.");
+            return;
+        }
+        if (evaluateLocomotionHook_.ProtectionRestoreFailed() ||
+            removeSourceHook_.ProtectionRestoreFailed() ||
+            addSourceHook_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: creature-mode bytes restored, but code protection restoration failed.");
+        }
         ClearReplicatedAnimationMotions();
         ClearAnimationMotionSource();
         AcquireSRWLockExclusive(&modeSourceEventSinkLock_);
@@ -373,38 +255,10 @@ namespace fable::game::creature::locomotion
             subscription = {};
         }
         ReleaseSRWLockExclusive(&modeSourceEventSinkLock_);
-#if defined(_M_IX86)
-        if (addSourceTarget_ != nullptr && removeSourceTarget_ != nullptr &&
-            evaluateLocomotionTarget_ != nullptr)
-        {
-            auto restore = [](std::uint8_t* target, void* trampoline) noexcept
-            {
-                constexpr std::size_t bytes = native::CreatureModeManagerFunctions::DisplacedBytes;
-                if (target == nullptr || trampoline == nullptr) return;
-                DWORD protection = 0;
-                if (VirtualProtect(target, bytes, PAGE_EXECUTE_READWRITE, &protection))
-                {
-                    std::memcpy(target, trampoline, bytes);
-                    FlushInstructionCache(GetCurrentProcess(), target, bytes);
-                    DWORD discarded = 0;
-                    VirtualProtect(target, bytes, protection, &discarded);
-                }
-            };
-            restore(evaluateLocomotionTarget_, evaluateLocomotionTrampoline_);
-            restore(removeSourceTarget_, removeSourceTrampoline_);
-            restore(addSourceTarget_, addSourceTrampoline_);
-        }
-#endif
         if (active_ == this) active_ = nullptr;
         originalAddSource_ = nullptr;
         originalRemoveSource_ = nullptr;
         originalEvaluateLocomotion_ = nullptr;
-        if (addSourceTrampoline_ != nullptr) VirtualFree(addSourceTrampoline_, 0, MEM_RELEASE);
-        if (removeSourceTrampoline_ != nullptr) VirtualFree(removeSourceTrampoline_, 0, MEM_RELEASE);
-        if (evaluateLocomotionTrampoline_ != nullptr) VirtualFree(evaluateLocomotionTrampoline_, 0, MEM_RELEASE);
-        addSourceTrampoline_ = nullptr;
-        removeSourceTrampoline_ = nullptr;
-        evaluateLocomotionTrampoline_ = nullptr;
         addSourceTarget_ = nullptr;
         removeSourceTarget_ = nullptr;
         evaluateLocomotionTarget_ = nullptr;

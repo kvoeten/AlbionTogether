@@ -7,7 +7,6 @@
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
 #include <array>
-#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +35,16 @@ namespace fable::game::entity::presence
         {
             diagnostics_.Log(
                 "Hook: another Thing presence observer is already active.");
+            return false;
+        }
+        if (active_ == this ||
+            originalRegister_ != nullptr || originalUpdate_ != nullptr ||
+            originalUnregister_ != nullptr || originalDestructor_ != nullptr ||
+            registerDetour_.IsInstalled() || updateDetour_.IsInstalled() ||
+            unregisterDetour_.IsInstalled() || destructorDetour_.IsInstalled())
+        {
+            diagnostics_.Log(
+                "Hook: Thing presence installation is partially active; shutdown is required before retrying.");
             return false;
         }
 
@@ -68,81 +77,105 @@ namespace fable::game::entity::presence
                 registerDetour_))
         {
             active_ = nullptr;
+            gameModule_ = nullptr;
             diagnostics_.Log(
                 "Hook: CTCMapwho registration detour installation failed.");
             return false;
         }
         originalRegister_ =
             reinterpret_cast<native::MapwhoFunctions::RegisterPointer>(
-                registerDetour_.trampoline);
+                registerDetour_.Original());
 
         if (!InstallDetour(
                 updateTarget,
                 reinterpret_cast<void*>(&ThingPresenceObserver::ObserveUpdate),
                 updateDetour_))
         {
-            RestoreDetour(registerDetour_);
+            const bool rollbackRestored = RestoreDetour(registerDetour_);
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: CTCMapwho registration rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalRegister_ = nullptr;
             active_ = nullptr;
+            gameModule_ = nullptr;
             diagnostics_.Log(
                 "Hook: CTCMapwho position-update detour installation failed.");
             return false;
         }
         originalUpdate_ =
             reinterpret_cast<native::MapwhoFunctions::RegisterPointer>(
-                updateDetour_.trampoline);
+                updateDetour_.Original());
 
         if (!InstallDetour(
                 unregisterTarget,
                 reinterpret_cast<void*>(&ThingPresenceObserver::ObserveUnregister),
                 unregisterDetour_))
         {
-            RestoreDetour(updateDetour_);
-            RestoreDetour(registerDetour_);
+            bool rollbackRestored = true;
+            rollbackRestored = RestoreDetour(updateDetour_) && rollbackRestored;
+            rollbackRestored = RestoreDetour(registerDetour_) && rollbackRestored;
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: CTCMapwho position-update rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalUpdate_ = nullptr;
             originalRegister_ = nullptr;
             active_ = nullptr;
+            gameModule_ = nullptr;
             diagnostics_.Log(
                 "Hook: CTCMapwho unregistration detour installation failed.");
             return false;
         }
         originalUnregister_ =
             reinterpret_cast<native::MapwhoFunctions::UnregisterPointer>(
-                unregisterDetour_.trampoline);
+                unregisterDetour_.Original());
 
         if (!InstallDetour(
                 destructorTarget,
                 reinterpret_cast<void*>(&ThingPresenceObserver::ObserveDestructor),
                 destructorDetour_))
         {
-            RestoreDetour(unregisterDetour_);
-            RestoreDetour(updateDetour_);
-            RestoreDetour(registerDetour_);
+            bool rollbackRestored = true;
+            rollbackRestored = RestoreDetour(unregisterDetour_) && rollbackRestored;
+            rollbackRestored = RestoreDetour(updateDetour_) && rollbackRestored;
+            rollbackRestored = RestoreDetour(registerDetour_) && rollbackRestored;
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: CTCMapwho unregistration rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalUnregister_ = nullptr;
             originalUpdate_ = nullptr;
             originalRegister_ = nullptr;
             active_ = nullptr;
+            gameModule_ = nullptr;
             diagnostics_.Log(
                 "Hook: CTCMapwho destructor detour installation failed.");
             return false;
         }
         originalDestructor_ =
             reinterpret_cast<native::MapwhoFunctions::DestructorPointer>(
-                destructorDetour_.trampoline);
+                destructorDetour_.Original());
 
         char detail[640] = {};
         std::snprintf(
             detail,
             std::size(detail),
             "register=%p register_trampoline=%p update=%p update_trampoline=%p unregister=%p unregister_trampoline=%p destructor=%p destructor_trampoline=%p event_limit=%u",
-            registerDetour_.target,
-            registerDetour_.trampoline,
-            updateDetour_.target,
-            updateDetour_.trampoline,
-            unregisterDetour_.target,
-            unregisterDetour_.trampoline,
-            destructorDetour_.target,
-            destructorDetour_.trampoline,
+            registerTarget,
+            registerDetour_.Original(),
+            updateTarget,
+            updateDetour_.Original(),
+            unregisterTarget,
+            unregisterDetour_.Original(),
+            destructorTarget,
+            destructorDetour_.Original(),
             DiagnosticEventLimit);
         diagnostics_.Log(
             "Hook: native CTCMapwho presence-boundary observation installed.");
@@ -153,11 +186,18 @@ namespace fable::game::entity::presence
 
     void ThingPresenceObserver::Shutdown() noexcept
     {
+        bool allRestored = true;
+        allRestored = RestoreDetour(destructorDetour_) && allRestored;
+        allRestored = RestoreDetour(unregisterDetour_) && allRestored;
+        allRestored = RestoreDetour(updateDetour_) && allRestored;
+        allRestored = RestoreDetour(registerDetour_) && allRestored;
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: Thing presence shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         SetEventSink(nullptr, nullptr);
-        RestoreDetour(destructorDetour_);
-        RestoreDetour(unregisterDetour_);
-        RestoreDetour(updateDetour_);
-        RestoreDetour(registerDetour_);
         if (active_ == this) active_ = nullptr;
         originalDestructor_ = nullptr;
         originalUnregister_ = nullptr;
@@ -219,10 +259,8 @@ namespace fable::game::entity::presence
             originalUpdate_ != nullptr &&
             originalUnregister_ != nullptr &&
             originalDestructor_ != nullptr &&
-            registerDetour_.target != nullptr &&
-            updateDetour_.target != nullptr &&
-            unregisterDetour_.target != nullptr &&
-            destructorDetour_.target != nullptr;
+            registerDetour_.IsInstalled() && updateDetour_.IsInstalled() &&
+            unregisterDetour_.IsInstalled() && destructorDetour_.IsInstalled();
     }
 
     unsigned int ThingPresenceObserver::RegistrationCount() const noexcept
@@ -238,119 +276,26 @@ namespace fable::game::entity::presence
     bool ThingPresenceObserver::InstallDetour(
         std::uint8_t* target,
         void* replacement,
-        Detour& detour) noexcept
+        core::hooking::InlineHook& detour) noexcept
     {
         constexpr std::size_t displacedBytes =
             native::MapwhoFunctions::DisplacedBytes;
-        if (target == nullptr || replacement == nullptr || detour.target != nullptr)
+        if (target == nullptr || replacement == nullptr || detour.IsInstalled())
         {
             return false;
         }
-
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        detour.target = target;
-        detour.trampoline = trampoline;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        DWORD discarded = 0;
-        VirtualProtect(target, patch.size(), previousProtection, &discarded);
-        return true;
+        return detour.Install(
+            target,
+            target,
+            displacedBytes,
+            replacement,
+            displacedBytes);
     }
 
-    void ThingPresenceObserver::RestoreDetour(Detour& detour) noexcept
+    bool ThingPresenceObserver::RestoreDetour(
+        core::hooking::InlineHook& detour) noexcept
     {
-        if (detour.target == nullptr)
-        {
-            return;
-        }
-
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.originalBytes.size());
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                detour.target,
-                detour.originalBytes.size());
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                previousProtection,
-                &discarded);
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return detour.Shutdown();
     }
 
     void __fastcall ThingPresenceObserver::ObserveRegister(

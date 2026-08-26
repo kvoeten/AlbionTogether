@@ -38,24 +38,17 @@ namespace fable::game::creature::ai
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &previousProtection))
+        void* const expected = reinterpret_cast<void*>(original);
+        void* const replacement = reinterpret_cast<void*>(&AiBrainUpdateObserver::Observe);
+        if (!vtablePatch_.Install(
+                slot, &expected, sizeof(expected), &replacement, sizeof(replacement)))
         {
-            diagnostics_.Log("Hook: CAIBrain update vtable protection change failed.");
+            diagnostics_.Log("Hook: CAIBrain update vtable patch installation failed.");
             return false;
         }
 
         original_ = original;
-        vtableSlot_ = slot;
         active_ = this;
-        *slot = reinterpret_cast<void*>(&AiBrainUpdateObserver::Observe);
-        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(slot, sizeof(*slot), previousProtection, &discarded))
-        {
-            diagnostics_.Log("Hook: AI brain observer installed, but vtable protection restoration failed.");
-        }
 
         char detail[192] = {};
         std::snprintf(
@@ -73,26 +66,26 @@ namespace fable::game::creature::ai
 
     bool AiBrainUpdateObserver::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
+        return active_ == this && original_ != nullptr && vtablePatch_.IsInstalled();
     }
 
     void AiBrainUpdateObserver::Shutdown() noexcept
     {
-        SetExecutionSink(nullptr, nullptr);
-        if (vtableSlot_ != nullptr && original_ != nullptr)
+        if (vtablePatch_.IsInstalled())
         {
-            DWORD protection = 0;
-            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &protection))
+            if (!vtablePatch_.Shutdown())
             {
-                if (*vtableSlot_ == reinterpret_cast<void*>(&AiBrainUpdateObserver::Observe))
-                    *vtableSlot_ = reinterpret_cast<void*>(original_);
-                DWORD discarded = 0;
-                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), protection, &discarded);
-                FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
+                diagnostics_.Log("Hook: CAIBrain observer shutdown skipped because its vtable slot changed.");
+                return;
             }
         }
+        if (vtablePatch_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: CAIBrain observer bytes restored, but vtable protection restoration failed.");
+        }
+        SetExecutionSink(nullptr, nullptr);
         if (active_ == this) active_ = nullptr;
-        vtableSlot_ = nullptr;
         original_ = nullptr;
         diagnostics_ = {};
     }

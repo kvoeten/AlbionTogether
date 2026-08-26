@@ -1,77 +1,7 @@
 #include "FollowCreatureActionHook.h"
 
-#include <array>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
-
-namespace
-{
-    using Patch = std::array<
-        std::uint8_t,
-        fable::game::creature::locomotion::native::
-            FollowCreatureActionFunctions::DisplacedBytes>;
-
-    bool BuildTrampoline(
-        std::uint8_t* target,
-        const void* replacement,
-        void*& trampolineResult,
-        Patch& patchResult) noexcept
-    {
-        constexpr std::size_t displacedBytes =
-            fable::game::creature::locomotion::native::
-                FollowCreatureActionFunctions::DisplacedBytes;
-        trampolineResult = nullptr;
-        patchResult.fill(0x90);
-
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resumeDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t observerDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resumeDisplacement < INT32_MIN || resumeDisplacement > INT32_MAX ||
-            observerDisplacement < INT32_MIN || observerDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        const std::int32_t resumeRelative =
-            static_cast<std::int32_t>(resumeDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        patchResult[0] = 0xE9;
-        const std::int32_t observerRelative =
-            static_cast<std::int32_t>(observerDisplacement);
-        std::memcpy(
-            patchResult.data() + 1,
-            &observerRelative,
-            sizeof(observerRelative));
-        trampolineResult = trampoline;
-        return true;
-    }
-}
 
 namespace fable::game::creature::locomotion
 {
@@ -114,105 +44,59 @@ namespace fable::game::creature::locomotion
             return false;
         }
 
-        Patch startPatch = {};
-        Patch tickPatch = {};
-        void* startTrampoline = nullptr;
-        void* tickTrampoline = nullptr;
-        if (!BuildTrampoline(
+        const bool startInstalled = startHook_.Install(
                 startTarget,
-                reinterpret_cast<const void*>(&FollowCreatureActionHook::ObserveStart),
-                startTrampoline,
-                startPatch) ||
-            !BuildTrampoline(
+                native::FollowCreatureActionFunctions::StartExpectedPrefix.data(),
+                native::FollowCreatureActionFunctions::StartExpectedPrefix.size(),
+                reinterpret_cast<void*>(&FollowCreatureActionHook::ObserveStart),
+                native::FollowCreatureActionFunctions::DisplacedBytes);
+        const bool tickInstalled = startInstalled && tickHook_.Install(
                 tickTarget,
-                reinterpret_cast<const void*>(&FollowCreatureActionHook::ObserveTick),
-                tickTrampoline,
-                tickPatch))
+                native::FollowCreatureActionFunctions::TickExpectedPrefix.data(),
+                native::FollowCreatureActionFunctions::TickExpectedPrefix.size(),
+                reinterpret_cast<void*>(&FollowCreatureActionHook::ObserveTick),
+                native::FollowCreatureActionFunctions::DisplacedBytes);
+        if (!startInstalled || !tickInstalled)
         {
-            if (startTrampoline != nullptr)
+            const bool startRemoved = !startHook_.IsInstalled() ||
+                startHook_.Shutdown();
+            const bool tickRemoved = !tickHook_.IsInstalled() ||
+                tickHook_.Shutdown();
+            if (!startRemoved || !tickRemoved)
             {
-                VirtualFree(startTrampoline, 0, MEM_RELEASE);
+                originalStart_ = startHook_.IsInstalled()
+                    ? reinterpret_cast<
+                        native::FollowCreatureActionFunctions::ActionMethodPointer>(
+                            startHook_.Original())
+                    : nullptr;
+                originalTick_ = tickHook_.IsInstalled()
+                    ? reinterpret_cast<
+                        native::FollowCreatureActionFunctions::ActionMethodPointer>(
+                            tickHook_.Original())
+                    : nullptr;
+                active_ = this;
+                diagnostics_.Log(
+                    "Hook: follow-action install failed and installed patches could not all be rolled back; callback state retained.");
+                return false;
             }
-            if (tickTrampoline != nullptr)
+            if (startHook_.ProtectionRestoreFailed() ||
+                tickHook_.ProtectionRestoreFailed())
             {
-                VirtualFree(tickTrampoline, 0, MEM_RELEASE);
+                diagnostics_.Log(
+                    "Hook: follow-action install rollback restored bytes, but code protection restoration failed.");
             }
             diagnostics_.Log(
-                "Hook: follow-action lifecycle trampoline construction failed.");
+                "Hook: follow-action lifecycle patch installation failed.");
             return false;
         }
 
-        DWORD startProtection = 0;
-        DWORD tickProtection = 0;
-        if (!VirtualProtect(
-                startTarget,
-                startPatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &startProtection))
-        {
-            VirtualFree(startTrampoline, 0, MEM_RELEASE);
-            VirtualFree(tickTrampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: follow-action Start protection change failed.");
-            return false;
-        }
-        if (!VirtualProtect(
-                tickTarget,
-                tickPatch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &tickProtection))
-        {
-            DWORD discarded = 0;
-            VirtualProtect(
-                startTarget,
-                startPatch.size(),
-                startProtection,
-                &discarded);
-            VirtualFree(startTrampoline, 0, MEM_RELEASE);
-            VirtualFree(tickTrampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: follow-action Tick protection change failed.");
-            return false;
-        }
-
-        startTrampoline_ = startTrampoline;
-        tickTrampoline_ = tickTrampoline;
-        startTarget_ = startTarget;
-        tickTarget_ = tickTarget;
         originalStart_ = reinterpret_cast<
             native::FollowCreatureActionFunctions::ActionMethodPointer>(
-                startTrampoline_);
+                startHook_.Original());
         originalTick_ = reinterpret_cast<
             native::FollowCreatureActionFunctions::ActionMethodPointer>(
-                tickTrampoline_);
+                tickHook_.Original());
         active_ = this;
-
-        std::memcpy(startTarget, startPatch.data(), startPatch.size());
-        std::memcpy(tickTarget, tickPatch.data(), tickPatch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            startTarget,
-            startPatch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            tickTarget,
-            tickPatch.size());
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(
-                tickTarget,
-                tickPatch.size(),
-                tickProtection,
-                &discarded) ||
-            !VirtualProtect(
-                startTarget,
-                startPatch.size(),
-                startProtection,
-                &discarded))
-        {
-            diagnostics_.Log(
-                "Hook: follow-action lifecycle observers installed, but code protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -230,35 +114,23 @@ namespace fable::game::creature::locomotion
 
     void FollowCreatureActionHook::Shutdown() noexcept
     {
-#if defined(_M_IX86)
-        if (startTarget_ != nullptr && tickTarget_ != nullptr)
+        const bool startRemoved = !startHook_.IsInstalled() || startHook_.Shutdown();
+        const bool tickRemoved = !tickHook_.IsInstalled() || tickHook_.Shutdown();
+        if (!startRemoved || !tickRemoved)
         {
-            auto restore = [](std::uint8_t* target, void* trampoline) noexcept
-            {
-                constexpr std::size_t bytes = native::FollowCreatureActionFunctions::DisplacedBytes;
-                if (target == nullptr || trampoline == nullptr) return;
-                DWORD protection = 0;
-                if (VirtualProtect(target, bytes, PAGE_EXECUTE_READWRITE, &protection))
-                {
-                    std::memcpy(target, trampoline, bytes);
-                    FlushInstructionCache(GetCurrentProcess(), target, bytes);
-                    DWORD discarded = 0;
-                    VirtualProtect(target, bytes, protection, &discarded);
-                }
-            };
-            restore(tickTarget_, tickTrampoline_);
-            restore(startTarget_, startTrampoline_);
+            diagnostics_.Log(
+                "Hook: follow-action shutdown skipped because a target changed.");
+            return;
         }
-#endif
+        if (startHook_.ProtectionRestoreFailed() ||
+            tickHook_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: follow-action bytes restored, but code protection restoration failed.");
+        }
         if (active_ == this) active_ = nullptr;
         originalStart_ = nullptr;
         originalTick_ = nullptr;
-        if (startTrampoline_ != nullptr) VirtualFree(startTrampoline_, 0, MEM_RELEASE);
-        if (tickTrampoline_ != nullptr) VirtualFree(tickTrampoline_, 0, MEM_RELEASE);
-        startTrampoline_ = nullptr;
-        tickTrampoline_ = nullptr;
-        startTarget_ = nullptr;
-        tickTarget_ = nullptr;
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -267,7 +139,7 @@ namespace fable::game::creature::locomotion
     {
         return active_ == this &&
             originalStart_ != nullptr && originalTick_ != nullptr &&
-            startTrampoline_ != nullptr && tickTrampoline_ != nullptr;
+            startHook_.IsInstalled() && tickHook_.IsInstalled();
     }
 
     unsigned int FollowCreatureActionHook::StartCount() const noexcept

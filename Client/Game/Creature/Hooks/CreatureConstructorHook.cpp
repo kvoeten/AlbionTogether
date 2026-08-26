@@ -1,10 +1,7 @@
 #include "CreatureConstructorHook.h"
 
-#include <array>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 
 namespace fable::game::creature
 {
@@ -40,91 +37,21 @@ namespace fable::game::creature
             return false;
         }
 
-        constexpr std::size_t displacedBytes =
-            native::CreatureConstructorFunction::DisplacedBytes;
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            diagnostics_.Log(
-                "Hook: CThingCreature constructor trampoline allocation failed.");
-            return false;
-        }
-
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t observerDisplacement =
-            reinterpret_cast<std::intptr_t>(&CreatureConstructorHook::Observe) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            observerDisplacement < INT32_MIN ||
-            observerDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: CThingCreature constructor observer is outside the x86 relative-jump range.");
-            return false;
-        }
-
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t observerRelative =
-            static_cast<std::int32_t>(observerDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &observerRelative,
-            sizeof(observerRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        if (!hook_.Install(
                 target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                native::CreatureConstructorFunction::ExpectedPrefix.data(),
+                native::CreatureConstructorFunction::ExpectedPrefix.size(),
+                reinterpret_cast<void*>(&CreatureConstructorHook::Observe),
+                native::CreatureConstructorFunction::DisplacedBytes))
         {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             diagnostics_.Log(
-                "Hook: CThingCreature constructor code protection change failed.");
+                "Hook: CThingCreature constructor patch installation failed.");
             return false;
         }
 
-        trampoline_ = trampoline;
-        target_ = target;
         original_ = reinterpret_cast<native::CreatureConstructorFunction::Pointer>(
-            trampoline_);
+            hook_.Original());
         active_ = this;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-
-        DWORD discardedProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                previousProtection,
-                &discardedProtection))
-        {
-            diagnostics_.Log(
-                "Hook: CThingCreature constructor hook installed, but code protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -133,7 +60,7 @@ namespace fable::game::creature
             "target=%p replacement=%p trampoline=%p",
             target,
             &CreatureConstructorHook::Observe,
-            trampoline_);
+            hook_.Original());
         diagnostics_.Log("Hook: CThingCreature constructor observer installed.");
         diagnostics_.Event(
             "CreatureLifecycleHookReady",
@@ -145,31 +72,20 @@ namespace fable::game::creature
 
     void CreatureConstructorHook::Shutdown() noexcept
     {
-#if defined(_M_IX86)
-        if (target_ != nullptr && trampoline_ != nullptr)
+        if (hook_.IsInstalled() && !hook_.Shutdown())
         {
-            constexpr std::size_t displacedBytes = native::CreatureConstructorFunction::DisplacedBytes;
-            DWORD protection = 0;
-            if (VirtualProtect(target_, displacedBytes, PAGE_EXECUTE_READWRITE, &protection))
-            {
-                std::memcpy(target_, trampoline_, displacedBytes);
-                FlushInstructionCache(GetCurrentProcess(), target_, displacedBytes);
-                DWORD discarded = 0;
-                VirtualProtect(target_, displacedBytes, protection, &discarded);
-            }
+            diagnostics_.Log(
+                "Hook: CThingCreature constructor shutdown skipped because its target changed.");
+            return;
         }
-#endif
         if (active_ == this) active_ = nullptr;
         original_ = nullptr;
-        target_ = nullptr;
-        if (trampoline_ != nullptr) VirtualFree(trampoline_, 0, MEM_RELEASE);
-        trampoline_ = nullptr;
         diagnostics_ = {};
     }
 
     bool CreatureConstructorHook::IsInstalled() const noexcept
     {
-        return original_ != nullptr && trampoline_ != nullptr && active_ == this;
+        return original_ != nullptr && hook_.IsInstalled() && active_ == this;
     }
 
     unsigned int CreatureConstructorHook::ConstructionCount() const noexcept

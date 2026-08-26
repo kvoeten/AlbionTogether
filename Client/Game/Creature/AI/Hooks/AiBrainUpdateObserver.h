@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/AI/Native/AiBrainFunctions.h"
 
 #include <Windows.h>
@@ -39,7 +40,7 @@ namespace fable::game::creature::ai
 
         core::Diagnostics diagnostics_ = {};
         native::AiBrainFunctions::UpdatePointer original_ = nullptr;
-        void** vtableSlot_ = nullptr;
+        core::hooking::CodePatch vtablePatch_;
         std::array<std::atomic<void*>, TrackedBrainLimit> trackedBrains_ = {};
         std::atomic_uint observedBrainCount_{0};
         std::atomic<ExecutionSink> executionSink_{nullptr};

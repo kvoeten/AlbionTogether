@@ -102,15 +102,6 @@ namespace
         }
     }
 
-    void WriteRelativeJump(void* source, const void* destination)
-    {
-        auto* const bytes = static_cast<std::uint8_t*>(source);
-        bytes[0] = 0xE9;
-        const auto displacement = static_cast<std::int32_t>(
-            reinterpret_cast<std::intptr_t>(destination) -
-            (reinterpret_cast<std::intptr_t>(source) + 5));
-        std::memcpy(bytes + 1, &displacement, sizeof(displacement));
-    }
 }
 
 namespace fable::game::definitions
@@ -130,6 +121,10 @@ namespace fable::game::definitions
             return gameDefinitionsPath_ == gameDefinitionsPath;
         }
         if (active_ != nullptr && active_ != this)
+        {
+            return false;
+        }
+        if (active_ == this)
         {
             return false;
         }
@@ -178,22 +173,7 @@ namespace fable::game::definitions
             return false;
         }
 
-        constexpr std::size_t kTrampolineSize =
-            native::CreateFileFunctions::PrologueSize + 5;
         constexpr std::size_t kPatchCount = 4;
-        void* const trampolineMemory = VirtualAlloc(
-            nullptr,
-            kTrampolineSize * kPatchCount,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_READWRITE);
-        if (trampolineMemory == nullptr)
-        {
-            return false;
-        }
-
-        auto* const trampolineBytes = static_cast<std::uint8_t*>(
-            trampolineMemory);
-        std::array<std::uint8_t*, kPatchCount> trampolines = {};
         std::array<void*, kPatchCount> targets = {
             reinterpret_cast<void*>(resolved.wideFunction),
             reinterpret_cast<void*>(resolved.ansiFunction),
@@ -208,114 +188,75 @@ namespace fable::game::definitions
                 &CompiledDefinitionsRedirectHook::CreateFileNative),
             reinterpret_cast<const void*>(
                 &CompiledDefinitionsRedirectHook::OpenFileNative)};
-        for (std::size_t index = 0; index < kPatchCount; ++index)
-        {
-            trampolines[index] = trampolineBytes + index * kTrampolineSize;
-            std::memcpy(
-                trampolines[index],
-                targets[index],
-                native::CreateFileFunctions::PrologueSize);
-            WriteRelativeJump(
-                trampolines[index] + native::CreateFileFunctions::PrologueSize,
-                static_cast<const std::uint8_t*>(targets[index]) +
-                    native::CreateFileFunctions::PrologueSize);
-        }
-        DWORD discardedProtection = 0;
-        if (!VirtualProtect(
-                trampolineMemory,
-                kTrampolineSize * kPatchCount,
-                PAGE_EXECUTE_READ,
-                &discardedProtection))
-        {
-            VirtualFree(trampolineMemory, 0, MEM_RELEASE);
-            return false;
-        }
-
         gameDefinitionsPath_ = gameDefinitionsPath;
         gameDefinitionsNtPath_ = ntPath;
         gameDefinitionsPathAnsi_ = std::move(ansiPath);
-        originalWide_ = reinterpret_cast<native::CreateFileFunctions::WideFunction>(
-            trampolines[0]);
-        originalAnsi_ = reinterpret_cast<native::CreateFileFunctions::AnsiFunction>(
-            trampolines[1]);
-        originalNative_ = reinterpret_cast<native::CreateFileFunctions::NativeFunction>(
-            trampolines[2]);
-        originalNativeOpen_ =
-            reinterpret_cast<native::CreateFileFunctions::NativeOpenFunction>(
-                trampolines[3]);
-        trampolineMemory_ = trampolineMemory;
-        targets_ = targets;
+        originalWide_ = nullptr;
+        originalAnsi_ = nullptr;
+        originalNative_ = nullptr;
+        originalNativeOpen_ = nullptr;
         active_ = this;
-
-        std::array<DWORD, kPatchCount> previousProtections = {};
-        std::size_t patchedCount = 0;
-        bool patchSucceeded = true;
         for (std::size_t index = 0; index < kPatchCount; ++index)
         {
-            if (!VirtualProtect(
+            if (!patches_[index].Install(
+                    targets[index],
                     targets[index],
                     native::CreateFileFunctions::PrologueSize,
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtections[index]))
+                    const_cast<void*>(replacements[index]),
+                    native::CreateFileFunctions::PrologueSize))
             {
-                patchSucceeded = false;
-                break;
-            }
-            WriteRelativeJump(targets[index], replacements[index]);
-            patchedCount = index + 1;
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                targets[index],
-                native::CreateFileFunctions::PrologueSize);
-            DWORD ignoredProtection = 0;
-            if (!VirtualProtect(
-                    targets[index],
-                    native::CreateFileFunctions::PrologueSize,
-                    previousProtections[index],
-                    &ignoredProtection))
-            {
-                patchSucceeded = false;
-                break;
-            }
-        }
-        if (!patchSucceeded)
-        {
-            while (patchedCount > 0)
-            {
-                --patchedCount;
-                DWORD writableProtection = 0;
-                if (VirtualProtect(
-                        targets[patchedCount],
-                        native::CreateFileFunctions::PrologueSize,
-                        PAGE_EXECUTE_READWRITE,
-                        &writableProtection))
+                bool rollbackRestored = true;
+                for (std::size_t rollback = index; rollback > 0; --rollback)
                 {
-                    std::memcpy(
-                        targets[patchedCount],
-                        trampolines[patchedCount],
-                        native::CreateFileFunctions::PrologueSize);
-                    FlushInstructionCache(
-                        GetCurrentProcess(),
-                        targets[patchedCount],
-                        native::CreateFileFunctions::PrologueSize);
-                    DWORD ignoredProtection = 0;
-                    VirtualProtect(
-                        targets[patchedCount],
-                        native::CreateFileFunctions::PrologueSize,
-                        previousProtections[patchedCount],
-                        &ignoredProtection);
+                    rollbackRestored =
+                        patches_[rollback - 1].Shutdown() && rollbackRestored;
                 }
+                if (!rollbackRestored)
+                {
+                    diagnostics_.Log(
+                        "Hook: compiled definitions rollback deferred because a target is owned by another hook.");
+                    return false;
+                }
+                active_ = nullptr;
+                originalWide_ = nullptr;
+                originalAnsi_ = nullptr;
+                originalNative_ = nullptr;
+                originalNativeOpen_ = nullptr;
+                gameDefinitionsPath_.clear();
+                gameDefinitionsNtPath_.clear();
+                gameDefinitionsPathAnsi_.clear();
+                return false;
             }
-            active_ = nullptr;
-            originalWide_ = nullptr;
-            originalAnsi_ = nullptr;
-            originalNative_ = nullptr;
-            originalNativeOpen_ = nullptr;
-            trampolineMemory_ = nullptr;
-            targets_ = {};
-            VirtualFree(trampolineMemory, 0, MEM_RELEASE);
-            return false;
+            switch (index)
+            {
+            case 0:
+                originalWide_ = reinterpret_cast<
+                    native::CreateFileFunctions::WideFunction>(
+                        patches_[index].Original());
+                break;
+            case 1:
+                originalAnsi_ = reinterpret_cast<
+                    native::CreateFileFunctions::AnsiFunction>(
+                        patches_[index].Original());
+                break;
+            case 2:
+                originalNative_ = reinterpret_cast<
+                    native::CreateFileFunctions::NativeFunction>(
+                        patches_[index].Original());
+                break;
+            case 3:
+                originalNativeOpen_ = reinterpret_cast<
+                    native::CreateFileFunctions::NativeOpenFunction>(
+                        patches_[index].Original());
+                break;
+            default:
+                break;
+            }
         }
+        originalWide_ = reinterpret_cast<native::CreateFileFunctions::WideFunction>(patches_[0].Original());
+        originalAnsi_ = reinterpret_cast<native::CreateFileFunctions::AnsiFunction>(patches_[1].Original());
+        originalNative_ = reinterpret_cast<native::CreateFileFunctions::NativeFunction>(patches_[2].Original());
+        originalNativeOpen_ = reinterpret_cast<native::CreateFileFunctions::NativeOpenFunction>(patches_[3].Original());
         installed_ = true;
         return true;
     }
@@ -355,41 +296,27 @@ namespace fable::game::definitions
 
     void CompiledDefinitionsRedirectHook::Shutdown() noexcept
     {
-        if (installed_ && trampolineMemory_ != nullptr)
+        bool allRestored = true;
+        for (std::size_t index = patches_.size(); index > 0; --index)
         {
-            if (targets_[0] != nullptr)
-            {
-                constexpr std::size_t bytes = native::CreateFileFunctions::PrologueSize;
-                constexpr std::size_t trampolineSize = bytes + 5;
-                auto* originals = static_cast<std::uint8_t*>(trampolineMemory_);
-                for (std::size_t index = targets_.size(); index > 0; --index)
-                {
-                    void* target = targets_[index - 1];
-                    DWORD protection = 0;
-                    if (VirtualProtect(target, bytes, PAGE_EXECUTE_READWRITE, &protection))
-                    {
-                        std::memcpy(
-                            target,
-                            originals + (index - 1) * trampolineSize,
-                            bytes);
-                        FlushInstructionCache(GetCurrentProcess(), target, bytes);
-                        DWORD discarded = 0;
-                        VirtualProtect(target, bytes, protection, &discarded);
-                    }
-                }
-            }
+            allRestored = patches_[index - 1].Shutdown() && allRestored;
+        }
+        if (!allRestored)
+        {
+            diagnostics_.Log("Hook: compiled definitions shutdown deferred because a target is owned by another hook.");
+            return;
         }
         if (active_ == this) active_ = nullptr;
         originalWide_ = nullptr;
         originalAnsi_ = nullptr;
         originalNative_ = nullptr;
         originalNativeOpen_ = nullptr;
-        if (trampolineMemory_ != nullptr) VirtualFree(trampolineMemory_, 0, MEM_RELEASE);
-        trampolineMemory_ = nullptr;
-        targets_ = {};
         gameDefinitionsPath_.clear();
         gameDefinitionsNtPath_.clear();
         gameDefinitionsPathAnsi_.clear();
+        redirectOccurred_.store(false, std::memory_order_release);
+        readyReported_.store(false, std::memory_order_release);
+        redirectReported_.store(false, std::memory_order_release);
         diagnostics_ = {};
         installed_ = false;
     }
@@ -397,6 +324,8 @@ namespace fable::game::definitions
     bool CompiledDefinitionsRedirectHook::IsInstalled() const noexcept
     {
         return installed_ && active_ == this &&
+            patches_[0].IsInstalled() && patches_[1].IsInstalled() &&
+            patches_[2].IsInstalled() && patches_[3].IsInstalled() &&
             originalWide_ != nullptr && originalAnsi_ != nullptr &&
             originalNative_ != nullptr && originalNativeOpen_ != nullptr;
     }

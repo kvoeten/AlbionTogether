@@ -53,7 +53,8 @@ namespace fable::multiplayer::transport_codec
             type == PacketType::PopulationState ||
             type == PacketType::SavedEntityMapBaseline ||
             type == PacketType::PlayerActorState ||
-            type == PacketType::CombatHit;
+            type == PacketType::CombatHit ||
+            type == PacketType::ReliableFragment;
     }
 
     bool IsUnreliablePacketType(const protocol::PacketType type) noexcept

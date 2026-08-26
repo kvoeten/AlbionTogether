@@ -1,6 +1,6 @@
 #include "HeroAppearanceMutationObserver.h"
 
-#include <climits>
+#include <array>
 #include <cstdio>
 #include <cstring>
 
@@ -65,7 +65,7 @@ namespace fable::game::hero_pawn::appearance::hooks
             return false;
         }
         originalClothingRebuild_ = reinterpret_cast<ClothingRebuild>(
-            clothingDetour_.trampoline);
+            clothingDetour_.Original());
         if (!InstallDetour(
                 modifier,
                 reinterpret_cast<void*>(
@@ -73,16 +73,19 @@ namespace fable::game::hero_pawn::appearance::hooks
                 6,
                 modifierDetour_))
         {
-            RestoreDetour(clothingDetour_);
-            originalClothingRebuild_ = nullptr;
-            active_ = nullptr;
+            const bool clothingRestored = RestoreDetour(clothingDetour_);
+            if (clothingRestored)
+            {
+                originalClothingRebuild_ = nullptr;
+                if (active_ == this) active_ = nullptr;
+            }
             diagnostics_.Event(
                 "HeroAppearanceMutationObserverRejected",
                 "modifier mutation detour installation failed after clothing hook");
             return false;
         }
         originalModifierRefresh_ = reinterpret_cast<ModifierRefresh>(
-            modifierDetour_.trampoline);
+            modifierDetour_.Original());
         char detail[224] = {};
         std::snprintf(
             detail,
@@ -99,13 +102,20 @@ namespace fable::game::hero_pawn::appearance::hooks
 
     void HeroAppearanceMutationObserver::Shutdown() noexcept
     {
+        bool allRestored = true;
+        allRestored = RestoreDetour(modifierDetour_) && allRestored;
+        allRestored = RestoreDetour(clothingDetour_) && allRestored;
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: Hero appearance shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         SetEventSink(nullptr, nullptr);
         if (active_ == this)
         {
             active_ = nullptr;
         }
-        RestoreDetour(modifierDetour_);
-        RestoreDetour(clothingDetour_);
         originalModifierRefresh_ = nullptr;
         originalClothingRebuild_ = nullptr;
         mutationCount_.store(0, std::memory_order_relaxed);
@@ -136,107 +146,28 @@ namespace fable::game::hero_pawn::appearance::hooks
         std::uint8_t* target,
         void* replacement,
         std::size_t displacedBytes,
-        Detour& detour) noexcept
+        core::hooking::InlineHook& detour) noexcept
     {
         if (target == nullptr || replacement == nullptr ||
-            displacedBytes < 5 ||
-            displacedBytes > detour.originalBytes.size())
+            displacedBytes < 5)
         {
             return false;
         }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resume =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t redirect =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resume < INT32_MIN || resume > INT32_MAX ||
-            redirect < INT32_MIN || redirect > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resumeRelative = static_cast<std::int32_t>(resume);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-        std::array<std::uint8_t, 6> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto redirectRelative = static_cast<std::int32_t>(redirect);
-        std::memcpy(
-            patch.data() + 1,
-            &redirectRelative,
-            sizeof(redirectRelative));
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        std::memcpy(target, patch.data(), displacedBytes);
-        FlushInstructionCache(GetCurrentProcess(), target, displacedBytes);
-        FlushInstructionCache(
-            GetCurrentProcess(), trampoline, displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(
-            target, displacedBytes, previousProtection, &discarded);
-        detour.target = target;
-        detour.trampoline = trampoline;
-        detour.displacedBytes = displacedBytes;
-        return true;
+        // The complete signatures are checked by Install before this helper
+        // runs; CodePatch additionally snapshots and verifies the displaced
+        // bytes before taking ownership of the target.
+        return detour.Install(
+            target,
+            target,
+            displacedBytes,
+            replacement,
+            displacedBytes);
     }
 
-    void HeroAppearanceMutationObserver::RestoreDetour(
-        Detour& detour) noexcept
+    bool HeroAppearanceMutationObserver::RestoreDetour(
+        core::hooking::InlineHook& detour) noexcept
     {
-        if (detour.target != nullptr && detour.displacedBytes != 0)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    detour.target,
-                    detour.displacedBytes,
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(
-                    detour.target,
-                    detour.originalBytes.data(),
-                    detour.displacedBytes);
-                FlushInstructionCache(
-                    GetCurrentProcess(),
-                    detour.target,
-                    detour.displacedBytes);
-                DWORD discarded = 0;
-                VirtualProtect(
-                    detour.target,
-                    detour.displacedBytes,
-                    previousProtection,
-                    &discarded);
-            }
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return detour.Shutdown();
     }
 
     void __fastcall HeroAppearanceMutationObserver::ObserveClothingRebuild(

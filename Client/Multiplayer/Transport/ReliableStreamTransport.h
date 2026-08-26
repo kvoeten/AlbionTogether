@@ -27,6 +27,12 @@ namespace fable::multiplayer
         static constexpr std::size_t TotalQueueLimit = 512;
         static constexpr std::size_t PerStreamQueueLimit = 64;
         static constexpr std::size_t StreamMetadataLimit = 256;
+        static constexpr std::size_t MaximumFragmentCount = 2;
+        static constexpr std::size_t ReliableFragmentHeaderBytes = 24;
+        static constexpr std::uint64_t ReassemblyTimeoutMilliseconds = 10'000;
+        static constexpr std::size_t MaximumFragmentPayloadBytes =
+            protocol::MaximumDatagramBytes - protocol::PacketHeaderBytes -
+            ReliableFragmentHeaderBytes;
 
         [[nodiscard]] bool CanEnqueue(ReliableStreamId streamId) const;
         [[nodiscard]] bool CanEnqueueMessage(
@@ -66,9 +72,11 @@ namespace fable::multiplayer
             std::deque<TransportMessage> queue;
             std::uint64_t incarnation = 0;
             std::uint32_t nextSequence = 1;
+            std::uint32_t nextLogicalSequence = 1;
             std::uint32_t acknowledgedSequence = 0;
             std::uint32_t lastSentSequence = 0;
             std::uint64_t lastSentAt = 0;
+            std::size_t logicalQueueSize = 0;
         };
 
         [[nodiscard]] static std::uint32_t NextSequence(
@@ -90,9 +98,56 @@ namespace fable::multiplayer
             std::uint64_t incarnation = 0;
         };
 
+        struct ReassemblyKey final
+        {
+            ReliableStreamId streamId = reliable_stream::Control;
+            std::uint64_t incarnation = 0;
+            std::uint32_t logicalSequence = 0;
+
+            bool operator==(const ReassemblyKey& other) const noexcept
+            {
+                return streamId == other.streamId &&
+                    incarnation == other.incarnation &&
+                    logicalSequence == other.logicalSequence;
+            }
+        };
+
+        struct Reassembly final
+        {
+            protocol::PacketType originalType =
+                protocol::PacketType::PlayerActorState;
+            std::uint64_t sourceActorId = 0;
+            std::uint64_t connectionNonce = 0;
+            std::uint16_t fragmentCount = 0;
+            std::uint16_t receivedCount = 0;
+            std::uint16_t receivedMask = 0;
+            std::size_t totalSize = 0;
+            std::uint64_t lastTouchedAt = 0;
+            std::array<
+                std::uint8_t,
+                protocol::MaximumReliableMessageBytes> payload = {};
+        };
+
+        struct ReassemblyKeyHash final
+        {
+            std::size_t operator()(const ReassemblyKey& key) const noexcept
+            {
+                const std::size_t stream =
+                    std::hash<ReliableStreamId>{}(key.streamId);
+                const std::size_t incarnation =
+                    std::hash<std::uint64_t>{}(key.incarnation);
+                const std::size_t sequence =
+                    std::hash<std::uint32_t>{}(key.logicalSequence);
+                return stream ^ (incarnation + static_cast<std::size_t>(
+                    0x9E3779B9u) + (stream << 6) + (stream >> 2)) ^
+                    (sequence << 1);
+            }
+        };
+
         [[nodiscard]] bool ReclaimCompletedStream() noexcept;
         void RememberRetiredStream(CompletedStream stream) noexcept;
         [[nodiscard]] std::uint64_t AllocateIncarnation() noexcept;
+        [[nodiscard]] bool AcceptFragment(TransportMessage message);
 
         std::unordered_map<ReliableStreamId, OutboundStream> outbound_;
         std::unordered_map<ReliableStreamId, std::uint32_t> receivedSequences_;
@@ -107,6 +162,8 @@ namespace fable::multiplayer
         std::unordered_map<ReliableStreamId, std::uint64_t>
             retiredIncarnations_;
         std::deque<CompletedStream> retiredStreams_;
+        std::unordered_map<ReassemblyKey, Reassembly, ReassemblyKeyHash>
+            reassemblies_;
         std::uint64_t nextIncarnation_ = 0;
     };
 }

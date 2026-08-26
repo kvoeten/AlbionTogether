@@ -27,31 +27,22 @@ namespace fable::automation::local_instance
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        original_ = imported.importedFunction;
+        localWindow_ = localWindow;
+        native::ForegroundWindowImport::Function replacement =
+            &ForegroundWindowHook::GetForegroundWindowRedirect;
+        if (!patch_.Install(
                 imported.slot,
+                &imported.importedFunction,
                 sizeof(*imported.slot),
-                PAGE_READWRITE,
-                &previousProtection))
+                &replacement,
+                sizeof(replacement)))
         {
+            original_ = nullptr;
+            localWindow_ = nullptr;
             return false;
         }
-
-        original_ = imported.importedFunction;
-        slot_ = imported.slot;
-        localWindow_ = localWindow;
         active_ = this;
-        *imported.slot = &ForegroundWindowHook::GetForegroundWindowRedirect;
-
-        DWORD discardedProtection = 0;
-        VirtualProtect(
-            imported.slot,
-            sizeof(*imported.slot),
-            previousProtection,
-            &discardedProtection);
-        FlushInstructionCache(
-            GetCurrentProcess(), imported.slot, sizeof(*imported.slot));
-        installed_ = true;
 
         char detail[320] = {};
         std::snprintf(
@@ -69,27 +60,18 @@ namespace fable::automation::local_instance
 
     void ForegroundWindowHook::Shutdown() noexcept
     {
-        if (slot_ != nullptr && original_ != nullptr)
+        if (!patch_.Shutdown())
         {
-            DWORD protection = 0;
-            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
-            {
-                if (*slot_ == &ForegroundWindowHook::GetForegroundWindowRedirect) *slot_ = original_;
-                DWORD discarded = 0;
-                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
-                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
-            }
+            return;
         }
         if (active_ == this) active_ = nullptr;
-        installed_ = false;
-        slot_ = nullptr;
         original_ = nullptr;
         localWindow_ = nullptr;
     }
 
     bool ForegroundWindowHook::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this && original_ != nullptr &&
+        return active_ == this && original_ != nullptr && patch_.IsInstalled() &&
             localWindow_ != nullptr;
     }
 

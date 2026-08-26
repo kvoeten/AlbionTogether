@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Entity/Persistence/Native/SavedEntitiesFunctions.h"
 #include "Game/Entity/Persistence/SavedEntityMapBlobSnapshot.h"
 
@@ -51,16 +52,6 @@ namespace fable::game::entity::persistence
         static constexpr unsigned int DiagnosticEventLimit = 16;
         static constexpr unsigned int DiagnosticSnapshotLimit = 128;
 
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<
-                std::uint8_t,
-                native::SavedEntitiesFunctions::DisplacedBytes>
-                    originalBytes = {};
-        };
-
         struct ObservationSummary final
         {
             std::size_t recordCount = 0;
@@ -94,8 +85,8 @@ namespace fable::game::entity::persistence
         bool InstallDetour(
             std::uint8_t* target,
             void* replacement,
-            Detour& detour) noexcept;
-        static void RestoreDetour(Detour& detour) noexcept;
+            core::hooking::InlineHook& detour) noexcept;
+        static bool RestoreDetour(core::hooking::InlineHook& detour) noexcept;
 
         static SavedEntityMapBlobObserver* active_;
 
@@ -104,8 +95,8 @@ namespace fable::game::entity::persistence
             nullptr;
         native::SavedEntitiesFunctions::LoadPointer originalLoadBinary_ =
             nullptr;
-        Detour loadTextDetour_ = {};
-        Detour loadBinaryDetour_ = {};
+        core::hooking::InlineHook loadTextDetour_;
+        core::hooking::InlineHook loadBinaryDetour_;
         std::atomic<SnapshotSink> sink_{nullptr};
         std::atomic<void*> sinkContext_{nullptr};
         std::atomic<CollectionSink> collectionSink_{nullptr};

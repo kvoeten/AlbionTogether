@@ -1,5 +1,6 @@
 #include "CreatureWeaponFunctions.h"
 
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
 #include <array>
@@ -88,6 +89,8 @@ namespace
     std::uintptr_t gAttachmentGraphicPresentResume = 0;
     std::uintptr_t gAttachmentGraphicMissingResume = 0;
     SRWLOCK gAttachmentReferenceGuardLock = SRWLOCK_INIT;
+    fable::core::hooking::CodePatch gAttachmentReferenceGuardPatch;
+    fable::core::hooking::CodePatch gAttachmentGraphicGuardPatch;
 
 #if defined(_M_IX86)
     __declspec(naked) void AttachmentReferenceGuard()
@@ -251,109 +254,33 @@ namespace
             base + kAttachmentGraphicPresentResumeRva;
         gAttachmentGraphicMissingResume =
             base + kAttachmentGraphicMissingResumeRva;
-        const std::intptr_t displacement =
-            reinterpret_cast<std::intptr_t>(&AttachmentReferenceGuard) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        bool ready = displacement >= INT32_MIN && displacement <= INT32_MAX;
-        if (ready && target[0] == 0xE9)
+        bool ready = gAttachmentReferenceGuardPatch.IsInstalled();
+        bool installedReferenceNow = false;
+        if (!ready)
         {
-            std::int32_t installedDisplacement = 0;
-            std::memcpy(
-                &installedDisplacement,
-                target + 1,
-                sizeof(installedDisplacement));
-            ready = installedDisplacement ==
-                static_cast<std::int32_t>(displacement);
-        }
-        else if (ready && BytesMatch(
-                target, kAttachmentReferenceGuardSignature))
-        {
-            DWORD previousProtection = 0;
-            ready = VirtualProtect(
+            ready = gAttachmentReferenceGuardPatch.InstallRelativeJump(
                 target,
+                kAttachmentReferenceGuardSignature.data(),
                 kAttachmentReferenceGuardSignature.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection) != FALSE;
-            if (ready)
-            {
-                target[0] = 0xE9;
-                const std::int32_t relative =
-                    static_cast<std::int32_t>(displacement);
-                std::memcpy(target + 1, &relative, sizeof(relative));
-                target[5] = 0x90;
-                target[6] = 0x90;
-                FlushInstructionCache(
-                    GetCurrentProcess(),
-                    target,
-                    kAttachmentReferenceGuardSignature.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target,
-                    kAttachmentReferenceGuardSignature.size(),
-                    previousProtection,
-                    &discarded);
-            }
+                reinterpret_cast<void*>(&AttachmentReferenceGuard),
+                kAttachmentReferenceGuardSignature.size());
+            installedReferenceNow = ready;
         }
-        else
+        if (ready && !gAttachmentGraphicGuardPatch.IsInstalled())
         {
-            ready = false;
-        }
-        if (ready)
-        {
-            const std::intptr_t graphicDisplacement =
-                reinterpret_cast<std::intptr_t>(&AttachmentGraphicGuard) -
-                (reinterpret_cast<std::intptr_t>(graphicTarget) + 5);
-            ready = graphicDisplacement >= INT32_MIN &&
-                graphicDisplacement <= INT32_MAX;
-            if (ready && graphicTarget[0] == 0xE9)
+            ready = gAttachmentGraphicGuardPatch.InstallRelativeJump(
+                graphicTarget,
+                kAttachmentGraphicGuardSignature.data(),
+                kAttachmentGraphicGuardSignature.size(),
+                reinterpret_cast<void*>(&AttachmentGraphicGuard),
+                kAttachmentGraphicGuardSignature.size());
+            if (!ready && installedReferenceNow)
             {
-                std::int32_t installedDisplacement = 0;
-                std::memcpy(
-                    &installedDisplacement,
-                    graphicTarget + 1,
-                    sizeof(installedDisplacement));
-                ready = installedDisplacement ==
-                    static_cast<std::int32_t>(graphicDisplacement);
-            }
-            else if (ready && BytesMatch(
-                    graphicTarget,
-                    kAttachmentGraphicGuardSignature))
-            {
-                DWORD previousProtection = 0;
-                ready = VirtualProtect(
-                    graphicTarget,
-                    kAttachmentGraphicGuardSignature.size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection) != FALSE;
-                if (ready)
-                {
-                    graphicTarget[0] = 0xE9;
-                    const std::int32_t relative =
-                        static_cast<std::int32_t>(graphicDisplacement);
-                    std::memcpy(
-                        graphicTarget + 1,
-                        &relative,
-                        sizeof(relative));
-                    graphicTarget[5] = 0x90;
-                    graphicTarget[6] = 0x90;
-                    graphicTarget[7] = 0x90;
-                    FlushInstructionCache(
-                        GetCurrentProcess(),
-                        graphicTarget,
-                        kAttachmentGraphicGuardSignature.size());
-                    DWORD discarded = 0;
-                    VirtualProtect(
-                        graphicTarget,
-                        kAttachmentGraphicGuardSignature.size(),
-                        previousProtection,
-                        &discarded);
-                }
-            }
-            else
-            {
-                ready = false;
+                (void)gAttachmentReferenceGuardPatch.Shutdown();
             }
         }
+        ready = ready && gAttachmentReferenceGuardPatch.IsInstalled() &&
+            gAttachmentGraphicGuardPatch.IsInstalled();
         ReleaseSRWLockExclusive(&gAttachmentReferenceGuardLock);
         return ready;
 #endif

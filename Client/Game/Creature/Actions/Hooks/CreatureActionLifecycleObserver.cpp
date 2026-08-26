@@ -75,7 +75,7 @@ namespace fable::game::creature::actions
         }
         originalUpdate_ = reinterpret_cast<
             native::CreatureActionFunctions::UpdatePointer>(
-                updateDetour_.trampoline);
+                updateDetour_.patch.Original());
 
         if (!InstallDetour(
                 submitTarget,
@@ -83,14 +83,27 @@ namespace fable::game::creature::actions
                 native::CreatureActionFunctions::DisplacedBytes,
                 submitDetour_))
         {
-            RestoreDetour(updateDetour_);
+            const bool updateRemoved = RestoreDetour(updateDetour_);
+            if (!updateRemoved)
+            {
+                diagnostics_.Log(
+                    "Hook: creature action submission install failed and the update detour could not be rolled back; callback state retained.");
+                return false;
+            }
+            if (updateDetour_.patch.ProtectionRestoreFailed())
+            {
+                diagnostics_.Log(
+                    "Hook: creature action update rollback restored bytes, but code protection restoration failed.");
+            }
+            updateDetour_.target = nullptr;
+            updateDetour_.displacedBytes = 0;
             originalUpdate_ = nullptr;
             active_ = nullptr;
             diagnostics_.Log("Hook: creature action submission detour installation failed.");
             return false;
         }
         originalSubmit_ = reinterpret_cast<native::CreatureActionFunctions::SubmitPointer>(
-            submitDetour_.trampoline);
+            submitDetour_.patch.Original());
 
         if (!InstallDetour(
                 finishTarget,
@@ -98,8 +111,24 @@ namespace fable::game::creature::actions
                 native::CreatureActionFunctions::DisplacedBytes,
                 finishDetour_))
         {
-            RestoreDetour(submitDetour_);
-            RestoreDetour(updateDetour_);
+            const bool submitRemoved = RestoreDetour(submitDetour_);
+            const bool updateRemoved = RestoreDetour(updateDetour_);
+            if (!submitRemoved || !updateRemoved)
+            {
+                diagnostics_.Log(
+                    "Hook: creature action finish install failed and existing detours could not all be rolled back; callback state retained.");
+                return false;
+            }
+            if (submitDetour_.patch.ProtectionRestoreFailed() ||
+                updateDetour_.patch.ProtectionRestoreFailed())
+            {
+                diagnostics_.Log(
+                    "Hook: creature action install rollback restored bytes, but code protection restoration failed.");
+            }
+            submitDetour_.target = nullptr;
+            submitDetour_.displacedBytes = 0;
+            updateDetour_.target = nullptr;
+            updateDetour_.displacedBytes = 0;
             originalSubmit_ = nullptr;
             originalUpdate_ = nullptr;
             active_ = nullptr;
@@ -107,7 +136,7 @@ namespace fable::game::creature::actions
             return false;
         }
         originalFinish_ = reinterpret_cast<native::CreatureActionFunctions::FinishPointer>(
-                finishDetour_.trampoline);
+            finishDetour_.patch.Original());
 
         char detail[384] = {};
         std::snprintf(
@@ -115,11 +144,11 @@ namespace fable::game::creature::actions
             std::size(detail),
             "update=%p update_trampoline=%p submit=%p submit_trampoline=%p finish=%p finish_trampoline=%p event_limit=%u",
             updateDetour_.target,
-            updateDetour_.trampoline,
+            updateDetour_.patch.Original(),
             submitDetour_.target,
-            submitDetour_.trampoline,
+            submitDetour_.patch.Original(),
             finishDetour_.target,
-            finishDetour_.trampoline,
+            finishDetour_.patch.Original(),
             DiagnosticEventLimit);
         diagnostics_.Log(
             "Hook: native creature action update/begin/end boundaries installed.");
@@ -130,6 +159,28 @@ namespace fable::game::creature::actions
 
     void CreatureActionLifecycleObserver::Shutdown() noexcept
     {
+        const bool finishRemoved = RestoreDetour(finishDetour_);
+        const bool submitRemoved = RestoreDetour(submitDetour_);
+        const bool updateRemoved = RestoreDetour(updateDetour_);
+        if (!finishRemoved || !submitRemoved || !updateRemoved)
+        {
+            diagnostics_.Log(
+                "Hook: creature action lifecycle shutdown skipped because a target changed.");
+            return;
+        }
+        if (finishDetour_.patch.ProtectionRestoreFailed() ||
+            submitDetour_.patch.ProtectionRestoreFailed() ||
+            updateDetour_.patch.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: creature action lifecycle bytes restored, but code protection restoration failed.");
+        }
+        finishDetour_.target = nullptr;
+        finishDetour_.displacedBytes = 0;
+        submitDetour_.target = nullptr;
+        submitDetour_.displacedBytes = 0;
+        updateDetour_.target = nullptr;
+        updateDetour_.displacedBytes = 0;
         SetAuthorityGate(nullptr, nullptr);
         AcquireSRWLockExclusive(&eventSinkLock_);
         for (auto& subscription : eventSinks_) subscription = {};
@@ -137,9 +188,6 @@ namespace fable::game::creature::actions
         AcquireSRWLockExclusive(&postUpdateSinkLock_);
         for (auto& subscription : postUpdateSinks_) subscription = {};
         ReleaseSRWLockExclusive(&postUpdateSinkLock_);
-        RestoreDetour(finishDetour_);
-        RestoreDetour(submitDetour_);
-        RestoreDetour(updateDetour_);
         if (active_ == this) active_ = nullptr;
         originalFinish_ = nullptr;
         originalSubmit_ = nullptr;
@@ -157,9 +205,9 @@ namespace fable::game::creature::actions
             originalSubmit_ != nullptr &&
             originalFinish_ != nullptr &&
             originalUpdate_ != nullptr &&
-            updateDetour_.target != nullptr &&
-            submitDetour_.target != nullptr &&
-            finishDetour_.target != nullptr;
+            updateDetour_.patch.IsInstalled() &&
+            submitDetour_.patch.IsInstalled() &&
+            finishDetour_.patch.IsInstalled();
     }
 
     bool CreatureActionLifecycleObserver::AddEventSink(
@@ -526,114 +574,35 @@ namespace fable::game::creature::actions
         Detour& detour) noexcept
     {
         if (target == nullptr || replacement == nullptr ||
-            detour.target != nullptr || displacedBytes < 5 ||
-            displacedBytes > detour.originalBytes.size())
+            detour.patch.IsInstalled())
         {
             return false;
         }
-
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-
-        std::array<std::uint8_t, 8> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(patch.data() + 1, &replacementRelative, sizeof(replacementRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        if (!detour.patch.Install(
                 target,
-                displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                native::CreatureActionFunctions::ExpectedPrefix.data(),
+                native::CreatureActionFunctions::ExpectedPrefix.size(),
+                replacement,
+                displacedBytes))
         {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             return false;
         }
-
         detour.target = target;
-        detour.trampoline = trampoline;
         detour.displacedBytes = displacedBytes;
-        std::memcpy(target, patch.data(), displacedBytes);
-        FlushInstructionCache(GetCurrentProcess(), target, displacedBytes);
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        DWORD discarded = 0;
-        VirtualProtect(target, displacedBytes, previousProtection, &discarded);
         return true;
     }
 
-    void CreatureActionLifecycleObserver::RestoreDetour(Detour& detour) noexcept
+    bool CreatureActionLifecycleObserver::RestoreDetour(Detour& detour) noexcept
     {
-        if (detour.target == nullptr)
+        if (!detour.patch.IsInstalled())
         {
-            return;
+            return true;
         }
-
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+        if (!detour.patch.Shutdown())
         {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.displacedBytes);
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                detour.target,
-                detour.displacedBytes);
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.displacedBytes,
-                previousProtection,
-                &discarded);
+            return false;
         }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return true;
     }
 
     void __fastcall CreatureActionLifecycleObserver::ObserveUpdate(

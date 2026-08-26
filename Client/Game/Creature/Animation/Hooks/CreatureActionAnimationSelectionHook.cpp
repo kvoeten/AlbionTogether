@@ -3,7 +3,6 @@
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
-#include <climits>
 #include <cstdio>
 #include <cstring>
 
@@ -73,61 +72,19 @@ namespace fable::game::creature::animation
         }
 
         constexpr std::size_t displacedBytes = 7;
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(originalBytes_.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resumeDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t interceptDisplacement =
-            reinterpret_cast<std::intptr_t>(&Intercept) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resumeDisplacement < INT32_MIN || resumeDisplacement > INT32_MAX ||
-            interceptDisplacement < INT32_MIN ||
-            interceptDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resume = static_cast<std::int32_t>(resumeDisplacement);
-        std::memcpy(trampoline + displacedBytes + 1, &resume, sizeof(resume));
-        FlushInstructionCache(
-            GetCurrentProcess(), trampoline, displacedBytes + 5);
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto intercept = static_cast<std::int32_t>(interceptDisplacement);
-        std::memcpy(patch.data() + 1, &intercept, sizeof(intercept));
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        if (!submitHook_.Install(
                 target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                kSubmitPrefix.data(),
+                kSubmitPrefix.size(),
+                reinterpret_cast<void*>(&Intercept),
+                displacedBytes))
         {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             return false;
         }
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        DWORD discarded = 0;
-        VirtualProtect(
-            target, patch.size(), previousProtection, &discarded);
 
         gameModule_ = gameModule;
-        target_ = target;
-        trampoline_ = trampoline;
-        original_ = reinterpret_cast<SubmitRequestPointer>(trampoline);
+        original_ = reinterpret_cast<SubmitRequestPointer>(
+            submitHook_.Original());
         validateAnimation_ = reinterpret_cast<ValidateAnimationPointer>(
             validate);
         active_ = this;
@@ -140,43 +97,25 @@ namespace fable::game::creature::animation
 
     void CreatureActionAnimationSelectionHook::Shutdown() noexcept
     {
+        if (submitHook_.IsInstalled() && !submitHook_.Shutdown())
+        {
+            diagnostics_.Event(
+                "CreatureActionAnimationHookUninstallSkipped",
+                "target-changed-by-another-hook");
+            return;
+        }
+        if (submitHook_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Event(
+                "CreatureActionAnimationHookProtectionRestoreFailed",
+                "bytes-restored-but-page-protection-restore-failed");
+        }
         DetachActionLifecycleObserver();
         scopedSelectionToken_ = 0;
-        if (active_ == this)
-        {
-            active_ = nullptr;
-        }
-        if (target_ != nullptr && trampoline_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_,
-                    originalBytes_.size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(
-                    target_, originalBytes_.data(), originalBytes_.size());
-                FlushInstructionCache(
-                    GetCurrentProcess(), target_, originalBytes_.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_,
-                    originalBytes_.size(),
-                    previousProtection,
-                    &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
+        if (active_ == this) active_ = nullptr;
         gameModule_ = nullptr;
-        target_ = nullptr;
-        trampoline_ = nullptr;
         original_ = nullptr;
         validateAnimation_ = nullptr;
-        originalBytes_ = {};
         AcquireSRWLockExclusive(&selectionLock_);
         selections_ = {};
         pendingSelectionCount_.store(0, std::memory_order_release);
@@ -327,8 +266,8 @@ namespace fable::game::creature::animation
 
     bool CreatureActionAnimationSelectionHook::IsInstalled() const noexcept
     {
-        return active_ == this && gameModule_ != nullptr && target_ != nullptr &&
-            trampoline_ != nullptr && original_ != nullptr &&
+        return active_ == this && gameModule_ != nullptr &&
+            submitHook_.IsInstalled() && original_ != nullptr &&
             validateAnimation_ != nullptr;
     }
 

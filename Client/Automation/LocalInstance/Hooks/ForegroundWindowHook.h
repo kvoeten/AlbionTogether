@@ -2,6 +2,7 @@
 
 #include "Automation/LocalInstance/Native/ForegroundWindowImport.h"
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -31,9 +32,8 @@ namespace fable::automation::local_instance
         static ForegroundWindowHook* active_;
 
         native::ForegroundWindowImport::Function original_ = nullptr;
-        native::ForegroundWindowImport::Function* slot_ = nullptr;
+        core::hooking::CodePatch patch_;
         HWND localWindow_ = nullptr;
         std::atomic_ulong redirectCount_{0};
-        bool installed_ = false;
     };
 }

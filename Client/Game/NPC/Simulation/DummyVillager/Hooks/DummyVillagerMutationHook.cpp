@@ -31,6 +31,12 @@ namespace fable::game::npc::simulation
         {
             return false;
         }
+        if (active_ == this)
+        {
+            diagnostics_.Log(
+                "Hook: dummy-villager installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
         std::uint8_t* materialize = nullptr;
         std::uint8_t* schedule = nullptr;
         std::uint8_t* serialize = nullptr;
@@ -67,9 +73,17 @@ namespace fable::game::npc::simulation
                 serializeDetour_,
                 originalSerialize_))
         {
-            RestoreDetour(scheduleDetour_);
-            RestoreDetour(materializeDetour_);
+            bool rollbackRestored = true;
+            rollbackRestored = RestoreDetour(scheduleDetour_) && rollbackRestored;
+            rollbackRestored = RestoreDetour(materializeDetour_) && rollbackRestored;
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: dummy-villager serialize rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalSchedule_ = nullptr;
+            originalSerialize_ = nullptr;
             originalMaterialize_ = nullptr;
             active_ = nullptr;
             gameModule_ = nullptr;
@@ -83,8 +97,15 @@ namespace fable::game::npc::simulation
                 scheduleDetour_,
                 originalSchedule_))
         {
-            RestoreDetour(serializeDetour_);
-            RestoreDetour(materializeDetour_);
+            bool rollbackRestored = true;
+            rollbackRestored = RestoreDetour(serializeDetour_) && rollbackRestored;
+            rollbackRestored = RestoreDetour(materializeDetour_) && rollbackRestored;
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: dummy-villager schedule rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalSerialize_ = nullptr;
             originalMaterialize_ = nullptr;
             active_ = nullptr;
@@ -97,11 +118,11 @@ namespace fable::game::npc::simulation
             sizeof(detail),
             "materialize=%p materialize_trampoline=%p schedule=%p schedule_trampoline=%p serialize=%p serialize_trampoline=%p component=0xD6",
             materialize,
-            materializeDetour_.trampoline,
+            materializeDetour_.Original(),
             schedule,
-            scheduleDetour_.trampoline,
+            scheduleDetour_.Original(),
             serialize,
-            serializeDetour_.trampoline);
+            serializeDetour_.Original());
         diagnostics_.Event("DummyVillagerMutationHookReady", detail);
         return true;
 #endif
@@ -192,9 +213,8 @@ namespace fable::game::npc::simulation
         return active_ == this && gameModule_ != nullptr &&
             originalMaterialize_ != nullptr && originalSchedule_ != nullptr &&
             originalSerialize_ != nullptr &&
-            materializeDetour_.trampoline != nullptr &&
-            scheduleDetour_.trampoline != nullptr &&
-            serializeDetour_.trampoline != nullptr;
+            materializeDetour_.IsInstalled() && scheduleDetour_.IsInstalled() &&
+            serializeDetour_.IsInstalled();
     }
 
     void __fastcall DummyVillagerMutationHook::MaterializeIntercept(
@@ -384,74 +404,20 @@ namespace fable::game::npc::simulation
         std::uint8_t* target,
         void* replacement,
         std::size_t displacedBytes,
-        Detour& detour,
+        core::hooking::InlineHook& detour,
         native::DummyVillagerFunctions::UpdatePointer& original) noexcept
     {
         if (target == nullptr || replacement == nullptr ||
-            displacedBytes < 5 ||
-            displacedBytes > detour.originalBytes.size())
+            displacedBytes < 5)
         {
             return false;
         }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
+        if (!detour.Install(target, target, displacedBytes, replacement, displacedBytes))
         {
             return false;
         }
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resumeDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t hookDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resumeDisplacement < INT32_MIN ||
-            resumeDisplacement > INT32_MAX ||
-            hookDisplacement < INT32_MIN ||
-            hookDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resume = static_cast<std::int32_t>(resumeDisplacement);
-        std::memcpy(trampoline + displacedBytes + 1, &resume, sizeof(resume));
-        std::array<std::uint8_t, 8> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto replacementRelative = static_cast<std::int32_t>(
-            hookDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        std::memcpy(target, patch.data(), displacedBytes);
-        FlushInstructionCache(GetCurrentProcess(), target, displacedBytes);
-        FlushInstructionCache(
-            GetCurrentProcess(), trampoline, displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(
-            target, displacedBytes, previousProtection, &discarded);
-        detour.target = target;
-        detour.trampoline = trampoline;
-        detour.displacedBytes = displacedBytes;
         original = reinterpret_cast<
-            native::DummyVillagerFunctions::UpdatePointer>(trampoline);
+            native::DummyVillagerFunctions::UpdatePointer>(detour.Original());
         return true;
     }
 
@@ -459,7 +425,7 @@ namespace fable::game::npc::simulation
         std::uint8_t* target,
         void* replacement,
         std::size_t displacedBytes,
-        Detour& detour,
+        core::hooking::InlineHook& detour,
         native::DummyVillagerFunctions::SerializePointer& original) noexcept
     {
         native::DummyVillagerFunctions::UpdatePointer erased = nullptr;
@@ -474,21 +440,28 @@ namespace fable::game::npc::simulation
         }
         original = reinterpret_cast<
             native::DummyVillagerFunctions::SerializePointer>(
-                detour.trampoline);
+                detour.Original());
         return true;
     }
 
     void DummyVillagerMutationHook::Shutdown() noexcept
     {
+        bool allRestored = true;
+        allRestored = RestoreDetour(scheduleDetour_) && allRestored;
+        allRestored = RestoreDetour(serializeDetour_) && allRestored;
+        allRestored = RestoreDetour(materializeDetour_) && allRestored;
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: dummy-villager shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         SetEventSink(nullptr, nullptr);
         SetProjectionSink(nullptr, nullptr);
         if (active_ == this)
         {
             active_ = nullptr;
         }
-        RestoreDetour(scheduleDetour_);
-        RestoreDetour(serializeDetour_);
-        RestoreDetour(materializeDetour_);
         originalSchedule_ = nullptr;
         originalSerialize_ = nullptr;
         originalMaterialize_ = nullptr;
@@ -496,36 +469,9 @@ namespace fable::game::npc::simulation
         diagnostics_ = {};
     }
 
-    void DummyVillagerMutationHook::RestoreDetour(Detour& detour) noexcept
+    bool DummyVillagerMutationHook::RestoreDetour(
+        core::hooking::InlineHook& detour) noexcept
     {
-        if (detour.target == nullptr || detour.displacedBytes == 0)
-        {
-            return;
-        }
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.displacedBytes);
-            FlushInstructionCache(
-                GetCurrentProcess(), detour.target, detour.displacedBytes);
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.displacedBytes,
-                previousProtection,
-                &discarded);
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return detour.Shutdown();
     }
 }

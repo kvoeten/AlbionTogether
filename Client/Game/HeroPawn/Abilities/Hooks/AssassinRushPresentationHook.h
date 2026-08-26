@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Math/Vector3.h"
 
 #include <Windows.h>
@@ -72,9 +73,9 @@ namespace fable::game::hero_pawn::abilities::hooks
         FrameUpdatePointer originalFrameUpdate_ = nullptr;
         SetWorldPositionPointer originalControlledPosition_ = nullptr;
         SetWorldPositionPointer originalNavigatorPosition_ = nullptr;
-        void** frameUpdateSlot_ = nullptr;
-        void** controlledPositionSlot_ = nullptr;
-        void** navigatorPositionSlot_ = nullptr;
+        core::hooking::CodePatch frameUpdatePatch_;
+        core::hooking::CodePatch controlledPositionPatch_;
+        core::hooking::CodePatch navigatorPositionPatch_;
         mutable SRWLOCK bindingLock_ = SRWLOCK_INIT;
         std::array<Binding, RemoteHeroCapacity> bindings_ = {};
         std::atomic_uint suppressionCount_{0};

@@ -1,10 +1,7 @@
 #include "CombatHealthMutationHook.h"
 
-#include <array>
-#include <climits>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 
 namespace
 {
@@ -50,65 +47,19 @@ namespace fable::game::creature::combat
                 "Hook: shared CThingCreature combat-health mutation definition validation failed.");
             return false;
         }
-        constexpr std::size_t displacedBytes =
-            native::CombatHealthMutationFunction::DisplacedBytes;
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(originalBytes_.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resumeDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t hookDisplacement =
-            reinterpret_cast<std::intptr_t>(&CombatHealthMutationHook::Intercept) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resumeDisplacement < INT32_MIN || resumeDisplacement > INT32_MAX ||
-            hookDisplacement < INT32_MIN || hookDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resumeRelative = static_cast<std::int32_t>(resumeDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto hookRelative = static_cast<std::int32_t>(hookDisplacement);
-        std::memcpy(patch.data() + 1, &hookRelative, sizeof(hookRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        if (!hook_.Install(
                 target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                native::CombatHealthMutationFunction::ExpectedPrefix.data(),
+                native::CombatHealthMutationFunction::ExpectedPrefix.size(),
+                reinterpret_cast<void*>(&CombatHealthMutationHook::Intercept),
+                native::CombatHealthMutationFunction::DisplacedBytes))
         {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             return false;
         }
         gameModule_ = gameModule;
-        target_ = target;
-        trampoline_ = trampoline;
         original_ = reinterpret_cast<
-            native::CombatHealthMutationFunction::Pointer>(trampoline);
+            native::CombatHealthMutationFunction::Pointer>(hook_.Original());
         active_ = this;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(), trampoline, displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(target, patch.size(), previousProtection, &discarded);
 
         char detail[256] = {};
         std::snprintf(
@@ -117,7 +68,7 @@ namespace fable::game::creature::combat
             "target=%p replacement=%p trampoline=%p function_rva=0x%08X",
             target,
             &CombatHealthMutationHook::Intercept,
-            trampoline_,
+            hook_.Original(),
             static_cast<unsigned int>(
                 native::CombatHealthMutationFunction::AddressRva));
         diagnostics_.Event("CombatHealthMutationHookReady", detail);
@@ -129,37 +80,24 @@ namespace fable::game::creature::combat
 
     void CombatHealthMutationHook::Shutdown() noexcept
     {
+        if (hook_.IsInstalled() && !hook_.Shutdown())
+        {
+            diagnostics_.Log(
+                "Hook: combat-health mutation shutdown skipped because its target changed.");
+            return;
+        }
+        if (hook_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: combat-health mutation bytes restored, but code protection restoration failed.");
+        }
         SetEventSink(nullptr, nullptr);
-        if (active_ == this)
-        {
-            active_ = nullptr;
-        }
-        if (target_ != nullptr && trampoline_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_, originalBytes_.size(), PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(target_, originalBytes_.data(), originalBytes_.size());
-                FlushInstructionCache(GetCurrentProcess(), target_, originalBytes_.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_, originalBytes_.size(), previousProtection, &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
+        if (active_ == this) active_ = nullptr;
         for (auto& replica : protectedReplicas_)
         {
             replica.store(nullptr, std::memory_order_release);
         }
-        target_ = nullptr;
-        trampoline_ = nullptr;
         original_ = nullptr;
-        originalBytes_ = {};
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -442,7 +380,7 @@ namespace fable::game::creature::combat
     bool CombatHealthMutationHook::IsInstalled() const noexcept
     {
         return active_ == this && original_ != nullptr &&
-            trampoline_ != nullptr && gameModule_ != nullptr;
+            hook_.IsInstalled() && gameModule_ != nullptr;
     }
 
     std::uint64_t CombatHealthMutationHook::ReadThingUid(

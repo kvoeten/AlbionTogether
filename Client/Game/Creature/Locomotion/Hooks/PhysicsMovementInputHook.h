@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Locomotion/Native/PhysicsMovementFunctions.h"
 
 #include <Windows.h>
@@ -32,7 +33,7 @@ namespace fable::game::creature::locomotion
         HMODULE gameModule_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         native::PhysicsWorldPositionFunctions::SetWorldPositionPointer original_ = nullptr;
-        void** vtableSlot_ = nullptr;
+        core::hooking::CodePatch vtablePatch_;
         std::atomic<void*> source_{nullptr};
         std::atomic<void*> target_{nullptr};
         std::atomic_uint mirrorCount_{0};

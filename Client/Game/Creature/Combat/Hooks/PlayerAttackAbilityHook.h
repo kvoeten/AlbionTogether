@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Combat/Native/CreatureAbilitySubmissionFunction.h"
 
 #include <Windows.h>
 
 #include <atomic>
-#include <array>
 
 namespace fable::game::creature::combat
 {
@@ -41,11 +41,7 @@ namespace fable::game::creature::combat
         core::Diagnostics diagnostics_ = {};
         HMODULE gameModule_ = nullptr;
         native::CreatureAbilitySubmissionFunction::Pointer original_ = nullptr;
-        void* trampoline_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        std::array<std::uint8_t,
-            native::CreatureAbilitySubmissionFunction::DisplacedBytes>
-                originalBytes_ = {};
+        core::hooking::InlineHook hook_;
         std::atomic_uint interceptedAttackCount_{0};
     };
 }

@@ -1,11 +1,11 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Math/Vector3.h"
 
 #include <Windows.h>
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -40,9 +40,7 @@ namespace fable::game::hero_pawn::appearance::hooks
         static RemoteHeroPresentationFactoryHook* active_;
 
         FactoryFunction original_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        void* trampoline_ = nullptr;
-        std::array<std::uint8_t, 7> originalBytes_ = {};
+        core::hooking::InlineHook patch_;
         core::Diagnostics diagnostics_ = {};
         std::atomic_uint32_t expectedX_{0};
         std::atomic_uint32_t expectedY_{0};
@@ -52,6 +50,5 @@ namespace fable::game::hero_pawn::appearance::hooks
         std::atomic_uint64_t expiresAt_{0};
         std::atomic_uint64_t armToken_{0};
         std::atomic_bool armed_{false};
-        bool installed_ = false;
     };
 }

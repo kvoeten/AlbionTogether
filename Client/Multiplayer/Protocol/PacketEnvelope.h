@@ -5,8 +5,15 @@
 
 namespace fable::multiplayer::protocol
 {
-    inline constexpr std::size_t MaximumDatagramBytes = 1'472;
+    // Keep the complete IPv4 datagram below the common 1280-byte practical
+    // floor.  Reliable messages larger than this are fragmented by the
+    // ordered stream transport; movement remains one lossy snapshot.
+    inline constexpr std::size_t MaximumDatagramBytes = 1'200;
     inline constexpr std::size_t PacketHeaderBytes = 52;
+    // Reliable logical messages are bounded independently of the datagram
+    // size. The current worst-case hero baseline is 1,160 bytes and is split
+    // into two transport records when it exceeds the 1,148-byte payload.
+    inline constexpr std::size_t MaximumReliableMessageBytes = 2'048;
 
     enum class PacketType : std::uint8_t
     {
@@ -26,6 +33,7 @@ namespace fable::multiplayer::protocol
         PlayerAction = 12,
         PlayerActorState = 13,
         CombatHit = 14,
+        ReliableFragment = 15,
         Count,
     };
 

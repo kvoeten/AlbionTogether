@@ -18,9 +18,13 @@ namespace fable::multiplayer
         std::uint64_t streamIncarnation = 0;
         std::uint32_t sequence = 0;
         std::size_t payloadSize = 0;
+        // Internal queue marker; not serialized. Fragmented logical messages
+        // set this only on their final fragment so queue limits count logical
+        // messages rather than multiplying capacity by chunk count.
+        bool logicalMessageEnd = true;
         std::array<
             std::uint8_t,
-            protocol::MaximumDatagramBytes - protocol::PacketHeaderBytes>
+            protocol::MaximumReliableMessageBytes>
             payload = {};
     };
 }

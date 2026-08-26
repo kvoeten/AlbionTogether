@@ -43,22 +43,20 @@ namespace fable::game::player::input
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &previousProtection))
+        original_ = original;
+        void* replacement = reinterpret_cast<void*>(
+            &PlayerCommandPollObserver::Intercept);
+        if (!patch_.Install(
+                slot,
+                &original,
+                sizeof(*slot),
+                &replacement,
+                sizeof(replacement)))
         {
+            original_ = nullptr;
             return false;
         }
-        original_ = original;
-        vtableSlot_ = slot;
         active_ = this;
-        *slot = reinterpret_cast<void*>(&PlayerCommandPollObserver::Intercept);
-        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-        DWORD discardedProtection = 0;
-        VirtualProtect(
-            slot,
-            sizeof(*slot),
-            previousProtection,
-            &discardedProtection);
 
         char detail[256] = {};
         std::snprintf(
@@ -77,28 +75,22 @@ namespace fable::game::player::input
 
     bool PlayerCommandPollObserver::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
+        return active_ == this && original_ != nullptr && patch_.IsInstalled();
     }
 
     void PlayerCommandPollObserver::Shutdown() noexcept
     {
-        if (active_ == this && vtableSlot_ != nullptr && original_ != nullptr)
+        if (!patch_.Shutdown())
         {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &previousProtection))
-            {
-                if (*vtableSlot_ == reinterpret_cast<void*>(&Intercept))
-                {
-                    *vtableSlot_ = reinterpret_cast<void*>(original_);
-                    FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
-                }
-                DWORD discarded = 0;
-                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), previousProtection, &discarded);
-            }
+            diagnostics_.Log(
+                "Hook: player command-poll patch was not removed because its vtable slot changed.");
+            return;
+        }
+        if (active_ == this)
+        {
             active_ = nullptr;
         }
         original_ = nullptr;
-        vtableSlot_ = nullptr;
         gameModule_ = nullptr;
         observedCommandCount_.store(0, std::memory_order_release);
         diagnostics_ = {};

@@ -33,7 +33,7 @@ extern "C"
 
 namespace
 {
-    constexpr std::size_t TransportOwnedPacketTypeCount = 4;
+    constexpr std::size_t TransportOwnedPacketTypeCount = 5;
     constexpr std::size_t ExpectedDescriptorCount =
         static_cast<std::size_t>(
             fable::multiplayer::protocol::PacketType::Count) - 1u -
@@ -46,7 +46,8 @@ namespace
         return type != PacketType::PlayerMovement &&
             type != PacketType::EntityMovement &&
             type != PacketType::Acknowledgement &&
-            type != PacketType::PeerHello;
+            type != PacketType::PeerHello &&
+            type != PacketType::ReliableFragment;
     }
 
     void ReportCountFailure(

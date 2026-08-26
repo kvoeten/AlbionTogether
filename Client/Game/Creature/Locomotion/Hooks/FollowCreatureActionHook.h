@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Locomotion/Native/FollowCreatureActionFunctions.h"
 
 #include <Windows.h>
@@ -34,12 +35,10 @@ namespace fable::game::creature::locomotion
 
         core::Diagnostics diagnostics_ = {};
         HMODULE gameModule_ = nullptr;
-        std::uint8_t* startTarget_ = nullptr;
-        std::uint8_t* tickTarget_ = nullptr;
         native::FollowCreatureActionFunctions::ActionMethodPointer originalStart_ = nullptr;
         native::FollowCreatureActionFunctions::ActionMethodPointer originalTick_ = nullptr;
-        void* startTrampoline_ = nullptr;
-        void* tickTrampoline_ = nullptr;
+        core::hooking::InlineHook startHook_;
+        core::hooking::InlineHook tickHook_;
         std::atomic_uint startCount_{0};
         std::atomic_uint tickCount_{0};
     };

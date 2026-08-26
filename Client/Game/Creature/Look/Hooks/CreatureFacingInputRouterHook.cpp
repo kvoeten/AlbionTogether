@@ -52,35 +52,19 @@ namespace fable::game::creature::look
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                PAGE_READWRITE,
-                &previousProtection))
+        void* const expected = reinterpret_cast<void*>(original);
+        void* const replacement = reinterpret_cast<void*>(
+            &CreatureFacingInputRouterHook::ObserveCreatureUpdate);
+        if (!vtablePatch_.Install(
+                slot, &expected, sizeof(expected), &replacement, sizeof(replacement)))
         {
             diagnostics_.Log(
-                "Hook: creature frame vtable protection change failed.");
+                "Hook: creature frame vtable patch installation failed.");
             return false;
         }
 
         original_ = original;
-        vtableSlot_ = slot;
         active_ = this;
-        *slot = reinterpret_cast<void*>(
-            &CreatureFacingInputRouterHook::ObserveCreatureUpdate);
-        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                previousProtection,
-                &discarded))
-        {
-            diagnostics_.Log(
-                "Hook: movement-facing router installed, but vtable protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -156,25 +140,24 @@ namespace fable::game::creature::look
 
     void CreatureFacingInputRouterHook::Shutdown() noexcept
     {
+        if (vtablePatch_.IsInstalled())
+        {
+            if (!vtablePatch_.Shutdown())
+            {
+                diagnostics_.Log(
+                    "Hook: movement-facing router shutdown skipped because its vtable slot changed.");
+                return;
+            }
+        }
+        if (vtablePatch_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: movement-facing router bytes restored, but vtable protection restoration failed.");
+        }
         Clear();
         SetFrameObserver(nullptr, nullptr);
-        if (active_ == this && vtableSlot_ != nullptr && original_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &previousProtection))
-            {
-                if (*vtableSlot_ == reinterpret_cast<void*>(&ObserveCreatureUpdate))
-                {
-                    *vtableSlot_ = reinterpret_cast<void*>(original_);
-                    FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
-                }
-                DWORD discarded = 0;
-                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), previousProtection, &discarded);
-            }
-            active_ = nullptr;
-        }
+        if (active_ == this) active_ = nullptr;
         original_ = nullptr;
-        vtableSlot_ = nullptr;
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -406,7 +389,7 @@ namespace fable::game::creature::look
 
     bool CreatureFacingInputRouterHook::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
+        return active_ == this && original_ != nullptr && vtablePatch_.IsInstalled();
     }
 
     bool CreatureFacingInputRouterHook::IsBound() const noexcept

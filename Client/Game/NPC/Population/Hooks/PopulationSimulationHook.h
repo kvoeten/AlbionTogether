@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/NPC/Population/Native/PopulationSimulationFunctions.h"
 
 #include <Windows.h>
@@ -55,16 +56,6 @@ namespace fable::game::npc::population
         [[nodiscard]] bool IsInstalled() const noexcept;
 
     private:
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<
-                std::uint8_t,
-                native::PopulationSimulationFunctions::DisplacedBytes>
-                originalBytes = {};
-        };
-
         static constexpr unsigned int DiagnosticEventLimit = 16;
 
         static void __fastcall ProcessAlbion(void* scriptObject, void* unused);
@@ -85,8 +76,8 @@ namespace fable::game::npc::population
         bool InstallDetour(
             std::uint8_t* target,
             void* replacement,
-            Detour& detour) noexcept;
-        void RestoreDetour(Detour& detour) noexcept;
+            core::hooking::InlineHook& detour) noexcept;
+        bool RestoreDetour(core::hooking::InlineHook& detour) noexcept;
         void ReportSuppressed(PopulationSimulationKind kind) noexcept;
 
         static PopulationSimulationHook* active_;
@@ -96,8 +87,8 @@ namespace fable::game::npc::population
             originalProcessAlbion_ = nullptr;
         native::PopulationSimulationFunctions::SimulationPointer
             originalProcessHighDetail_ = nullptr;
-        Detour processAlbionDetour_;
-        Detour highDetailDetour_;
+        core::hooking::InlineHook processAlbionDetour_;
+        core::hooking::InlineHook highDetailDetour_;
         std::atomic<ExecutionSink> sink_{nullptr};
         std::atomic<void*> sinkContext_{nullptr};
         std::atomic<StateSink> stateSink_{nullptr};

@@ -1,7 +1,6 @@
 #include "ThingSaveProjectionHook.h"
 
 #include <array>
-#include <climits>
 #include <cstdio>
 #include <cstring>
 
@@ -86,6 +85,12 @@ namespace fable::game::entity::persistence
         {
             return false;
         }
+        if (active_ == this)
+        {
+            diagnostics_.Log(
+                "Hook: CThing save installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
 
         std::uint8_t* saveTarget = nullptr;
         std::uint8_t* loadTarget = nullptr;
@@ -109,7 +114,7 @@ namespace fable::game::entity::persistence
         }
         originalSave_ =
             reinterpret_cast<native::ThingSaveFunctions::SavePointer>(
-                saveDetour_.trampoline);
+                saveDetour_.Original());
 
         if (!InstallDetour(
                 loadTarget,
@@ -117,24 +122,30 @@ namespace fable::game::entity::persistence
                     &ThingSaveProjectionHook::LoadProjected),
                 loadDetour_))
         {
-            RestoreDetour(saveDetour_);
+            const bool rollbackRestored = RestoreDetour(saveDetour_);
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: CThing save rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalSave_ = nullptr;
             active_ = nullptr;
             return false;
         }
         originalLoad_ =
             reinterpret_cast<native::ThingSaveFunctions::LoadPointer>(
-                loadDetour_.trampoline);
+                loadDetour_.Original());
 
         char detail[384] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "save=%p save_trampoline=%p load=%p load_trampoline=%p map_offset=0x9A uid_offset=0x14 definition_offset=0x98 script_offset=0x80",
-            saveDetour_.target,
-            saveDetour_.trampoline,
-            loadDetour_.target,
-            loadDetour_.trampoline);
+            saveTarget,
+            saveDetour_.Original(),
+            loadTarget,
+            loadDetour_.Original());
         diagnostics_.Event("ThingPersistenceProjectionReady", detail);
         return true;
 #endif
@@ -142,9 +153,16 @@ namespace fable::game::entity::persistence
 
     void ThingSaveProjectionHook::Shutdown() noexcept
     {
+        bool allRestored = true;
+        allRestored = RestoreDetour(loadDetour_) && allRestored;
+        allRestored = RestoreDetour(saveDetour_) && allRestored;
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: Thing persistence shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         SetMapOverrideSink(nullptr, nullptr);
-        RestoreDetour(loadDetour_);
-        RestoreDetour(saveDetour_);
         if (active_ == this) active_ = nullptr;
         originalLoad_ = nullptr;
         originalSave_ = nullptr;
@@ -161,10 +179,8 @@ namespace fable::game::entity::persistence
 
     bool ThingSaveProjectionHook::IsInstalled() const noexcept
     {
-        return active_ == this && saveDetour_.target != nullptr &&
-            saveDetour_.trampoline != nullptr &&
-            loadDetour_.target != nullptr &&
-            loadDetour_.trampoline != nullptr &&
+        return active_ == this && saveDetour_.IsInstalled() &&
+            loadDetour_.IsInstalled() &&
             originalSave_ != nullptr && originalLoad_ != nullptr;
     }
 
@@ -292,115 +308,26 @@ namespace fable::game::entity::persistence
     bool ThingSaveProjectionHook::InstallDetour(
         std::uint8_t* target,
         void* replacement,
-        Detour& detour) noexcept
+        core::hooking::InlineHook& detour) noexcept
     {
         constexpr std::size_t displacedBytes =
             native::ThingSaveFunctions::DisplacedBytes;
-        if (target == nullptr || replacement == nullptr ||
-            detour.target != nullptr)
+        if (target == nullptr || replacement == nullptr || detour.IsInstalled())
         {
             return false;
         }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        trampoline[displacedBytes] = 0xE9;
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        detour.target = target;
-        detour.trampoline = trampoline;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(target, patch.size(), previousProtection, &discarded);
-        return true;
+        return detour.Install(
+            target,
+            target,
+            displacedBytes,
+            replacement,
+            displacedBytes);
     }
 
-    void ThingSaveProjectionHook::RestoreDetour(Detour& detour) noexcept
+    bool ThingSaveProjectionHook::RestoreDetour(
+        core::hooking::InlineHook& detour) noexcept
     {
-        if (detour.target == nullptr)
-        {
-            return;
-        }
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.originalBytes.size());
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                detour.target,
-                detour.originalBytes.size());
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                previousProtection,
-                &discarded);
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return detour.Shutdown();
     }
 
     void ThingSaveProjectionHook::ReportProjection(

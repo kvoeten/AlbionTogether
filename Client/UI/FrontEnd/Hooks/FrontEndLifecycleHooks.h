@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "UI/FrontEnd/Native/FrontEndLifecycleFunctions.h"
 
 #include <Windows.h>
@@ -51,9 +52,7 @@ namespace fable::ui::front_end
         core::Diagnostics diagnostics_ = {};
         std::array<FrontEndLifecycleCallbacks::Callback, BoundaryCount> callbacks_ = {};
         std::array<std::uint8_t*, BoundaryCount> targets_ = {};
-        std::array<
-            std::array<std::uint8_t, native::FrontEndLifecycleFunctions::DisplacedBytes>,
-            BoundaryCount> originalBytes_ = {};
+        std::array<core::hooking::InlineHook, BoundaryCount> patches_;
         bool installed_ = false;
     };
 }
