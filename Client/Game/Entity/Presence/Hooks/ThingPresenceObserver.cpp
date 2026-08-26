@@ -37,6 +37,16 @@ namespace fable::game::entity::presence
                 "Hook: another Thing presence observer is already active.");
             return false;
         }
+        if (active_ == this ||
+            originalRegister_ != nullptr || originalUpdate_ != nullptr ||
+            originalUnregister_ != nullptr || originalDestructor_ != nullptr ||
+            registerDetour_.IsInstalled() || updateDetour_.IsInstalled() ||
+            unregisterDetour_.IsInstalled() || destructorDetour_.IsInstalled())
+        {
+            diagnostics_.Log(
+                "Hook: Thing presence installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
 
         std::uint8_t* registerTarget = nullptr;
         std::uint8_t* updateTarget = nullptr;
@@ -272,12 +282,6 @@ namespace fable::game::entity::presence
             native::MapwhoFunctions::DisplacedBytes;
         if (target == nullptr || replacement == nullptr || detour.IsInstalled())
         {
-            return false;
-        }
-        if (active_ == this)
-        {
-            diagnostics_.Log(
-                "Hook: Thing presence installation is partially active; shutdown is required before retrying.");
             return false;
         }
         return detour.Install(
