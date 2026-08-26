@@ -1,8 +1,8 @@
-# FableTogether scripting framework
+# AlbionTogether scripting framework
 
 ## Target
 
-FableTogether treats Fable Script Extender (FSE) breadth as the compatibility
+AlbionTogether treats Fable Script Extender (FSE) breadth as the compatibility
 benchmark. The framework is not a purpose-built multiplayer shim. Mods should
 eventually be able to implement the RP game mode, daily quests, NPC dialogue,
 shops, property and door rules, progression, appearance, policing, and custom
@@ -10,7 +10,7 @@ UI without adding one-off C++ hooks for every feature.
 
 The local FSE reference exposes 85 distinct entity methods and 844 distinct
 quest-state methods. Those totals are a coverage baseline, not an instruction
-to copy the Lua API literally. FableTogether groups the same engine concerns
+to copy the Lua API literally. AlbionTogether groups the same engine concerns
 into typed AngelScript services and makes ABI confidence visible at runtime.
 
 ## Service layout

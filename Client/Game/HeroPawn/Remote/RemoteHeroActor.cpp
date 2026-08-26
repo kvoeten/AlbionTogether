@@ -380,7 +380,7 @@ namespace fable::game::hero_pawn::remote
         factoryArmToken_ = presentationFactory_->Arm(state.position);
         avatar_ = npcs_->Spawn(
             state.appearanceDefinition, state.position,
-            "SCRIPT_NAME_FABLE_TOGETHER_REMOTE_PLAYER");
+            "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER");
         if (avatar_ == nullptr || !avatar_->IsValid() ||
             avatar_->GetDefinitionName() != state.appearanceDefinition)
         {

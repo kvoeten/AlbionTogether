@@ -7,9 +7,9 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <ProjectGuid>{5881A807-3432-4DAA-9582-3C16F57390DE}</ProjectGuid>
-    <RootNamespace>FableTogetherLauncher</RootNamespace>
+    <RootNamespace>AlbionTogetherLauncher</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>FableTogether.Launcher</ProjectName>
+    <ProjectName>AlbionTogether.Launcher</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -28,7 +28,7 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup><OutDir>$(SolutionDir)bin\Release\</OutDir><IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir><TargetName>FableTogether.Launcher</TargetName></PropertyGroup>
+  <PropertyGroup><OutDir>$(SolutionDir)bin\Release\</OutDir><IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir><TargetName>AlbionTogether.Launcher</TargetName></PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>Disabled</Optimization><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError></ClCompile>
     <Link><SubSystem>Console</SubSystem><UACExecutionLevel>AsInvoker</UACExecutionLevel></Link>

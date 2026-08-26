@@ -1,4 +1,4 @@
-# Fable Together design ideas
+# AlbionTogether design ideas
 
 This is a living product-design document. It records the intended RP experience,
 possible rules, and promising implementation routes. Reverse-engineering evidence

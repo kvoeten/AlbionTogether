@@ -1,8 +1,8 @@
-# FableTogether — Fable Anniversary Multiplayer Mod
+# AlbionTogether — Fable Anniversary Multiplayer Mod
 
 Experimental multiplayer mod for Fable Anniversary.
 
-Join the [FableTogether Discord](https://discord.gg/5JSKmjKd85) for playtests, updates, and support.
+Join the [AlbionTogether Discord](https://discord.gg/5JSKmjKd85) for playtests, updates, and support.
 
 ![Six Heroes together in Albion](media/six-player-alpha.png)
 
@@ -40,20 +40,20 @@ This is an early development release. Back up ordinary saves before testing.
 
 ## Install and play
 
-FableTogether currently targets the 32-bit Steam build of Fable Anniversary.
+AlbionTogether currently targets the 32-bit Steam build of Fable Anniversary.
 
 1. Download and extract the release into Fable Anniversary's `Binaries\Win32` folder.
 2. Allow the chosen UDP port through the host's firewall. The default is `38171`.
 3. Start the host:
 
    ```powershell
-   .\FableTogether.Launcher.exe --host --player-id Host
+   .\AlbionTogether.Launcher.exe --host --player-id Host
    ```
 
 4. On the other computer, join using the host's IPv4 address:
 
    ```powershell
-   .\FableTogether.Launcher.exe --join 192.168.1.10 --player-id Guest
+   .\AlbionTogether.Launcher.exe --join 192.168.1.10 --player-id Guest
    ```
 
 5. Each player selects the save containing the Hero they want to use.
@@ -62,20 +62,20 @@ Use `--port <port>` on both computers to choose a different UDP port.
 
 ## Build
 
-Build `FableTogether.sln` as `Release | Win32`. Deployable files are written to `bin\Release`.
+Build `AlbionTogether.sln` as `Release | Win32`. Deployable files are written to `bin\Release`.
 
 The project also includes an embedded AngelScript runtime and native scripting APIs for future gameplay mods.
 
 ## License
 
-FableTogether is available under the [MIT License](LICENSE).
+AlbionTogether is available under the [MIT License](LICENSE).
 
 ## Disclaimer
 
-FableTogether is an unofficial fan project and is not affiliated with,
+AlbionTogether is an unofficial fan project and is not affiliated with,
 authorized, sponsored, or endorsed by Microsoft.
 
 Fable, Fable Anniversary, and all related names, trademarks, characters,
 imagery, and game content belong to Microsoft and/or their respective rights
-holders. The FableTogether license applies only to this project's original
+holders. The AlbionTogether license applies only to this project's original
 source code and does not grant rights to any Fable or third-party content.

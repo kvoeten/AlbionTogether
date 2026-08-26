@@ -221,7 +221,7 @@ bool InitializeInjectedClient(HANDLE process, HMODULE remoteClientModule, const 
                               std::wstring &error)
 {
     DWORD result = 0;
-    return InvokeInjectedClientExport(process, remoteClientModule, clientDll, "FableTogetherInitialize", nullptr,
+    return InvokeInjectedClientExport(process, remoteClientModule, clientDll, "AlbionTogetherInitialize", nullptr,
                                       kInjectionTimeoutMilliseconds, kClientPreResumeReady, result, error);
 }
 
@@ -230,7 +230,7 @@ bool WaitForInjectedClientReady(HANDLE process, HMODULE remoteClientModule, cons
 {
     DWORD result = 0;
     return InvokeInjectedClientExport(
-        process, remoteClientModule, clientDll, "FableTogetherWaitForReady",
+        process, remoteClientModule, clientDll, "AlbionTogetherWaitForReady",
         reinterpret_cast<void *>(static_cast<std::uintptr_t>(kRuntimeReadyTimeoutMilliseconds)),
         kRuntimeReadyTimeoutMilliseconds + 5'000, kClientRuntimeReady, result, error);
 }

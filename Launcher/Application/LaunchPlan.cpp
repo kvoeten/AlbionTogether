@@ -289,7 +289,7 @@ namespace fable::launcher::application
         }
         if (!fable::launcher::IsFile(plan.clientDll))
         {
-            std::wcerr << L"FableTogether.Client.dll was not found beside the launcher. Use --dll to override.\n";
+            std::wcerr << L"AlbionTogether.Client.dll was not found beside the launcher. Use --dll to override.\n";
             return false;
         }
         if (!plan.characterSnapshotSource.empty() &&

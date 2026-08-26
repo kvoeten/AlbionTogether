@@ -47,7 +47,7 @@ namespace fable::game::hero_pawn::abilities
     {
         // Slow Time changes process-local world time. Replaying it on two
         // independent simulations can desynchronize or terminate either
-        // client, so FableTogether deliberately removes it.
+        // client, so AlbionTogether deliberately removes it.
         return IsValid(ability) && ability != HeroAbility::Time;
     }
 

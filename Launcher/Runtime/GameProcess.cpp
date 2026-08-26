@@ -232,7 +232,7 @@ bool BootstrapInjectedClient(HANDLE process, HANDLE primaryThread, const fs::pat
                    << injectionError << L'\n';
         return false;
     }
-    std::wcout << L"Fable Anniversary started with FableTogether.Client.dll; "
+    std::wcout << L"Fable Anniversary started with AlbionTogether.Client.dll; "
                   L"runtime ready (PID "
                << processId << L").\n";
     launched.processId = processId;

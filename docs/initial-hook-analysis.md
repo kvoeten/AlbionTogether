@@ -538,7 +538,7 @@ The metadata string object is a ref-counted `CCharString`: the outer handle owns
 an inner allocation whose UTF-8 buffer pointer is at `+0x4`. Owned return values
 are destroyed through `CCharString_Destruct`; the direct name value is borrowed.
 Run `20260810-121428-259-19448` read exact definitions, the stable
-`SCRIPT_NAME_FABLE_TOGETHER_PUPPET` name, and `BowerstonePosh` current/home maps
+`SCRIPT_NAME_ALBION_TOGETHER_PUPPET` name, and `BowerstonePosh` current/home maps
 for guard, villager, and hobbe before passing movement and restoration.
 
 The framework now also has non-native infrastructure for named events,

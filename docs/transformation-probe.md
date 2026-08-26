@@ -42,7 +42,7 @@ Use a disposable save. Creature replacement can invalidate assumptions in hero
 animations, equipment, combat, camera, quest, or save code even when the visual
 swap succeeds.
 
-1. Build and run `bin\Release\FableTogether.Launcher.exe`.
+1. Build and run `bin\Release\AlbionTogether.Launcher.exe`.
 2. Load the disposable save and stand in a quiet exterior region, out of combat
    and outside a cutscene or menu.
 3. Press `1` once. Confirm the Bowerstone guard appearance, movement, camera,

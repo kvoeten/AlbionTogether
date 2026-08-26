@@ -216,7 +216,7 @@ namespace
             core.configuration.RunId().c_str(),
             core.configuration.Scenario().c_str());
         core.diagnosticLog.AttachConsole();
-        Log("FableTogether client loaded.");
+        Log("AlbionTogether client loaded.");
         LogStartupContext();
 
         const bool observeFaults =

@@ -83,7 +83,7 @@ namespace fable::launcher::automation
             return false;
         }
 
-        std::wstring title = L"Fable Anniversary - FableTogether local ";
+        std::wstring title = L"Fable Anniversary - AlbionTogether local ";
         title.append(instance != nullptr ? instance : L"instance");
         SetWindowTextW(window, title.c_str());
 

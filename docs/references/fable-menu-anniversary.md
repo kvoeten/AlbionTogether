@@ -7,13 +7,13 @@ Reference: <https://github.com/ermaccer/FableMenuAnniversary>
 Local analysis is pinned at commit
 `164d5247f09ed5e03b6a323be4373a3ee66686a7` under
 `.analysis/third-party/FableMenuAnniversary`. No license was visible in that
-snapshot, so FableTogether uses it as reverse-engineering evidence and does not
+snapshot, so AlbionTogether uses it as reverse-engineering evidence and does not
 copy its menu or implementation wholesale.
 
 The project targets the Steam Anniversary executable and its addresses align
 with our disposable native IDA image. They remain candidates until the target
 fingerprint, function prefix or vtable, pointer ownership, and runtime behavior
-pass FableTogether's validation gates.
+pass AlbionTogether's validation gates.
 
 ## Player acquisition
 
@@ -63,7 +63,7 @@ and scale at `0x01DA20A0`, `0x01DA2180`, and `0x01DA2010`. Alpha is especially
 relevant to keeping the authoritative Hero functionally present while hiding
 its presentation.
 
-## FableTogether exposure policy
+## AlbionTogether exposure policy
 
 The first public surface should return immutable typed snapshots rather than
 raw component pointers:

@@ -2,7 +2,7 @@
 
 #include "Core/Bootstrap/ClientRuntime.h"
 
-extern "C" __declspec(dllexport) const wchar_t* __cdecl FableTogetherVersion()
+extern "C" __declspec(dllexport) const wchar_t* __cdecl AlbionTogetherVersion()
 {
     return L"development-current";
 }

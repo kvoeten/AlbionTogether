@@ -537,7 +537,7 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options, std::wstring& erro
 void PrintUsage()
 {
     std::wcout
-        << L"FableTogether.Launcher [options] [-- game arguments]\n\n"
+        << L"AlbionTogether.Launcher [options] [-- game arguments]\n\n"
         << L"  --game-dir <path>  Fable Anniversary root or Binaries\\Win32 directory\n"
         << L"  --exe <path>       Exact game executable path\n"
         << L"  --dll <path>       Exact client DLL path\n"

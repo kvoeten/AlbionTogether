@@ -9,7 +9,7 @@ namespace fable::launcher::multiplayer::combat
 {
 namespace
 {
-const std::string kCombatTargetScript = "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
+const std::string kCombatTargetScript = "script_name=SCRIPT_NAME_ALBION_TOGETHER_COMBAT_TARGET";
 
 } // namespace
 

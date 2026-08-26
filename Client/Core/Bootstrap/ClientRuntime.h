@@ -41,7 +41,7 @@ namespace fable::core::bootstrap
     void ShutdownClientRuntime() noexcept;
 }
 
-extern "C" __declspec(dllexport) DWORD WINAPI FableTogetherInitialize(void*);
-extern "C" __declspec(dllexport) DWORD WINAPI FableTogetherWaitForReady(
+extern "C" __declspec(dllexport) DWORD WINAPI AlbionTogetherInitialize(void*);
+extern "C" __declspec(dllexport) DWORD WINAPI AlbionTogetherWaitForReady(
     void* timeoutMilliseconds);
-extern "C" __declspec(dllexport) void WINAPI FableTogetherShutdown();
+extern "C" __declspec(dllexport) void WINAPI AlbionTogetherShutdown();

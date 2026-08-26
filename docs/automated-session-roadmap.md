@@ -189,7 +189,7 @@ order, and presentation-reference lifetime baseline needed before reconsidering
 
 - Never select, overwrite, delete, or migrate an ordinary player save.
 - Discovery begins in observation-only mode with no automatic selection.
-- Mutating tests require a dedicated FableTogether test profile/save root or an
+- Mutating tests require a dedicated AlbionTogether test profile/save root or an
   explicitly identified disposable fixture. Automation defaults to
   `bin\Release\fixtures\automation\Documents` and validates the redirect before
   any semantic save or New Game action is allowed.
@@ -284,7 +284,7 @@ After loading, assert at minimum:
 - several consecutive playable game ticks;
 - clean map/Hero teardown during requested shutdown.
 
-**Gate:** `FableTogether.Launcher.exe --automation load_fixture` completes from
+**Gate:** `AlbionTogether.Launcher.exe --automation load_fixture` completes from
 a cold start without user interaction and produces a self-contained result
 bundle. **Passed on 2026-08-07** in run `20260807-190206-265-41976`; repeat-run
 reliability and deeper in-world assertions remain part of step 6.
@@ -294,7 +294,7 @@ reliability and deeper in-world assertions remain part of step 6.
 Treat the game's save as engine bootstrap state, not multiplayer authority.
 Determine which of these paths is safest from the lifecycle evidence:
 
-1. load an isolated minimal FableTogether bootstrap save, then apply a server
+1. load an isolated minimal AlbionTogether bootstrap save, then apply a server
    character snapshot after Hero/world readiness; or
 2. invoke the new-game/world bootstrap directly and supply the required Hero
    state without deserializing a normal save.

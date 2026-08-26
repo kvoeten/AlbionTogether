@@ -4,37 +4,37 @@
 
 namespace
 {
-    constexpr wchar_t kClientModeEnvironment[] = L"FABLETOGETHER_CLIENT_MODE";
-    constexpr wchar_t kScenarioEnvironment[] = L"FABLETOGETHER_SCENARIO";
-    constexpr wchar_t kRunIdEnvironment[] = L"FABLETOGETHER_RUN_ID";
-    constexpr wchar_t kEventPathEnvironment[] = L"FABLETOGETHER_EVENT_PATH";
-    constexpr wchar_t kLogPathEnvironment[] = L"FABLETOGETHER_LOG_PATH";
+    constexpr wchar_t kClientModeEnvironment[] = L"ALBIONTOGETHER_CLIENT_MODE";
+    constexpr wchar_t kScenarioEnvironment[] = L"ALBIONTOGETHER_SCENARIO";
+    constexpr wchar_t kRunIdEnvironment[] = L"ALBIONTOGETHER_RUN_ID";
+    constexpr wchar_t kEventPathEnvironment[] = L"ALBIONTOGETHER_EVENT_PATH";
+    constexpr wchar_t kLogPathEnvironment[] = L"ALBIONTOGETHER_LOG_PATH";
     constexpr wchar_t kFixtureDocumentsEnvironment[] =
-        L"FABLETOGETHER_FIXTURE_DOCUMENTS";
+        L"ALBIONTOGETHER_FIXTURE_DOCUMENTS";
     constexpr wchar_t kCharacterSnapshotEnvironment[] =
-        L"FABLETOGETHER_CHARACTER_SNAPSHOT";
-    constexpr wchar_t kScriptDataEnvironment[] = L"FABLETOGETHER_SCRIPT_DATA";
+        L"ALBIONTOGETHER_CHARACTER_SNAPSHOT";
+    constexpr wchar_t kScriptDataEnvironment[] = L"ALBIONTOGETHER_SCRIPT_DATA";
     constexpr wchar_t kGameDefinitionsEnvironment[] =
-        L"FABLETOGETHER_GAME_DEFINITIONS";
+        L"ALBIONTOGETHER_GAME_DEFINITIONS";
     constexpr wchar_t kLocalSessionEnvironment[] =
-        L"FABLETOGETHER_LOCAL_SESSION";
+        L"ALBIONTOGETHER_LOCAL_SESSION";
     constexpr wchar_t kLocalInstanceEnvironment[] =
-        L"FABLETOGETHER_LOCAL_INSTANCE";
+        L"ALBIONTOGETHER_LOCAL_INSTANCE";
     constexpr wchar_t kMultiplayerRoleEnvironment[] =
-        L"FABLETOGETHER_MULTIPLAYER_ROLE";
+        L"ALBIONTOGETHER_MULTIPLAYER_ROLE";
     constexpr wchar_t kMultiplayerAddressEnvironment[] =
-        L"FABLETOGETHER_MULTIPLAYER_ADDRESS";
+        L"ALBIONTOGETHER_MULTIPLAYER_ADDRESS";
     constexpr wchar_t kMultiplayerPortEnvironment[] =
-        L"FABLETOGETHER_MULTIPLAYER_PORT";
+        L"ALBIONTOGETHER_MULTIPLAYER_PORT";
     constexpr wchar_t kMultiplayerPlayerIdEnvironment[] =
-        L"FABLETOGETHER_MULTIPLAYER_PLAYER_ID";
+        L"ALBIONTOGETHER_MULTIPLAYER_PLAYER_ID";
     constexpr wchar_t kMultiplayerAppearanceEnvironment[] =
-        L"FABLETOGETHER_MULTIPLAYER_APPEARANCE";
+        L"ALBIONTOGETHER_MULTIPLAYER_APPEARANCE";
     constexpr wchar_t kMorphSelfTestEnvironment[] =
-        L"FABLETOGETHER_MORPH_SELF_TEST";
+        L"ALBIONTOGETHER_MORPH_SELF_TEST";
     constexpr wchar_t kManualPlaytestEnvironment[] =
-        L"FABLETOGETHER_MANUAL_PLAYTEST";
-    constexpr wchar_t kShutdownEventPrefix[] = L"Local\\FableTogether.Shutdown.";
+        L"ALBIONTOGETHER_MANUAL_PLAYTEST";
+    constexpr wchar_t kShutdownEventPrefix[] = L"Local\\AlbionTogether.Shutdown.";
 
     std::wstring ReadEnvironment(const wchar_t* name)
     {

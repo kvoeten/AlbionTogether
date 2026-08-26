@@ -21,7 +21,7 @@ namespace
 
     TransitionExpectations MakeExpectations()
     {
-        const std::string target = "script_name=SCRIPT_NAME_FABLE_TOGETHER_TRANSFER_TARGET";
+        const std::string target = "script_name=SCRIPT_NAME_ALBION_TOGETHER_TRANSFER_TARGET";
         return {
             target,
             "operation=grant map=BowerstoneJail",

@@ -55,7 +55,7 @@ namespace fable::automation::local_instance
 
         try
         {
-            namespacedMutex_ = L"Local\\FableTogether.UnrealEngine3_8.";
+            namespacedMutex_ = L"Local\\AlbionTogether.UnrealEngine3_8.";
             namespacedMutex_.append(sessionId);
             namespacedMutex_.push_back(L'.');
             namespacedMutex_.append(instanceId);

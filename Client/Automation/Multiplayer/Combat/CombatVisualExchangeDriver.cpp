@@ -18,9 +18,9 @@
 namespace
 {
     constexpr char TargetScriptName[] =
-        "SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
+        "SCRIPT_NAME_ALBION_TOGETHER_COMBAT_TARGET";
     constexpr char RemotePlayerScriptName[] =
-        "SCRIPT_NAME_FABLE_TOGETHER_REMOTE_PLAYER";
+        "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER";
     constexpr char ArenaMap[] = "FrescoDome";
     constexpr unsigned int HeroMeleeAttackAbility = 1101;
     constexpr std::uint64_t FixtureSettleMilliseconds = 20'000;

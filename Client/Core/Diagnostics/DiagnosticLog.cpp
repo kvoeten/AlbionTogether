@@ -40,7 +40,7 @@ namespace fable::core
             return;
         }
         logPath_.resize(separator + 1);
-        logPath_.append(L"FableTogether.Client.log");
+        logPath_.append(L"AlbionTogether.Client.log");
     }
 
     void DiagnosticLog::AttachConsole()
@@ -54,7 +54,7 @@ namespace fable::core
             }
         }
 
-        SetConsoleTitleW(L"FableTogether diagnostics");
+        SetConsoleTitleW(L"AlbionTogether diagnostics");
         consoleOutput_ = GetStdHandle(STD_OUTPUT_HANDLE);
         if (consoleOutput_ == INVALID_HANDLE_VALUE)
         {

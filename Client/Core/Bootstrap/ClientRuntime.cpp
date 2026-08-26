@@ -14,9 +14,9 @@
 #if defined(_M_IX86)
 // CreateRemoteThread resolves exports by their stable public names. Keep the
 // stdcall implementation ABI while publishing undecorated x86 aliases.
-#pragma comment(linker, "/EXPORT:FableTogetherInitialize=_FableTogetherInitialize@4")
-#pragma comment(linker, "/EXPORT:FableTogetherWaitForReady=_FableTogetherWaitForReady@4")
-#pragma comment(linker, "/EXPORT:FableTogetherShutdown=_FableTogetherShutdown@0")
+#pragma comment(linker, "/EXPORT:AlbionTogetherInitialize=_AlbionTogetherInitialize@4")
+#pragma comment(linker, "/EXPORT:AlbionTogetherWaitForReady=_AlbionTogetherWaitForReady@4")
+#pragma comment(linker, "/EXPORT:AlbionTogetherShutdown=_AlbionTogetherShutdown@0")
 #endif
 
 namespace
@@ -321,18 +321,18 @@ namespace fable::core::bootstrap
     }
 }
 
-extern "C" __declspec(dllexport) DWORD WINAPI FableTogetherInitialize(void*)
+extern "C" __declspec(dllexport) DWORD WINAPI AlbionTogetherInitialize(void*)
 {
     return static_cast<DWORD>(fable::core::bootstrap::InitializeClientRuntime());
 }
 
-extern "C" __declspec(dllexport) DWORD WINAPI FableTogetherWaitForReady(void* timeoutMilliseconds)
+extern "C" __declspec(dllexport) DWORD WINAPI AlbionTogetherWaitForReady(void* timeoutMilliseconds)
 {
     return static_cast<DWORD>(fable::core::bootstrap::WaitForClientRuntime(
         static_cast<DWORD>(reinterpret_cast<std::uintptr_t>(timeoutMilliseconds))));
 }
 
-extern "C" __declspec(dllexport) void WINAPI FableTogetherShutdown()
+extern "C" __declspec(dllexport) void WINAPI AlbionTogetherShutdown()
 {
     fable::core::bootstrap::ShutdownClientRuntime();
 }

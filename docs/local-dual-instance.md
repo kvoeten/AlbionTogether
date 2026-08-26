@@ -1,19 +1,19 @@
 # Local dual-instance development
 
 This mode exists only for same-machine multiplayer development. It does not
-change an ordinary FableTogether launch and it does not replace or modify the
+change an ordinary AlbionTogether launch and it does not replace or modify the
 installed retail executable.
 
 ## Command
 
 ```powershell
-.\bin\Release\FableTogether.Launcher.exe --dual-instance-test
+.\bin\Release\AlbionTogether.Launcher.exe --dual-instance-test
 ```
 
 Optional bounds:
 
 ```powershell
-.\bin\Release\FableTogether.Launcher.exe --dual-instance-test --timeout 120 --hold 10
+.\bin\Release\AlbionTogether.Launcher.exe --dual-instance-test --timeout 120 --hold 10
 ```
 
 The host must reach an initialized title UI and responsive game window before
@@ -32,8 +32,8 @@ validated `CreateMutexW` import before the suspended game main thread resumes.
 Only an exact `UnrealEngine3_8` request is rewritten:
 
 ```text
-Local\FableTogether.UnrealEngine3_8.<session-id>.host
-Local\FableTogether.UnrealEngine3_8.<session-id>.guest
+Local\AlbionTogether.UnrealEngine3_8.<session-id>.host
+Local\AlbionTogether.UnrealEngine3_8.<session-id>.guest
 ```
 
 The hook is signature- and import-slot-validated against the supported retail

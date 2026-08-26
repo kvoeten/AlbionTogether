@@ -14,7 +14,7 @@
 namespace
 {
     constexpr char TargetScriptName[] =
-        "SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
+        "SCRIPT_NAME_ALBION_TOGETHER_COMBAT_TARGET";
     constexpr char ArenaMap[] = "FrescoDome";
     constexpr std::uint64_t HostOpeningDelayMilliseconds = 2'000;
     // The host's final world effect is deliberately given a full quiet window
@@ -71,7 +71,7 @@ namespace
     {
         char value[8] = {};
         const DWORD length = GetEnvironmentVariableA(
-            "FABLE_TOGETHER_HERO_WILL_PILLAR_ONLY",
+            "ALBION_TOGETHER_HERO_WILL_PILLAR_ONLY",
             value,
             static_cast<DWORD>(std::size(value)));
         return length != 0 && length < std::size(value) && value[0] == '1';

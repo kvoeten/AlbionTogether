@@ -77,7 +77,7 @@ void OnFrameworkEvent(const string &in eventName, const string &in detail)
 
 void OnStart()
 {
-    Debug::Log("FableTogether general gameplay script started");
+    Debug::Log("AlbionTogether general gameplay script started");
     if (!Capabilities::IsAvailable("World.CreateCreature") ||
         !Capabilities::IsAvailable("Creature.Navigation") ||
         !Capabilities::IsAvailable("Creature.Locomotion.State.Read") ||
@@ -106,14 +106,14 @@ void OnStart()
         const bool wrote =
             Storage::SetBoolean("framework.prior_launch", true) &&
             Storage::SetInteger("framework.launch_count", launchCount) &&
-            Storage::SetString("framework.string_probe", "FableTogether") &&
+            Storage::SetString("framework.string_probe", "AlbionTogether") &&
             Storage::SetNumber("framework.number_probe", 12.5) &&
             Storage::SetBoolean("framework.bool_probe", true) &&
             Storage::SetString("framework.transient_probe", "remove-me");
         const bool removed = Storage::Remove("framework.transient_probe");
         const bool readBack =
             Storage::GetInteger("framework.launch_count", 0) == launchCount &&
-            Storage::GetString("framework.string_probe", "") == "FableTogether" &&
+            Storage::GetString("framework.string_probe", "") == "AlbionTogether" &&
             Storage::GetNumber("framework.number_probe", 0.0) == 12.5 &&
             Storage::GetBoolean("framework.bool_probe", false) &&
             !Storage::Has("framework.transient_probe");
@@ -163,7 +163,7 @@ void OnWorldReady()
         Debug::Event("QuestStateSample", questName + "=" + state);
     }
 
-    const string missingQuest = "Q_FABLE_TOGETHER_DOES_NOT_EXIST";
+    const string missingQuest = "Q_ALBION_TOGETHER_DOES_NOT_EXIST";
     const bool missingState =
         Quest::IsActive(missingQuest) ||
         Quest::IsRegistered(missingQuest) ||
@@ -253,7 +253,7 @@ void CyclePuppet()
     @Puppet = NPC::Spawn(
         definition,
         puppetSpawnPosition,
-        "SCRIPT_NAME_FABLE_TOGETHER_PUPPET");
+        "SCRIPT_NAME_ALBION_TOGETHER_PUPPET");
     if (Puppet is null || !Puppet.Valid)
     {
         Debug::Log("CreateCreature failed for " + definition);

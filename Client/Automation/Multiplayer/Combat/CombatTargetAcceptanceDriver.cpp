@@ -19,9 +19,9 @@ namespace
 {
     constexpr char TargetDefinition[] = "CREATURE_HOBBE_GRUNT";
     constexpr char TargetScriptName[] =
-        "SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
+        "SCRIPT_NAME_ALBION_TOGETHER_COMBAT_TARGET";
     constexpr char RemotePlayerScriptName[] =
-        "SCRIPT_NAME_FABLE_TOGETHER_REMOTE_PLAYER";
+        "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER";
     constexpr char ArenaMap[] = "FrescoDome";
     constexpr float Tau = 6.28318530717958647692f;
     constexpr float SpawnDistance = 1.5f;
@@ -733,7 +733,7 @@ namespace fable::automation::multiplayer::combat
         maintainTargetHealth_ = false;
         diagnostics_.Event(
             "MultiplayerCombatTargetDeathAllowed",
-            "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET maintenance=disabled");
+            "script_name=SCRIPT_NAME_ALBION_TOGETHER_COMBAT_TARGET maintenance=disabled");
     }
 
     void CombatTargetAcceptanceDriver::MaintainAcceptanceTargetHealth(

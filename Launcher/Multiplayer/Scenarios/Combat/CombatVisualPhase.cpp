@@ -69,7 +69,7 @@ namespace
 
     bool WaitTerminalTarget(PeerHarness& peers, CombatScenarioState& state)
     {
-        const std::string target = "script_name=SCRIPT_NAME_FABLE_TOGETHER_COMBAT_TARGET";
+        const std::string target = "script_name=SCRIPT_NAME_ALBION_TOGETHER_COMBAT_TARGET";
         return peers.WaitEventDetail(*state.host, "MultiplayerCombatTargetKillStarted", target) &&
             peers.WaitEventDetail(*state.host, "MultiplayerCombatTargetTerminalObserved",
                 target + " health=0.000 maximum=60.000 dead=true") &&

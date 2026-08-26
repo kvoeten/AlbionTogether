@@ -193,7 +193,7 @@ namespace fable::multiplayer::entities
         const LiveEntityRecord& record) noexcept
     {
         return record.scriptName == "SCRIPT_NAME_HERO" ||
-            record.scriptName == "SCRIPT_NAME_FABLE_TOGETHER_REMOTE_PLAYER";
+            record.scriptName == "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER";
     }
 
     void LiveEntityRegistry::Clear() noexcept

@@ -14,7 +14,7 @@ namespace
 {
     constexpr char TargetDefinition[] = "CREATURE_BS_GUARD";
     constexpr char TargetScriptName[] =
-        "SCRIPT_NAME_FABLE_TOGETHER_TRANSFER_TARGET";
+        "SCRIPT_NAME_ALBION_TOGETHER_TRANSFER_TARGET";
     constexpr std::uint16_t DestinationMapId = 76; // BowerstoneJail fixture exit.
     constexpr fable::game::Vector3 DestinationPosition = {
         3266.0f,

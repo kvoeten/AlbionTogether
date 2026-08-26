@@ -51,7 +51,7 @@ server-authoritative combat policy remain separate services.
 Run:
 
 ```powershell
-.\bin\Release\FableTogether.Launcher.exe --automation appearance_cycle
+.\bin\Release\AlbionTogether.Launcher.exe --automation appearance_cycle
 ```
 
 The launcher copies the bundled adult Bowerstone North save into a fresh,

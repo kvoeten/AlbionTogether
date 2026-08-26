@@ -316,7 +316,7 @@ namespace fable::scripting
         }
 
         std::ostringstream moduleName;
-        moduleName << "FableTogether.Mod." << moduleIndex;
+        moduleName << "AlbionTogether.Mod." << moduleIndex;
         const std::string name = moduleName.str();
         const std::string section = PathToUtf8(scriptPath.filename());
         asIScriptModule* module = engine_->GetModule(name.c_str(), asGM_ALWAYS_CREATE);
