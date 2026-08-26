@@ -3639,6 +3639,50 @@ namespace
             aimEnd, bytes.data(), bytes.size(), encodedSize));
     }
 
+    void TestExpressionUsesSemanticOrderedActionKind()
+    {
+        constexpr const char* test =
+            "expression uses semantic ordered action kind";
+        fable::multiplayer::protocol::PlayerActionMessage expression;
+        expression.phase =
+            fable::multiplayer::protocol::PlayerActionPhase::Perform;
+        expression.kind =
+            fable::multiplayer::protocol::PlayerActionKind::Expression;
+        expression.ownerActorId = 1001;
+        expression.actionId = 9;
+        expression.authorityEpoch = 3;
+        expression.actorGeneration = 4;
+        expression.mapEpoch = 5;
+        expression.resolvedAnimationId = 2801;
+        expression.expressionDurationTicks = 12;
+        expression.expressionTriggerTicks = 0;
+        expression.mapName = "FrescoDome";
+        expression.semanticName = "EXPRESSION_FART";
+        expression.resolvedActionType =
+            "CCreatureAction_PerformExpression";
+
+        std::array<std::uint8_t, 1472> bytes = {};
+        std::size_t encodedSize = 0;
+        CHECK(test, fable::multiplayer::protocol::EncodePlayerActionMessage(
+            expression, bytes.data(), bytes.size(), encodedSize));
+        fable::multiplayer::protocol::PlayerActionMessage decoded;
+        CHECK(test, fable::multiplayer::protocol::DecodePlayerActionMessage(
+            bytes.data(), encodedSize, decoded));
+        CHECK(test, decoded.kind ==
+            fable::multiplayer::protocol::PlayerActionKind::Expression);
+        CHECK(test, decoded.semanticName == "EXPRESSION_FART");
+        CHECK(test, decoded.expressionDurationTicks == 12);
+        CHECK(test, decoded.expressionTriggerTicks == 0);
+        CHECK(test, decoded.targetThingUid == 0);
+
+        expression.targetThingUid = 0x1234;
+        CHECK(test, fable::multiplayer::protocol::EncodePlayerActionMessage(
+            expression, bytes.data(), bytes.size(), encodedSize));
+        expression.targetPlayerActorId = 1002;
+        CHECK(test, !fable::multiplayer::protocol::EncodePlayerActionMessage(
+            expression, bytes.data(), bytes.size(), encodedSize));
+    }
+
     void TestPlayerDeathUsesPostNativeHealthOutcome()
     {
         constexpr const char* test =
@@ -3766,6 +3810,7 @@ int main()
     TestRangedFireActionEntersOrderedPlayerStream();
     TestRangedAimUsesDedicatedOrderedActionKind();
     TestRangedAimEndUsesDedicatedOrderedActionKind();
+    TestExpressionUsesSemanticOrderedActionKind();
     TestPlayerDeathUsesPostNativeHealthOutcome();
     TestStaleDeltaDoesNotOverwrite();
     TestNewAuthorityRequiresNewIncarnation();

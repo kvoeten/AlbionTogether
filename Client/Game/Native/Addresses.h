@@ -16,6 +16,13 @@ namespace fable::game::native
         inline constexpr std::uintptr_t DefinitionNameByIndex = 0x012CB160;
         inline constexpr std::uintptr_t DefinitionNameToCharString =
             0x012CABB0;
+        inline constexpr std::uintptr_t ParentDefinitionGetInstantiationName =
+            0x01379510;
+        inline constexpr std::uintptr_t WeakThingPointerGet = 0x012E6EA0;
+        inline constexpr std::uintptr_t PerformExpressionActionVtable =
+            0x02AD1724;
+        inline constexpr std::uintptr_t PerformExtendedExpressionActionVtable =
+            0x02AD1844;
         inline constexpr std::uintptr_t ThingManagerSlot = 0x0322F1B0;
         inline constexpr std::uintptr_t GetHero = 0x01889940;
         inline constexpr std::uintptr_t GetThingWithScriptName = 0x0189DF10;

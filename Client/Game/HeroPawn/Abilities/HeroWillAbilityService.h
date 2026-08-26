@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/HeroPawn/Abilities/HeroAbilityEvent.h"
+#include "Game/HeroPawn/Abilities/Hooks/AssassinRushPresentationHook.h"
 #include "Game/HeroPawn/Abilities/Hooks/HeroWillAbilityHook.h"
 #include "Game/HeroPawn/Abilities/Hooks/PillarAbilityLifecycleHook.h"
 
@@ -46,6 +47,10 @@ namespace fable::game::hero_pawn::abilities
         [[nodiscard]] bool HasActiveAction(
             void* hero,
             HeroAbility ability) const noexcept;
+        [[nodiscard]] bool BindRemotePresentationHero(
+            void* hero,
+            std::uint64_t actorId) noexcept;
+        void UnbindRemotePresentationHero(void* hero) noexcept;
         void Observe(
             void* component,
             HeroAbility ability,
@@ -68,6 +73,7 @@ namespace fable::game::hero_pawn::abilities
         game::EntityService* entities_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         hooks::HeroWillAbilityHook hook_;
+        hooks::AssassinRushPresentationHook assassinRushPresentationHook_;
         hooks::PillarAbilityLifecycleHook pillarLifecycleHook_;
         SRWLOCK sinkLock_ = SRWLOCK_INIT;
         std::array<SinkEntry, SinkCapacity> sinks_ = {};

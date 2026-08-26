@@ -9,6 +9,7 @@ namespace fable::multiplayer
         game::EntityService& entities, game::NpcService& npcs,
         game::creature::locomotion::CreatureLocomotionService& locomotion,
         game::creature::look::CreatureLookService& look,
+        game::creature::animation::CreatureAnimationService& animation,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
         game::QuestService& quests,
@@ -17,7 +18,7 @@ namespace fable::multiplayer
         const core::Diagnostics& diagnostics)
     {
         lifecycle_.Reset();
-        return graph_.Initialize(configuration, entities, npcs, locomotion, look, combat, abilities, quests, villages, dummyVillagers, diagnostics);
+        return graph_.Initialize(configuration, entities, npcs, locomotion, look, animation, combat, abilities, quests, villages, dummyVillagers, diagnostics);
     }
     bool MultiplayerSession::AttachThingPresenceObserver(game::entity::presence::ThingPresenceObserver& observer) { return graph_.AttachThingPresenceObserver(observer); }
     bool MultiplayerSession::AttachSavedEntityMapBlobObserver(game::entity::persistence::SavedEntityMapBlobObserver& observer) { return graph_.AttachSavedEntityMapBlobObserver(observer); }

@@ -70,17 +70,23 @@ namespace fable::game::hero_pawn::combat
             return false;
         }
         const bool terminal = currentHealth <= 0.01f;
-        if (terminal && !deathSubmitted_)
+        if (terminal && !terminalHealthObserved_)
         {
-            if (!combat_->SubmitReplicatedDeath(nativeHero_))
-            {
-                return false;
-            }
-            deathSubmitted_ = true;
+            // CCreatureAction_Die owns full native creature teardown. On a
+            // remote AHeroPawn it unregisters the presentation and replaces
+            // it with a non-creature corpse, leaving no actor for the next
+            // positive health revision to revive. Keep the proxy alive and
+            // let the already-replicated terminal hit reaction represent the
+            // brief down state; the owner remains authoritative for phial or
+            // Guild recovery and publishes the restorative health revision.
+            terminalHealthObserved_ = true;
+            diagnostics_.Event(
+                "MultiplayerRemotePlayerTerminalHealthHeld",
+                "remote Hero proxy retained for reversible owner-authoritative revival");
         }
         else if (!terminal)
         {
-            deathSubmitted_ = false;
+            terminalHealthObserved_ = false;
         }
         healthCreature_ = nativeHero_;
         appliedHealthRevision_ = revision;
@@ -93,7 +99,7 @@ namespace fable::game::hero_pawn::combat
             revision,
             currentHealth,
             maximumHealth,
-            terminal ? "submitted" : "alive");
+            terminal ? "proxy-retained" : "alive");
         diagnostics_.Event("MultiplayerRemotePlayerVitalsApplied", detail);
         return true;
     }
@@ -300,7 +306,7 @@ namespace fable::game::hero_pawn::combat
         actorId_ = 0;
         healthCreature_ = nullptr;
         appliedHealthRevision_ = 0;
-        deathSubmitted_ = false;
+        terminalHealthObserved_ = false;
         healthReplicaProtected_ = false;
     }
 

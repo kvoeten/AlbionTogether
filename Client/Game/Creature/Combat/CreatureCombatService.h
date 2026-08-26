@@ -5,7 +5,6 @@
 #include "Game/Creature/Combat/Hooks/CombatHealthMutationHook.h"
 #include "Game/Creature/Combat/CreatureHitResolutionHook.h"
 #include "Game/Creature/Combat/CreatureAbilityEvent.h"
-#include "Game/Creature/Animation/Hooks/CreatureActionAnimationSelectionHook.h"
 
 #include <Windows.h>
 
@@ -40,9 +39,6 @@ namespace fable::game::creature::combat
             EntityService& entities,
             animation::CreatureAnimationService& animation,
             const core::Diagnostics& diagnostics);
-        bool AttachActionLifecycleObserver(
-            actions::CreatureActionLifecycleObserver& observer) noexcept;
-        void DetachActionLifecycleObserver() noexcept;
         void Shutdown() noexcept;
         bool RoutePlayerCombat(Entity* hero, Entity* puppet);
         bool ResolvePlayerAttackCreature(
@@ -171,8 +167,6 @@ namespace fable::game::creature::combat
         PlayerAttackAbilityHook playerAttackAbilityHook_;
         CombatHealthMutationHook combatHealthMutationHook_;
         CreatureHitResolutionHook creatureHitResolutionHook_;
-        animation::CreatureActionAnimationSelectionHook
-            actionAnimationSelectionHook_;
         struct AbilitySinkEntry final
         {
             AbilitySink sink = nullptr;
