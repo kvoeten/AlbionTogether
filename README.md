@@ -68,12 +68,18 @@ The project also includes an embedded AngelScript runtime and native scripting A
 
 ## License
 
-AlbionTogether is available under the [MIT License](LICENSE).
+AlbionTogether's original source code is available under the [MIT License](LICENSE).
+Components under [`ThirdParty/`](ThirdParty/) retain their respective licenses.
+The MIT License only covers code that this project has the right to license.
 
 ## Disclaimer
 
 AlbionTogether is an unofficial fan project and is not affiliated with,
 authorized, sponsored, or endorsed by Microsoft.
+
+AlbionTogether requires a legally obtained Steam copy of Fable Anniversary
+with modding support. It does not distribute Microsoft game files or provide
+access to the game itself.
 
 Fable, Fable Anniversary, and all related names, trademarks, characters,
 imagery, and game content belong to Microsoft and/or their respective rights
