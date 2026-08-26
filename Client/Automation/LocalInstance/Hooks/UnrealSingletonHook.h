@@ -2,6 +2,7 @@
 
 #include "Automation/LocalInstance/Native/UnrealSingletonImport.h"
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -33,9 +34,8 @@ namespace fable::automation::local_instance
         static UnrealSingletonHook* active_;
 
         native::UnrealSingletonImport::Function original_ = nullptr;
-        native::UnrealSingletonImport::Function* slot_ = nullptr;
+        core::hooking::CodePatch patch_;
         std::wstring namespacedMutex_;
         std::atomic_ulong redirectCount_{0};
-        bool installed_ = false;
     };
 }

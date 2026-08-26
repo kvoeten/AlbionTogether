@@ -33,7 +33,11 @@ namespace fable::core::bootstrap
         DWORD timeoutMilliseconds) noexcept;
 
     // Idempotent shutdown used by diagnostics/tests and future process-owned
-    // shutdown coordination. DLL detach itself does not call this function.
+    // shutdown coordination. The caller must first quiesce every game thread
+    // that can execute an installed hook; joining the bootstrap/network work
+    // does not make native game call sites safe to rewrite. The production
+    // launcher therefore does not hot-unload the client. Normal process exit
+    // lets Windows reclaim it, and DLL detach does not call this function.
     void ShutdownClientRuntime() noexcept;
 }
 

@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -37,14 +37,6 @@ namespace fable::game::hero_pawn::appearance::hooks
         [[nodiscard]] bool IsInstalled() const noexcept;
 
     private:
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<std::uint8_t, 6> originalBytes = {};
-            std::size_t displacedBytes = 0;
-        };
-
         using ClothingRebuild = void(__thiscall*)(void*, void*);
         // CTCHeroAttachableAppearanceModifiers::RefreshIfDirty returns the
         // component dirty/result byte in AL. Preserve it exactly: callers in
@@ -63,8 +55,8 @@ namespace fable::game::hero_pawn::appearance::hooks
             std::uint8_t* target,
             void* replacement,
             std::size_t displacedBytes,
-            Detour& detour) noexcept;
-        void RestoreDetour(Detour& detour) noexcept;
+            core::hooking::InlineHook& detour) noexcept;
+        bool RestoreDetour(core::hooking::InlineHook& detour) noexcept;
         void Notify(const HeroAppearanceMutationEvent& event) noexcept;
 
         static HeroAppearanceMutationObserver* active_;
@@ -72,8 +64,8 @@ namespace fable::game::hero_pawn::appearance::hooks
         core::Diagnostics diagnostics_ = {};
         ClothingRebuild originalClothingRebuild_ = nullptr;
         ModifierRefresh originalModifierRefresh_ = nullptr;
-        Detour clothingDetour_ = {};
-        Detour modifierDetour_ = {};
+        core::hooking::InlineHook clothingDetour_;
+        core::hooking::InlineHook modifierDetour_;
         std::atomic<EventSink> eventSink_{nullptr};
         std::atomic<void*> eventSinkContext_{nullptr};
         std::atomic_uint mutationCount_{0};

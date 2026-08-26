@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Core/GameThread/Native/PeekMessageImport.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -33,9 +34,8 @@ namespace fable::core::game_thread
 
         core::Diagnostics diagnostics_ = {};
         native::PeekMessageImport::Function original_ = nullptr;
-        native::PeekMessageImport::Function* slot_ = nullptr;
+        core::hooking::CodePatch patch_;
         IdleCallback idleCallback_ = nullptr;
         DWORD gameThreadId_ = 0;
-        bool installed_ = false;
     };
 }

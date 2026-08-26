@@ -79,59 +79,35 @@ namespace fable::automation::fixture_documents
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                imported.slot,
-                sizeof(*imported.slot),
-                PAGE_READWRITE,
-                &previousProtection))
-        {
-            diagnostics_.Log(
-                "Hook: fixture Documents redirect could not change IAT protection.");
-            return false;
-        }
-
         fixtureDocumentsPath_ = fixtureDocumentsPath;
         original_ = imported.importedFunction;
-        slot_ = imported.slot;
-        active_ = this;
-        *imported.slot = &DocumentsFolderRedirectHook::Redirect;
-
-        DWORD discardedProtection = 0;
-        if (!VirtualProtect(
+        native::DocumentsFolderImport::Function replacement =
+            &DocumentsFolderRedirectHook::Redirect;
+        if (!patch_.Install(
                 imported.slot,
+                &imported.importedFunction,
                 sizeof(*imported.slot),
-                previousProtection,
-                &discardedProtection))
+                &replacement,
+                sizeof(replacement)))
         {
             diagnostics_.Log(
-                "Hook: fixture Documents redirect installed, but IAT protection restoration failed.");
+                "Hook: fixture Documents redirect could not patch the IAT slot.");
+            original_ = nullptr;
+            fixtureDocumentsPath_.clear();
+            return false;
         }
-
-        installed_ = true;
+        active_ = this;
         ReportInstalled();
         return true;
     }
 
     void DocumentsFolderRedirectHook::Shutdown() noexcept
     {
-        if (slot_ != nullptr && original_ != nullptr)
+        if (!patch_.Shutdown())
         {
-            DWORD protection = 0;
-            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
-            {
-                if (*slot_ == &DocumentsFolderRedirectHook::Redirect)
-                {
-                    *slot_ = original_;
-                }
-                DWORD discarded = 0;
-                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
-                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
-            }
+            return;
         }
         if (active_ == this) active_ = nullptr;
-        installed_ = false;
-        slot_ = nullptr;
         original_ = nullptr;
         diagnostics_ = {};
     }
@@ -172,7 +148,7 @@ namespace fable::automation::fixture_documents
 
     bool DocumentsFolderRedirectHook::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this && original_ != nullptr;
+        return active_ == this && original_ != nullptr && patch_.IsInstalled();
     }
 
     HRESULT WINAPI DocumentsFolderRedirectHook::Redirect(

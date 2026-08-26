@@ -1,9 +1,16 @@
 #include "WorldTravelObserver.h"
 
 #include <array>
-#include <climits>
+#include <cstdint>
 #include <cstdio>
-#include <cstring>
+
+namespace
+{
+    constexpr std::array<std::uint8_t, 4> RegionExitPrefix = {
+        0x83, 0xEC, 0x34, 0xA1};
+    constexpr std::array<std::uint8_t, 3> PrepareMapChangePrefix = {
+        0x6A, 0xFF, 0x68};
+}
 
 namespace fable::game::world::travel
 {
@@ -29,6 +36,12 @@ namespace fable::game::world::travel
         {
             return false;
         }
+        if (active_ == this)
+        {
+            diagnostics_.Log(
+                "Hook: world-travel installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
         std::uint8_t* regionExitTarget = nullptr;
         std::uint8_t* prepareMapChangeTarget = nullptr;
         if (!native::WorldTravelFunctions::ResolveRegionExitTrigger(
@@ -47,44 +60,49 @@ namespace fable::game::world::travel
         }
 
         active_ = this;
-        if (!InstallDetour(
+        if (!regionExitDetour_.Install(
                 regionExitTarget,
+                RegionExitPrefix.data(),
+                RegionExitPrefix.size(),
                 reinterpret_cast<void*>(&WorldTravelObserver::RegionExitTriggered),
-                native::WorldTravelFunctions::RegionExitDisplacedBytes,
-                regionExitDetour_))
+                native::WorldTravelFunctions::RegionExitDisplacedBytes))
         {
             active_ = nullptr;
             return false;
         }
         originalRegionExitTrigger_ = reinterpret_cast<
             native::WorldTravelFunctions::RegionExitTriggerPointer>(
-                regionExitDetour_.trampoline);
+                regionExitDetour_.Original());
 
-        if (!InstallDetour(
+        if (!prepareMapChangeDetour_.Install(
                 prepareMapChangeTarget,
+                PrepareMapChangePrefix.data(),
+                PrepareMapChangePrefix.size(),
                 reinterpret_cast<void*>(
                     &WorldTravelObserver::PrepareMapChangeObserved),
-                native::WorldTravelFunctions::PrepareMapChangeDisplacedBytes,
-                prepareMapChangeDetour_))
+                native::WorldTravelFunctions::PrepareMapChangeDisplacedBytes))
         {
-            RestoreDetour(regionExitDetour_);
-            originalRegionExitTrigger_ = nullptr;
-            active_ = nullptr;
+            const bool regionRestored = regionExitDetour_.Shutdown();
+            if (regionRestored)
+            {
+                originalRegionExitTrigger_ = nullptr;
+                if (active_ == this) active_ = nullptr;
+            }
             return false;
         }
         originalPrepareMapChange_ = reinterpret_cast<
             native::WorldTravelFunctions::PrepareMapChangePointer>(
-                prepareMapChangeDetour_.trampoline);
+                prepareMapChangeDetour_.Original());
 
         char detail[384] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "region_exit=%p region_exit_trampoline=%p prepare_map=%p prepare_map_trampoline=%p source_map_offset=0x9A connected_uid_offset=0x1C connected_handle_offset=0x26",
-            regionExitDetour_.target,
-            regionExitDetour_.trampoline,
-            prepareMapChangeDetour_.target,
-            prepareMapChangeDetour_.trampoline);
+            reinterpret_cast<void*>(regionExitTarget),
+            regionExitDetour_.Original(),
+            reinterpret_cast<void*>(prepareMapChangeTarget),
+            prepareMapChangeDetour_.Original());
         diagnostics_.Event("WorldTravelObserverReady", detail);
         return true;
 #endif
@@ -92,10 +110,23 @@ namespace fable::game::world::travel
 
     void WorldTravelObserver::Shutdown() noexcept
     {
+        const bool prepareRestored = prepareMapChangeDetour_.Shutdown();
+        const bool regionRestored = regionExitDetour_.Shutdown();
+        if (!prepareRestored || !regionRestored)
+        {
+            diagnostics_.Log(
+                "Hook: world-travel shutdown deferred because a target is owned by another hook.");
+            return;
+        }
+        if (prepareMapChangeDetour_.ProtectionRestoreFailed() ||
+            regionExitDetour_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Event(
+                "WorldTravelHookProtectionRestoreWarning",
+                "original-bytes-restored");
+        }
         SetDepartureSink(nullptr, nullptr);
         SetPreparationSink(nullptr, nullptr);
-        RestoreDetour(prepareMapChangeDetour_);
-        RestoreDetour(regionExitDetour_);
         if (active_ == this) active_ = nullptr;
         originalPrepareMapChange_ = nullptr;
         originalRegionExitTrigger_ = nullptr;
@@ -164,8 +195,8 @@ namespace fable::game::world::travel
             resolveConnectedThing_ != nullptr &&
             originalRegionExitTrigger_ != nullptr &&
             originalPrepareMapChange_ != nullptr &&
-            regionExitDetour_.target != nullptr &&
-            prepareMapChangeDetour_.target != nullptr;
+            regionExitDetour_.IsInstalled() &&
+            prepareMapChangeDetour_.IsInstalled();
     }
 
     void __fastcall WorldTravelObserver::RegionExitTriggered(
@@ -312,123 +343,6 @@ namespace fable::game::world::travel
             "WorldTravelConstructionHeld",
             "retail map construction waits for the host saved-map baseline");
         return false;
-    }
-
-    bool WorldTravelObserver::InstallDetour(
-        std::uint8_t* target,
-        void* replacement,
-        std::size_t displacedBytes,
-        Detour& detour) noexcept
-    {
-        if (target == nullptr || replacement == nullptr ||
-            displacedBytes < 5 || displacedBytes > MaximumDisplacedBytes ||
-            detour.target != nullptr)
-        {
-            return false;
-        }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        trampoline[displacedBytes] = 0xE9;
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-
-        std::array<std::uint8_t, MaximumDisplacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        detour.target = target;
-        detour.trampoline = trampoline;
-        detour.displacedBytes = displacedBytes;
-        std::memcpy(target, patch.data(), displacedBytes);
-        FlushInstructionCache(GetCurrentProcess(), target, displacedBytes);
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(
-            target,
-            displacedBytes,
-            previousProtection,
-            &discarded);
-        return true;
-    }
-
-    void WorldTravelObserver::RestoreDetour(Detour& detour) noexcept
-    {
-        if (detour.target == nullptr)
-        {
-            return;
-        }
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.displacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.displacedBytes);
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                detour.target,
-                detour.displacedBytes);
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.displacedBytes,
-                previousProtection,
-                &discarded);
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
     }
 
     void WorldTravelObserver::ReportRegionExit(

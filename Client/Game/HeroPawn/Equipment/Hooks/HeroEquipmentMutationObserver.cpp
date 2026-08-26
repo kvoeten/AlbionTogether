@@ -1,6 +1,6 @@
 #include "HeroEquipmentMutationObserver.h"
 
-#include <climits>
+#include <array>
 #include <cstdio>
 #include <cstring>
 
@@ -51,14 +51,14 @@ namespace fable::game::hero_pawn::equipment::hooks
             active_ = nullptr;
             return false;
         }
-        original_ = reinterpret_cast<ReconcilePresentation>(trampoline_);
+        original_ = reinterpret_cast<ReconcilePresentation>(patch_.Original());
         char detail[160] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "target=%p trampoline=%p function_rva=0x%08X",
-            target_,
-            trampoline_,
+            target,
+            patch_.Original(),
             static_cast<unsigned int>(kReconcilePresentationRva));
         diagnostics_.Event("HeroEquipmentMutationObserverReady", detail);
         return true;
@@ -67,44 +67,18 @@ namespace fable::game::hero_pawn::equipment::hooks
 
     void HeroEquipmentMutationObserver::Shutdown() noexcept
     {
+        if (!patch_.Shutdown())
+        {
+            diagnostics_.Log(
+                "Hook: Hero equipment patch was not removed because target ownership changed.");
+            return;
+        }
         SetEventSink(nullptr, nullptr);
         if (active_ == this)
         {
             active_ = nullptr;
         }
-        if (target_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_,
-                    originalBytes_.size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(
-                    target_,
-                    originalBytes_.data(),
-                    originalBytes_.size());
-                FlushInstructionCache(
-                    GetCurrentProcess(),
-                    target_,
-                    originalBytes_.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_,
-                    originalBytes_.size(),
-                    previousProtection,
-                    &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
         original_ = nullptr;
-        target_ = nullptr;
-        trampoline_ = nullptr;
-        originalBytes_.fill(0);
         diagnostics_ = {};
     }
 
@@ -124,70 +98,19 @@ namespace fable::game::hero_pawn::equipment::hooks
 
     bool HeroEquipmentMutationObserver::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr &&
-            target_ != nullptr && trampoline_ != nullptr;
+        return active_ == this && original_ != nullptr && patch_.IsInstalled();
     }
 
     bool HeroEquipmentMutationObserver::InstallDetour(
         std::uint8_t* target,
         void* replacement) noexcept
     {
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            DisplacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(originalBytes_.data(), target, DisplacedBytes);
-        std::memcpy(trampoline, target, DisplacedBytes);
-        trampoline[DisplacedBytes] = 0xE9;
-        const std::intptr_t resume =
-            reinterpret_cast<std::intptr_t>(target + DisplacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + DisplacedBytes) + 5);
-        const std::intptr_t redirect =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resume < INT32_MIN || resume > INT32_MAX ||
-            redirect < INT32_MIN || redirect > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resumeRelative = static_cast<std::int32_t>(resume);
-        std::memcpy(
-            trampoline + DisplacedBytes + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-        std::array<std::uint8_t, DisplacedBytes> patch = {};
-        patch[0] = 0xE9;
-        const auto redirectRelative = static_cast<std::int32_t>(redirect);
-        std::memcpy(
-            patch.data() + 1,
-            &redirectRelative,
-            sizeof(redirectRelative));
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                DisplacedBytes,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(), trampoline, DisplacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(
-            target, DisplacedBytes, previousProtection, &discarded);
-        target_ = target;
-        trampoline_ = trampoline;
-        return true;
+        return patch_.Install(
+            target,
+            target,
+            DisplacedBytes,
+            replacement,
+            DisplacedBytes);
     }
 
     void __fastcall HeroEquipmentMutationObserver::Observe(

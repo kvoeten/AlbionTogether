@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
@@ -54,8 +55,7 @@ namespace fable::game::creature::equipment::hooks
         struct Detour final
         {
             std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<std::uint8_t, 7> originalBytes = {};
+            core::hooking::InlineHook patch;
             std::size_t displacedBytes = 0;
         };
 
@@ -71,10 +71,12 @@ namespace fable::game::creature::equipment::hooks
             void* thing);
         bool InstallDetour(
             std::uint8_t* target,
+            const void* expected,
+            std::size_t expectedSize,
             std::size_t displacedBytes,
             void* replacement,
             Detour& detour) noexcept;
-        static void RestoreDetour(Detour& detour) noexcept;
+        static bool RestoreDetour(Detour& detour) noexcept;
         void Publish(const CreatureCarryingMutationEvent& event) noexcept;
 
         static CreatureCarryingMutationObserver* active_;

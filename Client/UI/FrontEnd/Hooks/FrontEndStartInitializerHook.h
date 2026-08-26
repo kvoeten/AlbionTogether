@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "UI/FrontEnd/Native/FrontEndStartInitializer.h"
 
 #include <Windows.h>
@@ -28,8 +29,7 @@ namespace fable::ui::front_end
 
         core::Diagnostics diagnostics_ = {};
         native::FrontEndStartInitializer::Pointer original_ = nullptr;
-        std::uint8_t* target_ = nullptr;
         InitializedCallback initializedCallback_ = nullptr;
-        void* trampoline_ = nullptr;
+        core::hooking::InlineHook patch_;
     };
 }

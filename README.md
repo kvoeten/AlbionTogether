@@ -65,3 +65,7 @@ Use `--port <port>` on both computers to choose a different UDP port.
 Build `FableTogether.sln` as `Release | Win32`. Deployable files are written to `bin\Release`.
 
 The project also includes an embedded AngelScript runtime and native scripting APIs for future gameplay mods.
+
+## License
+
+FableTogether is available under the [MIT License](LICENSE).

@@ -42,34 +42,18 @@ namespace fable::game::creature::locomotion
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                PAGE_READWRITE,
-                &previousProtection))
+        void* const expected = reinterpret_cast<void*>(original);
+        void* const replacement = reinterpret_cast<void*>(&PhysicsWorldPositionMirrorHook::Observe);
+        if (!vtablePatch_.Install(
+                slot, &expected, sizeof(expected), &replacement, sizeof(replacement)))
         {
             diagnostics_.Log(
-                "Hook: CTCPhysicsControlled world-position vtable protection change failed.");
+                "Hook: CTCPhysicsControlled world-position vtable patch installation failed.");
             return false;
         }
 
         original_ = original;
-        vtableSlot_ = slot;
         active_ = this;
-        *slot = reinterpret_cast<void*>(&PhysicsWorldPositionMirrorHook::Observe);
-        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                previousProtection,
-                &discarded))
-        {
-            diagnostics_.Log(
-                "Hook: physics world-position mirror installed, but vtable protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -121,24 +105,23 @@ namespace fable::game::creature::locomotion
 
     void PhysicsWorldPositionMirrorHook::Shutdown() noexcept
     {
-        Clear();
-        if (active_ == this && vtableSlot_ != nullptr && original_ != nullptr)
+        if (vtablePatch_.IsInstalled())
         {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), PAGE_READWRITE, &previousProtection))
+            if (!vtablePatch_.Shutdown())
             {
-                if (*vtableSlot_ == reinterpret_cast<void*>(&Observe))
-                {
-                    *vtableSlot_ = reinterpret_cast<void*>(original_);
-                    FlushInstructionCache(GetCurrentProcess(), vtableSlot_, sizeof(*vtableSlot_));
-                }
-                DWORD discarded = 0;
-                VirtualProtect(vtableSlot_, sizeof(*vtableSlot_), previousProtection, &discarded);
+                diagnostics_.Log(
+                    "Hook: physics world-position mirror shutdown skipped because its vtable slot changed.");
+                return;
             }
-            active_ = nullptr;
         }
+        if (vtablePatch_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: physics world-position mirror bytes restored, but vtable protection restoration failed.");
+        }
+        Clear();
+        if (active_ == this) active_ = nullptr;
         original_ = nullptr;
-        vtableSlot_ = nullptr;
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -151,7 +134,7 @@ namespace fable::game::creature::locomotion
 
     bool PhysicsWorldPositionMirrorHook::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr && vtableSlot_ != nullptr;
+        return active_ == this && original_ != nullptr && vtablePatch_.IsInstalled();
     }
 
     bool PhysicsWorldPositionMirrorHook::IsBound() const noexcept

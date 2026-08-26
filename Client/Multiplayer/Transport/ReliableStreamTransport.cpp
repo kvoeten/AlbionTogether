@@ -11,6 +11,103 @@
 
 #include <limits>
 #include <cstring>
+#include <algorithm>
+#include <chrono>
+#include <type_traits>
+
+namespace
+{
+    constexpr std::uint32_t kReliableFragmentMagic = 0x52474654u;
+    constexpr std::uint8_t kReliableFragmentVersion = 1;
+
+#pragma pack(push, 1)
+    struct ReliableFragmentWire final
+    {
+        std::uint32_t magic = kReliableFragmentMagic;
+        std::uint8_t version = kReliableFragmentVersion;
+        std::uint8_t originalType = 0;
+        std::uint16_t fragmentIndex = 0;
+        std::uint16_t fragmentCount = 0;
+        std::uint16_t chunkSize = 0;
+        std::uint32_t totalSize = 0;
+        std::uint32_t logicalSequence = 0;
+        std::uint32_t reserved = 0;
+    };
+#pragma pack(pop)
+
+    static_assert(sizeof(ReliableFragmentWire) == 24);
+    static_assert(std::is_trivially_copyable_v<ReliableFragmentWire>);
+
+    struct ParsedFragment final
+    {
+        ReliableFragmentWire wire = {};
+        const std::uint8_t* chunk = nullptr;
+    };
+
+    bool ParseFragment(
+        const fable::multiplayer::TransportMessage& message,
+        ParsedFragment& output) noexcept
+    {
+        using namespace fable::multiplayer;
+        using protocol::PacketType;
+        output = {};
+        if (message.type != PacketType::ReliableFragment ||
+            message.streamId.kind != ReliableStreamKind::Actor ||
+            message.streamId.subject == 0 ||
+            message.payloadSize < sizeof(ReliableFragmentWire) ||
+            message.payloadSize > protocol::MaximumPayloadBytes())
+        {
+            return false;
+        }
+        std::memcpy(&output.wire, message.payload.data(), sizeof(output.wire));
+        if (output.wire.magic != kReliableFragmentMagic ||
+            output.wire.version != kReliableFragmentVersion ||
+            output.wire.originalType != static_cast<std::uint8_t>(
+                PacketType::PlayerActorState) ||
+            output.wire.fragmentCount < 2 ||
+            output.wire.fragmentCount > ReliableStreamTransport::MaximumFragmentCount ||
+            output.wire.fragmentIndex >= output.wire.fragmentCount ||
+            output.wire.chunkSize != message.payloadSize - sizeof(output.wire) ||
+            output.wire.chunkSize == 0 ||
+            output.wire.totalSize == 0 ||
+            output.wire.totalSize > protocol::MaximumReliableMessageBytes ||
+            output.wire.logicalSequence == 0 || output.wire.reserved != 0 ||
+            output.wire.chunkSize > ReliableStreamTransport::MaximumFragmentPayloadBytes)
+        {
+            return false;
+        }
+        const std::size_t offset = static_cast<std::size_t>(
+            output.wire.fragmentIndex) *
+            ReliableStreamTransport::MaximumFragmentPayloadBytes;
+        if (offset >= output.wire.totalSize ||
+            offset + output.wire.chunkSize > output.wire.totalSize)
+        {
+            return false;
+        }
+        const std::size_t expectedCount =
+            (output.wire.totalSize +
+                ReliableStreamTransport::MaximumFragmentPayloadBytes - 1) /
+            ReliableStreamTransport::MaximumFragmentPayloadBytes;
+        if (expectedCount != output.wire.fragmentCount ||
+            (output.wire.fragmentIndex + 1 < output.wire.fragmentCount &&
+                output.wire.chunkSize !=
+                    ReliableStreamTransport::MaximumFragmentPayloadBytes) ||
+            (output.wire.fragmentIndex + 1 == output.wire.fragmentCount &&
+                output.wire.chunkSize != output.wire.totalSize - offset))
+        {
+            return false;
+        }
+        output.chunk = message.payload.data() + sizeof(output.wire);
+        return true;
+    }
+
+    std::uint64_t NowMilliseconds() noexcept
+    {
+        return static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+}
 
 namespace fable::multiplayer
 {
@@ -30,7 +127,7 @@ namespace fable::multiplayer
         for (const auto& [streamId, stream] : streams)
         {
             (void)streamId;
-            count += stream.queue.size();
+            count += stream.logicalQueueSize;
         }
         return count;
     }
@@ -171,7 +268,7 @@ namespace fable::multiplayer
         return (stream != outbound_.end() ||
             outbound_.size() < StreamMetadataLimit) &&
             (stream == outbound_.end() ||
-                stream->second.queue.size() < PerStreamQueueLimit);
+                stream->second.logicalQueueSize < PerStreamQueueLimit);
     }
 
     bool ReliableStreamTransport::CanEnqueueMessage(
@@ -180,9 +277,27 @@ namespace fable::multiplayer
         const std::uint8_t* payload,
         const std::size_t payloadSize) const
     {
-        return ValidatePayloadStream(streamId, type, payload, payloadSize) &&
-            payloadSize <= protocol::MaximumPayloadBytes() &&
-            CanEnqueue(streamId);
+        if (!ValidatePayloadStream(streamId, type, payload, payloadSize) ||
+            payloadSize > protocol::MaximumReliableMessageBytes)
+        {
+            return false;
+        }
+        const std::size_t fragmentCount =
+            payloadSize <= protocol::MaximumPayloadBytes()
+                ? 1
+                : (payloadSize + MaximumFragmentPayloadBytes - 1) /
+                    MaximumFragmentPayloadBytes;
+        if (fragmentCount > MaximumFragmentCount ||
+            Count(outbound_) + 1 > TotalQueueLimit)
+        {
+            return false;
+        }
+        const auto stream = outbound_.find(streamId);
+        return (stream != outbound_.end() ||
+            outbound_.size() < StreamMetadataLimit) &&
+            (stream == outbound_.end() ||
+            stream->second.logicalQueueSize + 1 <=
+                PerStreamQueueLimit);
     }
 
     bool ReliableStreamTransport::IsMessageValid(
@@ -191,8 +306,16 @@ namespace fable::multiplayer
         const std::uint8_t* payload,
         const std::size_t payloadSize) noexcept
     {
-        return ValidatePayloadStream(streamId, type, payload, payloadSize) &&
-            payloadSize <= protocol::MaximumPayloadBytes();
+        if (!ValidatePayloadStream(streamId, type, payload, payloadSize) ||
+            payloadSize > protocol::MaximumReliableMessageBytes)
+        {
+            return false;
+        }
+        return payloadSize <= protocol::MaximumPayloadBytes() ||
+            (type == protocol::PacketType::PlayerActorState &&
+                streamId.kind == ReliableStreamKind::Actor &&
+                (payloadSize + MaximumFragmentPayloadBytes - 1) /
+                    MaximumFragmentPayloadBytes <= MaximumFragmentCount);
     }
 
     bool ReliableStreamTransport::Enqueue(
@@ -217,17 +340,63 @@ namespace fable::multiplayer
                 return false;
             }
             stream.nextSequence = 1u;
+            stream.nextLogicalSequence = 1u;
         }
-        TransportMessage message;
-        message.type = type;
-        message.sourceActorId = sourceActorId;
-        message.streamId = streamId;
-        message.streamIncarnation = stream.incarnation;
-        message.sequence = stream.nextSequence;
-        stream.nextSequence = NextSequence(stream.nextSequence);
-        message.payloadSize = payloadSize;
-        std::memcpy(message.payload.data(), payload, payloadSize);
-        stream.queue.push_back(std::move(message));
+        if (payloadSize <= protocol::MaximumPayloadBytes())
+        {
+            TransportMessage message;
+            message.type = type;
+            message.sourceActorId = sourceActorId;
+            message.streamId = streamId;
+            message.streamIncarnation = stream.incarnation;
+            message.sequence = stream.nextSequence;
+            stream.nextSequence = NextSequence(stream.nextSequence);
+            stream.nextLogicalSequence = NextSequence(stream.nextLogicalSequence);
+            message.payloadSize = payloadSize;
+            std::memcpy(message.payload.data(), payload, payloadSize);
+            stream.queue.push_back(std::move(message));
+            ++stream.logicalQueueSize;
+            return true;
+        }
+
+        const std::size_t fragmentCount =
+            (payloadSize + MaximumFragmentPayloadBytes - 1) /
+            MaximumFragmentPayloadBytes;
+        if (fragmentCount > MaximumFragmentCount)
+        {
+            return false;
+        }
+        const std::uint32_t logicalSequence = stream.nextLogicalSequence;
+        for (std::size_t index = 0; index < fragmentCount; ++index)
+        {
+            const std::size_t offset = index * MaximumFragmentPayloadBytes;
+            const std::size_t chunkSize = std::min(
+                MaximumFragmentPayloadBytes, payloadSize - offset);
+            ReliableFragmentWire header;
+            header.originalType = static_cast<std::uint8_t>(type);
+            header.fragmentIndex = static_cast<std::uint16_t>(index);
+            header.fragmentCount = static_cast<std::uint16_t>(fragmentCount);
+            header.chunkSize = static_cast<std::uint16_t>(chunkSize);
+            header.totalSize = static_cast<std::uint32_t>(payloadSize);
+            header.logicalSequence = logicalSequence;
+
+            TransportMessage message;
+            message.type = protocol::PacketType::ReliableFragment;
+            message.sourceActorId = sourceActorId;
+            message.streamId = streamId;
+            message.streamIncarnation = stream.incarnation;
+            message.sequence = stream.nextSequence;
+            stream.nextSequence = NextSequence(stream.nextSequence);
+            message.payloadSize = sizeof(header) + chunkSize;
+            message.logicalMessageEnd = index + 1 == fragmentCount;
+            std::memcpy(message.payload.data(), &header, sizeof(header));
+            std::memcpy(
+                message.payload.data() + sizeof(header), payload + offset,
+                chunkSize);
+            stream.queue.push_back(std::move(message));
+        }
+        stream.nextLogicalSequence = NextSequence(stream.nextLogicalSequence);
+        ++stream.logicalQueueSize;
         return true;
     }
 
@@ -245,6 +414,104 @@ namespace fable::multiplayer
         const std::uint64_t result = nextIncarnation_;
         ++nextIncarnation_;
         return result;
+    }
+
+    bool ReliableStreamTransport::AcceptFragment(TransportMessage message)
+    {
+        ParsedFragment fragment;
+        if (!ParseFragment(message, fragment))
+        {
+            return false;
+        }
+        const std::uint64_t now = NowMilliseconds();
+        // Only a new logical message can safely reap old partial messages.
+        // Reaping while waiting for a later fragment would make a delayed
+        // fragment unrecoverable after the first fragment had been ACKed.
+        for (auto iterator = reassemblies_.begin();
+             fragment.wire.fragmentIndex == 0 &&
+                 iterator != reassemblies_.end();)
+        {
+            if (now >= iterator->second.lastTouchedAt &&
+                now - iterator->second.lastTouchedAt >
+                    ReassemblyTimeoutMilliseconds)
+            {
+                iterator = reassemblies_.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        const ReassemblyKey key = {
+            message.streamId,
+            message.streamIncarnation,
+            fragment.wire.logicalSequence};
+        auto iterator = reassemblies_.find(key);
+        if (iterator == reassemblies_.end())
+        {
+            if (fragment.wire.fragmentIndex != 0)
+            {
+                return false;
+            }
+            if (reassemblies_.size() >= 32)
+            {
+                return false;
+            }
+            Reassembly reassembly;
+            reassembly.originalType = static_cast<protocol::PacketType>(
+                fragment.wire.originalType);
+            reassembly.sourceActorId = message.sourceActorId;
+            reassembly.connectionNonce = message.connectionNonce;
+            reassembly.fragmentCount = fragment.wire.fragmentCount;
+            reassembly.totalSize = fragment.wire.totalSize;
+            reassembly.lastTouchedAt = now;
+            iterator = reassemblies_.emplace(key, std::move(reassembly)).first;
+        }
+        Reassembly& reassembly = iterator->second;
+        if (reassembly.sourceActorId != message.sourceActorId ||
+            reassembly.connectionNonce != message.connectionNonce ||
+            reassembly.fragmentCount != fragment.wire.fragmentCount ||
+            reassembly.totalSize != fragment.wire.totalSize ||
+            reassembly.receivedMask &
+                static_cast<std::uint16_t>(1u << fragment.wire.fragmentIndex))
+        {
+            return false;
+        }
+        reassembly.lastTouchedAt = now;
+        const std::size_t offset = static_cast<std::size_t>(
+            fragment.wire.fragmentIndex) * MaximumFragmentPayloadBytes;
+        std::memcpy(
+            reassembly.payload.data() + offset,
+            fragment.chunk,
+            fragment.wire.chunkSize);
+        reassembly.receivedMask |= static_cast<std::uint16_t>(
+            1u << fragment.wire.fragmentIndex);
+        ++reassembly.receivedCount;
+        if (reassembly.receivedCount != reassembly.fragmentCount)
+        {
+            return true;
+        }
+
+        TransportMessage complete;
+        complete.type = reassembly.originalType;
+        complete.sourceActorId = reassembly.sourceActorId;
+        complete.connectionNonce = reassembly.connectionNonce;
+        complete.streamId = message.streamId;
+        complete.streamIncarnation = message.streamIncarnation;
+        complete.sequence = fragment.wire.logicalSequence;
+        complete.payloadSize = reassembly.totalSize;
+        std::memcpy(
+            complete.payload.data(), reassembly.payload.data(),
+            reassembly.totalSize);
+        reassemblies_.erase(iterator);
+
+        std::deque<TransportMessage>& stream = inbound_[complete.streamId];
+        stream.push_back(std::move(complete));
+        if (readyStreamSet_.insert(stream.front().streamId).second)
+        {
+            readyStreams_.push_back(stream.front().streamId);
+        }
+        return true;
     }
 
     bool ReliableStreamTransport::ReclaimCompletedStream() noexcept
@@ -315,12 +582,17 @@ namespace fable::multiplayer
     ReliableReceiveResult ReliableStreamTransport::AcceptIncoming(
         TransportMessage message)
     {
+        ParsedFragment fragment;
+        const bool isFragment =
+            message.type == protocol::PacketType::ReliableFragment;
         if (message.sequence == 0 || message.streamIncarnation == 0 ||
-            !ValidatePayloadStream(
-                message.streamId,
-                message.type,
-                message.payload.data(),
-                message.payloadSize))
+            (isFragment
+                ? !ParseFragment(message, fragment)
+                : !ValidatePayloadStream(
+                    message.streamId,
+                    message.type,
+                    message.payload.data(),
+                    message.payloadSize)))
         {
             return ReliableReceiveResult::Rejected;
         }
@@ -370,6 +642,47 @@ namespace fable::multiplayer
         {
             return ReliableReceiveResult::Rejected;
         }
+        if (isFragment)
+        {
+            const ReassemblyKey key = {
+                message.streamId,
+                message.streamIncarnation,
+                fragment.wire.logicalSequence};
+            const auto reassembly = reassemblies_.find(key);
+            if (reassembly == reassemblies_.end() &&
+                fragment.wire.fragmentIndex != 0)
+            {
+                return ReliableReceiveResult::Rejected;
+            }
+            if (reassembly == reassemblies_.end() &&
+                reassemblies_.size() >= 32)
+            {
+                return ReliableReceiveResult::Backpressured;
+            }
+            if (fragment.wire.fragmentIndex + 1 ==
+                    fragment.wire.fragmentCount)
+            {
+                const auto inbound = inbound_.find(message.streamId);
+                if (inbound != inbound_.end() &&
+                    inbound->second.size() >= PerStreamQueueLimit)
+                {
+                    return ReliableReceiveResult::Backpressured;
+                }
+            }
+        }
+        if (isFragment)
+        {
+            const std::uint32_t acceptedSequence = message.sequence;
+            if (!AcceptFragment(std::move(message)))
+            {
+                return ReliableReceiveResult::Rejected;
+            }
+            // Commit sequence advancement only after fragment validation and
+            // reassembly succeeded; rejected fragments must not poison the
+            // ordered stream's next expected sequence.
+            previous = acceptedSequence;
+            return ReliableReceiveResult::Accepted;
+        }
         std::deque<TransportMessage>& stream = inbound_[message.streamId];
         if (stream.size() >= PerStreamQueueLimit)
         {
@@ -395,6 +708,11 @@ namespace fable::multiplayer
             while (!stream.queue.empty() &&
                 stream.acknowledgedSequence == stream.queue.front().sequence)
             {
+                if (stream.queue.front().logicalMessageEnd &&
+                    stream.logicalQueueSize != 0)
+                {
+                    --stream.logicalQueueSize;
+                }
                 stream.queue.pop_front();
                 stream.lastSentSequence = 0;
                 stream.lastSentAt = 0;
@@ -466,5 +784,6 @@ namespace fable::multiplayer
         completedStreams_.clear();
         retiredIncarnations_.clear();
         retiredStreams_.clear();
+        reassemblies_.clear();
     }
 }

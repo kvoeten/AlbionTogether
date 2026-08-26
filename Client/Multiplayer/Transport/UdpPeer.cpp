@@ -86,7 +86,7 @@ namespace fable::multiplayer
             std::size_t payloadSize = 0;
             std::array<
                 std::uint8_t,
-                protocol::MaximumDatagramBytes - protocol::PacketHeaderBytes>
+                protocol::MaximumReliableMessageBytes>
                 payload = {};
             std::unordered_set<PendingPeer, PendingPeerHash> pending;
         };
@@ -1635,7 +1635,7 @@ namespace fable::multiplayer
     {
         if (!IsStarted() || HasFailed() || !IsReliablePacketType(type) ||
             payload == nullptr || payloadSize == 0 ||
-            payloadSize > protocol::MaximumPayloadBytes())
+            payloadSize > protocol::MaximumReliableMessageBytes)
         {
             return false;
         }

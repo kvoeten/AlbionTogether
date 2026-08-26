@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 
 #include <Windows.h>
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -32,9 +32,7 @@ namespace fable::game::hero_pawn::equipment::hooks
         static HeroEquipmentMutationObserver* active_;
         core::Diagnostics diagnostics_ = {};
         ReconcilePresentation original_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        void* trampoline_ = nullptr;
-        std::array<std::uint8_t, DisplacedBytes> originalBytes_ = {};
+        core::hooking::InlineHook patch_;
         std::atomic<EventSink> eventSink_{nullptr};
         std::atomic<void*> eventSinkContext_{nullptr};
     };

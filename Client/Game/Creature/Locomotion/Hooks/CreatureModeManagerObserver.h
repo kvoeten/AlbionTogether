@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Creature/Locomotion/CreatureModeSourceEvent.h"
 #include "Game/Creature/Locomotion/Native/CreatureModeManagerFunctions.h"
@@ -141,9 +142,9 @@ namespace fable::game::creature::locomotion
             originalRemoveSource_ = nullptr;
         native::CreatureModeManagerFunctions::EvaluateLocomotionPointer
             originalEvaluateLocomotion_ = nullptr;
-        void* addSourceTrampoline_ = nullptr;
-        void* removeSourceTrampoline_ = nullptr;
-        void* evaluateLocomotionTrampoline_ = nullptr;
+        core::hooking::InlineHook addSourceHook_;
+        core::hooking::InlineHook removeSourceHook_;
+        core::hooking::InlineHook evaluateLocomotionHook_;
         std::atomic_uint addCount_{0};
         std::atomic_uint removeCount_{0};
         std::array<std::atomic<void*>, WatchedOwnerLimit> watchedOwners_ = {};

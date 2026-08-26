@@ -119,11 +119,13 @@ namespace fable::multiplayer::replication
                 pending_.pop_front();
                 continue;
             }
-            std::array<std::uint8_t, protocol::MaximumDatagramBytes> payload = {};
+            std::array<
+                std::uint8_t,
+                protocol::MaximumReliableMessageBytes> payload = {};
             std::size_t payloadSize = 0;
             if (!protocol::EncodePlayerActorStateMessage(
                     pending_.front(), payload.data(),
-                    protocol::MaximumPayloadBytes(), payloadSize))
+                    protocol::MaximumReliableMessageBytes, payloadSize))
             {
                 if (diagnostics_ != nullptr)
                 {

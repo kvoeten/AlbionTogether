@@ -2,10 +2,7 @@
 
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
-#include <array>
-#include <climits>
 #include <cstdio>
-#include <cstring>
 
 namespace fable::game::npc::village
 {
@@ -43,73 +40,23 @@ namespace fable::game::npc::village
         }
         constexpr std::size_t displacedBytes = native::
             VillageMembershipFunctions::SetVillagePointerDisplacedBytes;
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(originalBytes_.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t resumeDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t hookDisplacement =
-            reinterpret_cast<std::intptr_t>(
-                &VillageMembershipMutationHook::Intercept) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resumeDisplacement < INT32_MIN ||
-            resumeDisplacement > INT32_MAX ||
-            hookDisplacement < INT32_MIN ||
-            hookDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resumeRelative = static_cast<std::int32_t>(
-            resumeDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto hookRelative = static_cast<std::int32_t>(hookDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &hookRelative,
-            sizeof(hookRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
         gameModule_ = gameModule;
-        target_ = target;
-        trampoline_ = trampoline;
+        constexpr std::uint8_t expectedPrologue[] = {0x6A, 0xFF, 0x68};
+        if (!patch_.Install(
+                target,
+                expectedPrologue,
+                sizeof(expectedPrologue),
+                reinterpret_cast<void*>(
+                    &VillageMembershipMutationHook::Intercept),
+                displacedBytes))
+        {
+            gameModule_ = nullptr;
+            return false;
+        }
         original_ = reinterpret_cast<
             native::VillageMembershipFunctions::SetVillagePointer>(
-                trampoline);
+                patch_.Original());
         active_ = this;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(target, patch.size(), previousProtection, &discarded);
 
         char detail[256] = {};
         std::snprintf(
@@ -118,7 +65,7 @@ namespace fable::game::npc::village
             "target=%p replacement=%p trampoline=%p function_rva=0x%08X",
             target,
             &VillageMembershipMutationHook::Intercept,
-            trampoline_,
+            patch_.Original(),
             static_cast<unsigned int>(
                 native::VillageMembershipFunctions::SetVillagePointerRva));
         diagnostics_.Event("VillageMembershipMutationHookReady", detail);
@@ -128,33 +75,18 @@ namespace fable::game::npc::village
 
     void VillageMembershipMutationHook::Shutdown() noexcept
     {
+        if (!patch_.Shutdown())
+        {
+            diagnostics_.Log(
+                "Hook: village-membership mutation patch was not removed because target ownership changed.");
+            return;
+        }
         SetEventSink(nullptr, nullptr);
         if (active_ == this)
         {
             active_ = nullptr;
         }
-        if (target_ != nullptr && trampoline_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_, originalBytes_.size(), PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(target_, originalBytes_.data(), originalBytes_.size());
-                FlushInstructionCache(GetCurrentProcess(), target_, originalBytes_.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_, originalBytes_.size(), previousProtection, &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
-        target_ = nullptr;
-        trampoline_ = nullptr;
         original_ = nullptr;
-        originalBytes_ = {};
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -251,7 +183,7 @@ namespace fable::game::npc::village
     bool VillageMembershipMutationHook::IsInstalled() const noexcept
     {
         return active_ == this && original_ != nullptr &&
-            trampoline_ != nullptr && gameModule_ != nullptr;
+            patch_.IsInstalled() && gameModule_ != nullptr;
     }
 
     void* VillageMembershipMutationHook::ReadOwnerThing(

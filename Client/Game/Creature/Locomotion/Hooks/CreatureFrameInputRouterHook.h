@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 
 #include <Windows.h>
@@ -35,7 +36,7 @@ namespace fable::game::creature::locomotion
         core::Diagnostics diagnostics_ = {};
         ::fable::game::creature::native::CreatureFrameFunctions::UpdateFramePointer
             original_ = nullptr;
-        void** vtableSlot_ = nullptr;
+        core::hooking::CodePatch vtablePatch_;
         std::atomic<void*> source_{nullptr};
         std::atomic<void*> targetNavigator_{nullptr};
         std::atomic<FrameObserver> frameObserver_{nullptr};

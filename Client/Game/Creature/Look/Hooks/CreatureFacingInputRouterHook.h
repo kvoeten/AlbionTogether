@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Math/Vector3.h"
 
@@ -93,7 +94,7 @@ namespace fable::game::creature::look
         core::Diagnostics diagnostics_ = {};
         ::fable::game::creature::native::CreatureFrameFunctions::UpdateFramePointer
             original_ = nullptr;
-        void** vtableSlot_ = nullptr;
+        core::hooking::CodePatch vtablePatch_;
         mutable SRWLOCK bindingLock_ = SRWLOCK_INIT;
         std::unordered_map<void*, std::shared_ptr<Binding>> bindings_;
         std::atomic<FrameObserver> frameObserver_{nullptr};

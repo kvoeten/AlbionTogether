@@ -1,13 +1,13 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/NPC/Village/Native/VillageMembershipFunctions.h"
 #include "Game/NPC/Village/VillageMembershipMutationEvent.h"
 
 #include <Windows.h>
 
 #include <atomic>
-#include <array>
 
 namespace fable::game::npc::village
 {
@@ -45,11 +45,7 @@ namespace fable::game::npc::village
 
         native::VillageMembershipFunctions::SetVillagePointer original_ =
             nullptr;
-        void* trampoline_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        std::array<std::uint8_t,
-            native::VillageMembershipFunctions::SetVillagePointerDisplacedBytes>
-                originalBytes_ = {};
+        core::hooking::InlineHook patch_;
         HMODULE gameModule_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         std::atomic<EventSink> eventSink_{nullptr};

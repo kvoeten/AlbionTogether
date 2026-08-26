@@ -28,6 +28,12 @@ namespace fable::game::npc::population
         {
             return false;
         }
+        if (active_ == this)
+        {
+            diagnostics_.Log(
+                "Hook: population installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
         std::uint8_t* processAlbionTarget = nullptr;
         std::uint8_t* highDetailTarget = nullptr;
         if (!native::PopulationSimulationFunctions::ResolveProcessAlbion(
@@ -54,31 +60,37 @@ namespace fable::game::npc::population
         }
         originalProcessAlbion_ = reinterpret_cast<
             native::PopulationSimulationFunctions::SimulationPointer>(
-                processAlbionDetour_.trampoline);
+                processAlbionDetour_.Original());
         if (!InstallDetour(
                 highDetailTarget,
                 reinterpret_cast<void*>(
                     &PopulationSimulationHook::ProcessHighDetail),
                 highDetailDetour_))
         {
-            RestoreDetour(processAlbionDetour_);
+            const bool rollbackRestored = RestoreDetour(processAlbionDetour_);
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: population rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalProcessAlbion_ = nullptr;
             active_ = nullptr;
             return false;
         }
         originalProcessHighDetail_ = reinterpret_cast<
             native::PopulationSimulationFunctions::SimulationPointer>(
-                highDetailDetour_.trampoline);
+                highDetailDetour_.Original());
 
         char detail[320] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "albion=%p albion_trampoline=%p high_detail=%p high_detail_trampoline=%p",
-            processAlbionDetour_.target,
-            processAlbionDetour_.trampoline,
-            highDetailDetour_.target,
-            highDetailDetour_.trampoline);
+            processAlbionTarget,
+            processAlbionDetour_.Original(),
+            highDetailTarget,
+            highDetailDetour_.Original());
         diagnostics_.Event("PopulationSimulationHookReady", detail);
         return true;
 #endif
@@ -86,10 +98,17 @@ namespace fable::game::npc::population
 
     void PopulationSimulationHook::Shutdown() noexcept
     {
+        bool allRestored = true;
+        allRestored = RestoreDetour(highDetailDetour_) && allRestored;
+        allRestored = RestoreDetour(processAlbionDetour_) && allRestored;
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: population shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         SetStateSink(nullptr, nullptr);
         SetExecutionSink(nullptr, nullptr);
-        RestoreDetour(highDetailDetour_);
-        RestoreDetour(processAlbionDetour_);
         if (active_ == this) active_ = nullptr;
         originalProcessHighDetail_ = nullptr;
         originalProcessAlbion_ = nullptr;
@@ -142,8 +161,8 @@ namespace fable::game::npc::population
     {
         return active_ == this && originalProcessAlbion_ != nullptr &&
             originalProcessHighDetail_ != nullptr &&
-            processAlbionDetour_.target != nullptr &&
-            highDetailDetour_.target != nullptr;
+            processAlbionDetour_.IsInstalled() &&
+            highDetailDetour_.IsInstalled();
     }
 
     void __fastcall PopulationSimulationHook::ProcessAlbion(
@@ -321,115 +340,27 @@ namespace fable::game::npc::population
     bool PopulationSimulationHook::InstallDetour(
         std::uint8_t* target,
         void* replacement,
-        Detour& detour) noexcept
+        core::hooking::InlineHook& detour) noexcept
     {
         constexpr std::size_t displacedBytes =
             native::PopulationSimulationFunctions::DisplacedBytes;
         if (target == nullptr || replacement == nullptr ||
-            detour.target != nullptr)
+            detour.IsInstalled())
         {
             return false;
         }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        trampoline[displacedBytes] = 0xE9;
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        detour.target = target;
-        detour.trampoline = trampoline;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(target, patch.size(), previousProtection, &discarded);
-        return true;
+        return detour.Install(
+            target,
+            target,
+            displacedBytes,
+            replacement,
+            displacedBytes);
     }
 
-    void PopulationSimulationHook::RestoreDetour(Detour& detour) noexcept
+    bool PopulationSimulationHook::RestoreDetour(
+        core::hooking::InlineHook& detour) noexcept
     {
-        if (detour.target == nullptr)
-        {
-            return;
-        }
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.originalBytes.size());
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                detour.target,
-                detour.originalBytes.size());
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                previousProtection,
-                &discarded);
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return detour.Shutdown();
     }
 
     void PopulationSimulationHook::ReportSuppressed(

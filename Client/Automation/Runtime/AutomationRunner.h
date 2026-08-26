@@ -1,13 +1,12 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Multiplayer/Runtime/MultiplayerSession.h"
 
 #include <memory>
 
 namespace fable::automation::runtime { class RuntimeConfiguration; }
 namespace fable::game { class GameServiceRuntime; }
-namespace fable::multiplayer { class MultiplayerSession; }
-
 namespace fable::automation::runtime
 {
     // Owns acceptance and fixture drivers. They are deliberately kept outside

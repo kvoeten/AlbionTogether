@@ -8,7 +8,6 @@ namespace
 {
     constexpr std::uintptr_t kPresentationFactoryRva = 0x01C50850;
     constexpr std::size_t kPrologueSize = 7;
-    constexpr std::size_t kTrampolineSize = kPrologueSize + 5;
     constexpr std::uint32_t kHeroPresentationSelector = 1;
     constexpr float kPositionTolerance = 0.05f;
     constexpr std::uint64_t kArmLifetimeMilliseconds = 10'000;
@@ -52,15 +51,6 @@ namespace
             std::fabs(actual.z - expected.z) <= kPositionTolerance;
     }
 
-    void WriteRelativeJump(void* source, const void* destination) noexcept
-    {
-        auto* const bytes = static_cast<std::uint8_t*>(source);
-        bytes[0] = 0xE9;
-        const auto displacement = static_cast<std::int32_t>(
-            reinterpret_cast<std::intptr_t>(destination) -
-            (reinterpret_cast<std::intptr_t>(source) + 5));
-        std::memcpy(bytes + 1, &displacement, sizeof(displacement));
-    }
 }
 
 namespace fable::game::hero_pawn::appearance::hooks
@@ -95,67 +85,19 @@ namespace fable::game::hero_pawn::appearance::hooks
         {
             return false;
         }
-        std::array<std::uint8_t, kPrologueSize> originalBytes = {};
-        std::memcpy(originalBytes.data(), target, originalBytes.size());
-
-        void* const trampoline = VirtualAlloc(
-            nullptr,
-            kTrampolineSize,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_READWRITE);
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(trampoline, target, kPrologueSize);
-        WriteRelativeJump(
-            static_cast<std::uint8_t*>(trampoline) + kPrologueSize,
-            target + kPrologueSize);
-        DWORD discardedProtection = 0;
-        if (!VirtualProtect(
-                trampoline,
-                kTrampolineSize,
-                PAGE_EXECUTE_READ,
-                &discardedProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-
-        original_ = reinterpret_cast<FactoryFunction>(trampoline);
-        trampoline_ = trampoline;
-        active_ = this;
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        constexpr std::uint8_t expectedPrologue[] = {0x6A, 0xFF, 0x68};
+        if (!patch_.Install(
                 target,
-                kPrologueSize,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                expectedPrologue,
+                sizeof(expectedPrologue),
+                reinterpret_cast<void*>(
+                    &RemoteHeroPresentationFactoryHook::CreatePresentation),
+                kPrologueSize))
         {
-            active_ = nullptr;
-            original_ = nullptr;
-            trampoline_ = nullptr;
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             return false;
         }
-        WriteRelativeJump(
-            target,
-            reinterpret_cast<const void*>(
-                &RemoteHeroPresentationFactoryHook::CreatePresentation));
-        target[5] = 0x90;
-        target[6] = 0x90;
-        FlushInstructionCache(GetCurrentProcess(), target, kPrologueSize);
-        DWORD ignoredProtection = 0;
-        VirtualProtect(
-            target,
-            kPrologueSize,
-            previousProtection,
-            &ignoredProtection);
-
-        target_ = target;
-        originalBytes_ = originalBytes;
-        installed_ = true;
+        original_ = reinterpret_cast<FactoryFunction>(patch_.Original());
+        active_ = this;
         diagnostics_.Log(
             "Hook: remote Hero presentation factory promotion installed.");
         diagnostics_.Event(
@@ -166,44 +108,18 @@ namespace fable::game::hero_pawn::appearance::hooks
 
     void RemoteHeroPresentationFactoryHook::Shutdown() noexcept
     {
+        if (!patch_.Shutdown())
+        {
+            diagnostics_.Log(
+                "Hook: remote Hero presentation patch was not removed because target ownership changed.");
+            return;
+        }
         Cancel();
         if (active_ == this)
         {
             active_ = nullptr;
         }
-        if (target_ != nullptr && installed_)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_,
-                    originalBytes_.size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(
-                    target_,
-                    originalBytes_.data(),
-                    originalBytes_.size());
-                FlushInstructionCache(
-                    GetCurrentProcess(),
-                    target_,
-                    originalBytes_.size());
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_,
-                    originalBytes_.size(),
-                    previousProtection,
-                    &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
         original_ = nullptr;
-        target_ = nullptr;
-        trampoline_ = nullptr;
-        originalBytes_.fill(0);
         expectedX_.store(0, std::memory_order_relaxed);
         expectedY_.store(0, std::memory_order_relaxed);
         expectedZ_.store(0, std::memory_order_relaxed);
@@ -213,7 +129,6 @@ namespace fable::game::hero_pawn::appearance::hooks
         armToken_.store(0, std::memory_order_relaxed);
         armed_.store(false, std::memory_order_release);
         diagnostics_ = {};
-        installed_ = false;
     }
 
     RemoteHeroPresentationFactoryHook::ArmToken
@@ -280,7 +195,7 @@ namespace fable::game::hero_pawn::appearance::hooks
 
     bool RemoteHeroPresentationFactoryHook::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this && original_ != nullptr;
+        return active_ == this && original_ != nullptr && patch_.IsInstalled();
     }
 
     bool RemoteHeroPresentationFactoryHook::IsArmed() const noexcept

@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/HeroPawn/Abilities/HeroAbility.h"
 #include "Game/HeroPawn/Abilities/Native/HeroWillAbilityFunctions.h"
 
 #include <Windows.h>
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -38,21 +38,22 @@ namespace fable::game::hero_pawn::abilities::hooks
     private:
         struct Detour final
         {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<std::uint8_t,
-                native::HeroWillAbilityFunctions::TurncoatStateDisplacedBytes>
-                    original = {};
-            std::size_t displacedBytes = 0;
-            bool active = false;
-
-            bool Prepare(
+            bool Install(
                 std::uint8_t* targetAddress,
                 void* replacement,
                 std::size_t bytes =
                     native::HeroWillAbilityFunctions::DisplacedBytes) noexcept;
-            bool Activate(void* replacement) noexcept;
-            void Reset() noexcept;
+            [[nodiscard]] bool Reset() noexcept;
+            [[nodiscard]] bool IsInstalled() const noexcept
+            {
+                return patch.IsInstalled();
+            }
+            [[nodiscard]] void* Original() const noexcept
+            {
+                return patch.Original();
+            }
+
+            core::hooking::InlineHook patch;
         };
 
         static bool __fastcall InterceptUse(

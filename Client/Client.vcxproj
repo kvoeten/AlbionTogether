@@ -64,6 +64,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp" />
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp" />
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp" />
+    <ClCompile Include="Core\Hooking\CodePatch.cpp" />
     <ClCompile Include="Core\GameThread\Hooks\GameThreadIdleHook.cpp" />
     <ClCompile Include="Core\GameThread\Native\PeekMessageImport.cpp" />
     <ClCompile Include="Game\Creature\CreatureService.cpp" />
@@ -222,7 +223,6 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Multiplayer\Replication\LocalPlayerChannel.cpp" />
     <ClCompile Include="Multiplayer\Replication\RemotePlayerChannels.cpp" />
     <ClCompile Include="Multiplayer\Replication\VillageMembershipReplication.cpp" />
-    <ClCompile Include="Multiplayer\Runtime\MultiplayerSession.cpp" />
       <ClCompile Include="Multiplayer\Transport\ReliableMessageDispatcher.cpp" />
       <ClCompile Include="Multiplayer\Transport\ConnectionNonceRegistry.cpp" />
       <ClCompile Include="Multiplayer\Transport\MovementTransport.cpp" />
@@ -300,6 +300,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h" />
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h" />
     <ClInclude Include="Core\Diagnostics\Diagnostics.h" />
+    <ClInclude Include="Core\Hooking\CodePatch.h" />
     <ClInclude Include="Core\GameThread\Hooks\GameThreadIdleHook.h" />
     <ClInclude Include="Core\GameThread\Native\PeekMessageImport.h" />
     <ClInclude Include="Game\Creature\CreatureService.h" />

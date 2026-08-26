@@ -1,7 +1,6 @@
 #include "GuildTeleportSafetyHook.h"
 
 #include <array>
-#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -94,28 +93,6 @@ namespace
         const auto* const address =
             reinterpret_cast<const std::uint8_t*>(gameModule) + rva;
         return std::memcmp(address, expected.data(), expected.size()) == 0;
-    }
-
-    template <std::size_t Size>
-    bool BuildRelativeJump(
-        const std::uint8_t* target,
-        const void* replacement,
-        std::array<std::uint8_t, Size>& patch) noexcept
-    {
-        static_assert(Size >= 5, "An x86 relative jump requires five bytes.");
-        const std::intptr_t displacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (displacement < INT32_MIN || displacement > INT32_MAX)
-        {
-            return false;
-        }
-
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto relative = static_cast<std::int32_t>(displacement);
-        std::memcpy(patch.data() + 1, &relative, sizeof(relative));
-        return true;
     }
 
 #if defined(_M_IX86)
@@ -227,6 +204,13 @@ namespace fable::game::hero_pawn::travel::hooks
         {
             return true;
         }
+        if (active_ == this || installed_ || currentEntry_.IsInstalled() ||
+            forwardRotation_.IsInstalled() || backwardRotation_.IsInstalled())
+        {
+            diagnostics.Log(
+                "Hook: Guild teleport safety installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
         if (active_ != nullptr && active_ != this)
         {
             diagnostics.Log(
@@ -289,30 +273,6 @@ namespace fable::game::hero_pawn::travel::hooks
         auto* const currentEntry = base + CurrentInventoryEntryRva;
         auto* const forwardRotation = base + ForwardInventoryRotationRva;
         auto* const backwardRotation = base + BackwardInventoryRotationRva;
-        std::array<std::uint8_t, CurrentInventoryEntryInstructions.size()>
-            currentEntryPatch = {};
-        std::array<std::uint8_t, InventoryRotationInstructions.size()>
-            forwardRotationPatch = {};
-        std::array<std::uint8_t, InventoryRotationInstructions.size()>
-            backwardRotationPatch = {};
-        if (!BuildRelativeJump(
-                currentEntry,
-                &GuardGuildTeleportInventoryEntry,
-                currentEntryPatch) ||
-            !BuildRelativeJump(
-                forwardRotation,
-                &GuardForwardInventoryRotation,
-                forwardRotationPatch) ||
-            !BuildRelativeJump(
-                backwardRotation,
-                &GuardBackwardInventoryRotation,
-                backwardRotationPatch))
-        {
-            diagnostics.Log(
-                "Hook: Guild teleport safety callback is outside the x86 jump range.");
-            return false;
-        }
-
         diagnostics_ = diagnostics;
         g_currentInventoryEntryResume =
             reinterpret_cast<std::uintptr_t>(base + CurrentInventoryEntryResumeRva);
@@ -331,54 +291,42 @@ namespace fable::game::hero_pawn::travel::hooks
 
         auto installPatch = [this](
             std::uint8_t* target,
-            const auto& patch,
-            PatchSite& site,
+            const auto& expected,
+            void* replacement,
+            core::hooking::CodePatch& site,
             const char* name) noexcept
         {
-            DWORD previousProtection = 0;
-            if (!VirtualProtect(
+            if (!site.InstallRelativeJump(
                     target,
-                    patch.size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
+                    expected.data(),
+                    expected.size(),
+                    replacement,
+                    expected.size()))
             {
                 diagnostics_.Log(name);
                 return false;
-            }
-
-            site.target = target;
-            std::memcpy(
-                site.original.data(), target, site.original.size());
-            std::memcpy(target, patch.data(), patch.size());
-            FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-            DWORD discardedProtection = 0;
-            if (!VirtualProtect(
-                    target,
-                    patch.size(),
-                    previousProtection,
-                    &discardedProtection))
-            {
-                diagnostics_.Log(
-                    "Hook: Guild teleport safety installed, but code protection restoration failed.");
             }
             return true;
         };
 
         if (!installPatch(
                 currentEntry,
-                currentEntryPatch,
+                CurrentInventoryEntryInstructions,
+                reinterpret_cast<void*>(&GuardGuildTeleportInventoryEntry),
                 currentEntry_,
-                "Hook: Guild teleport current-entry guard could not change code protection.") ||
+                "Hook: Guild teleport current-entry guard could not be installed.") ||
             !installPatch(
                 forwardRotation,
-                forwardRotationPatch,
+                InventoryRotationInstructions,
+                reinterpret_cast<void*>(&GuardForwardInventoryRotation),
                 forwardRotation_,
-                "Hook: Guild teleport forward-rotation guard could not change code protection.") ||
+                "Hook: Guild teleport forward-rotation guard could not be installed.") ||
             !installPatch(
                 backwardRotation,
-                backwardRotationPatch,
+                InventoryRotationInstructions,
+                reinterpret_cast<void*>(&GuardBackwardInventoryRotation),
                 backwardRotation_,
-                "Hook: Guild teleport backward-rotation guard could not change code protection."))
+                "Hook: Guild teleport backward-rotation guard could not be installed."))
         {
             Shutdown();
             return false;
@@ -395,39 +343,24 @@ namespace fable::game::hero_pawn::travel::hooks
 
     void GuildTeleportSafetyHook::Shutdown() noexcept
     {
-        auto restore = [](PatchSite& site) noexcept
+        const bool backwardRestored = backwardRotation_.Shutdown();
+        const bool forwardRestored = forwardRotation_.Shutdown();
+        const bool currentRestored = currentEntry_.Shutdown();
+        if (!backwardRestored || !forwardRestored || !currentRestored)
         {
-            if (site.target == nullptr)
-            {
-                return;
-            }
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    site.target,
-                    site.original.size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(
-                    site.target,
-                    site.original.data(),
-                    site.original.size());
-                FlushInstructionCache(
-                    GetCurrentProcess(),
-                    site.target,
-                    site.original.size());
-                DWORD discardedProtection = 0;
-                VirtualProtect(
-                    site.target,
-                    site.original.size(),
-                    previousProtection,
-                    &discardedProtection);
-            }
-            site = {};
-        };
-        restore(backwardRotation_);
-        restore(forwardRotation_);
-        restore(currentEntry_);
+            diagnostics_.Event(
+                "GuildTeleportHookUninstallSkipped",
+                "target-changed-by-another-hook");
+            return;
+        }
+        if (backwardRotation_.ProtectionRestoreFailed() ||
+            forwardRotation_.ProtectionRestoreFailed() ||
+            currentEntry_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Event(
+                "GuildTeleportHookProtectionRestoreWarning",
+                "original-bytes-restored");
+        }
 
         if (active_ == this)
         {
@@ -446,7 +379,8 @@ namespace fable::game::hero_pawn::travel::hooks
 
     bool GuildTeleportSafetyHook::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this;
+        return installed_ && active_ == this && currentEntry_.IsInstalled() &&
+            forwardRotation_.IsInstalled() && backwardRotation_.IsInstalled();
     }
 
     void GuildTeleportSafetyHook::LogFallback(unsigned int kind) noexcept

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/NPC/Simulation/DummyVillager/DummyVillagerMutationEvent.h"
 #include "Game/NPC/Simulation/DummyVillager/Native/DummyVillagerFunctions.h"
 
@@ -36,14 +37,6 @@ namespace fable::game::npc::simulation
         [[nodiscard]] bool IsInstalled() const noexcept;
 
     private:
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::size_t displacedBytes = 0;
-            std::array<std::uint8_t, 8> originalBytes = {};
-        };
-
         static void __fastcall MaterializeIntercept(
             void* component,
             void* unused);
@@ -65,16 +58,16 @@ namespace fable::game::npc::simulation
             std::uint8_t* target,
             void* replacement,
             std::size_t displacedBytes,
-            Detour& detour,
+            core::hooking::InlineHook& detour,
             native::DummyVillagerFunctions::UpdatePointer& original) noexcept;
         bool InstallSerializeDetour(
             std::uint8_t* target,
             void* replacement,
             std::size_t displacedBytes,
-            Detour& detour,
+            core::hooking::InlineHook& detour,
             native::DummyVillagerFunctions::SerializePointer& original)
             noexcept;
-        static void RestoreDetour(Detour& detour) noexcept;
+        static bool RestoreDetour(core::hooking::InlineHook& detour) noexcept;
 
         static DummyVillagerMutationHook* active_;
         static thread_local unsigned int authoritativeApplyDepth_;
@@ -86,9 +79,9 @@ namespace fable::game::npc::simulation
             nullptr;
         native::DummyVillagerFunctions::SerializePointer originalSerialize_ =
             nullptr;
-        Detour materializeDetour_ = {};
-        Detour scheduleDetour_ = {};
-        Detour serializeDetour_ = {};
+        core::hooking::InlineHook materializeDetour_;
+        core::hooking::InlineHook scheduleDetour_;
+        core::hooking::InlineHook serializeDetour_;
         core::Diagnostics diagnostics_ = {};
         std::atomic<EventSink> eventSink_{nullptr};
         std::atomic<void*> eventSinkContext_{nullptr};

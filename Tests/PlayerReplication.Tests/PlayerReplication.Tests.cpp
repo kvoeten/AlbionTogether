@@ -53,6 +53,7 @@ namespace fable::multiplayer::replication::testing
 }
 
 int RunCombatHitReplicationTests();
+int RunCodePatchTests();
 
 namespace
 {
@@ -181,6 +182,19 @@ namespace
         state.heroAppearanceModifiers = source.heroAppearanceModifiers;
         state.heroEquipment = source.heroEquipment;
         return state;
+    }
+
+    void PopulateAllBoneScales(PlayerActorStateMessage& message)
+    {
+        message.heroBoneScales.count =
+            fable::game::hero_pawn::appearance::HeroBoneScaleState::
+                MaximumEntries;
+        for (std::size_t index = 0;
+             index < message.heroBoneScales.count; ++index)
+        {
+            message.heroBoneScales.entries[index] = {
+                static_cast<std::uint16_t>(index), 1.0f, 1.25f, 0.75f};
+        }
     }
 
     PlayerState MovementState(const PlayerMovementMessage& movement)
@@ -511,9 +525,14 @@ namespace
             {
                 break;
             }
-            if (packet.envelope.type !=
+            const bool actorStateDatagram =
+                packet.envelope.type ==
                     fable::multiplayer::protocol::PacketType::
                         PlayerActorState ||
+                packet.envelope.type ==
+                    fable::multiplayer::protocol::PacketType::
+                        ReliableFragment;
+            if (!actorStateDatagram ||
                 packet.envelope.flags !=
                     fable::multiplayer::protocol::packet_flag::Reliable ||
                 packet.envelope.sourceActorId != hostSourceActorId ||
@@ -914,6 +933,35 @@ namespace
         return result;
     }
 
+    bool MakeFirstActorReliableDatagram(
+        const PlayerActorStateMessage& source,
+        TransportMessage& result)
+    {
+        std::array<std::uint8_t, 1472> payload = {};
+        std::size_t payloadSize = 0;
+        fable::multiplayer::ReliableStreamTransport transport;
+        if (!EncodeActorPayload(source, payload, payloadSize) ||
+            !transport.Enqueue(
+                fable::multiplayer::reliable_stream::Actor(source.actorId),
+                fable::multiplayer::protocol::PacketType::PlayerActorState,
+                source.actorId,
+                payload.data(),
+                payloadSize))
+        {
+            return false;
+        }
+        const auto due = transport.Due(1, 100);
+        if (due.size() != 1)
+        {
+            return false;
+        }
+        result = due.front();
+        return result.type ==
+                fable::multiplayer::protocol::PacketType::ReliableFragment ||
+            result.type ==
+                fable::multiplayer::protocol::PacketType::PlayerActorState;
+    }
+
     TransportMessage MakePlayerActionTransportMessage(
         const std::uint64_t actorId,
         const std::uint64_t connectionNonce,
@@ -994,21 +1042,42 @@ namespace
         // baseline may be retransmitted; the queued action cannot overtake it.
         const auto dropped = sender.Due(100, 100);
         CHECK(test, dropped.size() == 1);
-        CHECK(test, !dropped.empty() && dropped.front().type ==
-            fable::multiplayer::protocol::PacketType::PlayerActorState);
+        CHECK(test, !dropped.empty() &&
+            (dropped.front().type ==
+                fable::multiplayer::protocol::PacketType::PlayerActorState ||
+                dropped.front().type ==
+                fable::multiplayer::protocol::PacketType::ReliableFragment));
         CHECK(test, sender.Due(199, 100).empty());
-        const auto retry = sender.Due(200, 100);
+        auto retry = sender.Due(200, 100);
         CHECK(test, retry.size() == 1);
         if (retry.empty())
         {
             return;
         }
-        CHECK(test, retry.front().type ==
-            fable::multiplayer::protocol::PacketType::PlayerActorState);
-        CHECK(test, receiver.AcceptIncoming(retry.front()) ==
-            fable::multiplayer::ReliableReceiveResult::Accepted);
         TransportMessage consumed;
-        CHECK(test, receiver.TryConsume(consumed));
+        bool baselineConsumed = false;
+        for (std::size_t fragment = 0;
+             fragment < fable::multiplayer::ReliableStreamTransport::
+                 MaximumFragmentCount && !baselineConsumed;
+             ++fragment)
+        {
+            CHECK(test, receiver.AcceptIncoming(retry.front()) ==
+                fable::multiplayer::ReliableReceiveResult::Accepted);
+            CHECK(test, sender.AcceptAcknowledgement(
+                stream, retry.front().streamIncarnation,
+                retry.front().sequence));
+            baselineConsumed = receiver.TryConsume(consumed);
+            if (!baselineConsumed)
+            {
+                retry = sender.Due(201 + fragment, 100);
+                CHECK(test, retry.size() == 1);
+                if (retry.empty())
+                {
+                    return;
+                }
+            }
+        }
+        CHECK(test, baselineConsumed);
         CHECK(test, consumed.type ==
             fable::multiplayer::protocol::PacketType::PlayerActorState);
         PlayerActorStateMessage receivedConstruct;
@@ -1019,12 +1088,7 @@ namespace
         CHECK(test, receivedConstruct.EquipmentPresent());
         CHECK(test, receivedConstruct.heroEquipment.Equals(
             construct.heroEquipment));
-        CHECK(test, sender.AcceptAcknowledgement(
-            stream,
-            retry.front().streamIncarnation,
-            retry.front().sequence));
-
-        const auto actionDue = sender.Due(201, 100);
+        const auto actionDue = sender.Due(300, 100);
         CHECK(test, actionDue.size() == 1);
         if (actionDue.empty())
         {
@@ -1032,12 +1096,111 @@ namespace
         }
         CHECK(test, actionDue.front().type ==
             fable::multiplayer::protocol::PacketType::PlayerAction);
-        CHECK(test, actionDue.front().sequence == 2);
+        CHECK(test, actionDue.front().sequence > consumed.sequence);
         CHECK(test, receiver.AcceptIncoming(actionDue.front()) ==
             fable::multiplayer::ReliableReceiveResult::Accepted);
         CHECK(test, receiver.TryConsume(consumed));
         CHECK(test, consumed.type ==
             fable::multiplayer::protocol::PacketType::PlayerAction);
+    }
+
+    void TestLargeActorBaselineFragmentsReliably()
+    {
+        constexpr const char* test = "large actor baseline fragmentation";
+        auto construct = Construct();
+        PopulateAllBoneScales(construct);
+        std::array<std::uint8_t, 1472> payload = {};
+        std::size_t payloadSize = 0;
+        CHECK(test, EncodeActorPayload(construct, payload, payloadSize));
+        CHECK(test, payloadSize >
+            fable::multiplayer::protocol::MaximumPayloadBytes());
+
+        fable::multiplayer::ReliableStreamTransport sender;
+        fable::multiplayer::ReliableStreamTransport receiver;
+        const auto stream = fable::multiplayer::reliable_stream::Actor(kActorId);
+        std::array<std::uint8_t,
+            fable::multiplayer::protocol::MaximumReliableMessageBytes + 1>
+            oversized = {};
+        CHECK(test, !sender.Enqueue(
+            stream,
+            fable::multiplayer::protocol::PacketType::PlayerAction,
+            kActorId,
+            oversized.data(),
+            oversized.size()));
+        CHECK(test, sender.Enqueue(
+            stream,
+            fable::multiplayer::protocol::PacketType::PlayerActorState,
+            kActorId,
+            payload.data(),
+            payloadSize));
+
+        const auto first = sender.Due(100, 100);
+        CHECK(test, first.size() == 1);
+        CHECK(test, !first.empty() && first.front().type ==
+            fable::multiplayer::protocol::PacketType::ReliableFragment);
+        if (first.empty())
+        {
+            return;
+        }
+        std::array<std::uint8_t,
+            fable::multiplayer::protocol::MaximumDatagramBytes> datagram = {};
+        std::size_t datagramSize = 0;
+        CHECK(test, fable::multiplayer::transport_codec::EncodeReliablePacket(
+            first.front(), kActorId, 1, datagram, datagramSize));
+        CHECK(test, datagramSize <=
+            fable::multiplayer::protocol::MaximumDatagramBytes);
+
+        fable::multiplayer::ReliableStreamTransport malformedReceiver;
+        TransportMessage malformed = first.front();
+        malformed.payload[0] ^= 0xFFu;
+        CHECK(test, malformedReceiver.AcceptIncoming(std::move(malformed)) ==
+            fable::multiplayer::ReliableReceiveResult::Rejected);
+        // A rejected fragment must not advance the ordered stream cursor.
+        CHECK(test, malformedReceiver.AcceptIncoming(first.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Accepted);
+        // A duplicate is harmless and re-acknowledgeable after a lost ACK.
+        CHECK(test, receiver.AcceptIncoming(first.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Accepted);
+        CHECK(test, receiver.AcceptIncoming(first.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Duplicate);
+        const auto retry = sender.Due(200, 100);
+        CHECK(test, retry.size() == 1);
+        CHECK(test, !retry.empty() && receiver.AcceptIncoming(retry.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Duplicate);
+        CHECK(test, sender.AcceptAcknowledgement(
+            stream, retry.front().streamIncarnation, retry.front().sequence));
+
+        const auto second = sender.Due(101, 100);
+        CHECK(test, second.size() == 1);
+        CHECK(test, !second.empty() && second.front().type ==
+            fable::multiplayer::protocol::PacketType::ReliableFragment);
+        if (second.empty())
+        {
+            return;
+        }
+        fable::multiplayer::ReliableStreamTransport reordered;
+        CHECK(test, reordered.AcceptIncoming(second.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Rejected);
+        CHECK(test, reordered.AcceptIncoming(retry.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Accepted);
+        CHECK(test, reordered.AcceptIncoming(second.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Accepted);
+        CHECK(test, receiver.AcceptIncoming(second.front()) ==
+            fable::multiplayer::ReliableReceiveResult::Accepted);
+        CHECK(test, sender.AcceptAcknowledgement(
+            stream, second.front().streamIncarnation, second.front().sequence));
+
+        TransportMessage complete;
+        CHECK(test, receiver.TryConsume(complete));
+        CHECK(test, complete.type ==
+            fable::multiplayer::protocol::PacketType::PlayerActorState);
+        CHECK(test, complete.payloadSize == payloadSize);
+        CHECK(test, std::memcmp(
+            complete.payload.data(), payload.data(), payloadSize) == 0);
+        PlayerActorStateMessage decoded;
+        CHECK(test, DecodePlayerActorStateMessage(
+            complete.payload.data(), complete.payloadSize, decoded));
+        CHECK(test, decoded.actorId == kActorId);
     }
 
     TransportMessage MakePlayerVitalsTransportMessage(
@@ -1964,14 +2127,19 @@ namespace
         CHECK(test, observedHostNonceA == host.ConnectionNonce());
         CHECK(test, observedHostNonceB == host.ConnectionNonce());
 
-        const auto hostActor = Construct(
+        auto hostActor = Construct(
             700, 1, 1, 1, kMapId, "Albion", hostActorId);
+        PopulateAllBoneScales(hostActor);
         std::array<std::uint8_t, 1472> payload = {};
         std::size_t payloadSize = 0;
         CHECK(test, EncodeActorPayload(hostActor, payload, payloadSize));
+        constexpr std::size_t logicalPerStreamCapacity =
+            fable::multiplayer::ReliableStreamTransport::
+                PerStreamQueueLimit /
+            fable::multiplayer::ReliableStreamTransport::
+                MaximumFragmentCount;
         for (std::size_t index = 0;
-             index < fable::multiplayer::ReliableStreamTransport::
-                 PerStreamQueueLimit;
+             index < logicalPerStreamCapacity;
              ++index)
         {
             CHECK(test, host.SubmitReliable(
@@ -1991,8 +2159,9 @@ namespace
             hostActorId,
             host.ConnectionNonce(),
             static_cast<std::uint32_t>(
+                logicalPerStreamCapacity *
                 fable::multiplayer::ReliableStreamTransport::
-                    PerStreamQueueLimit),
+                    MaximumFragmentCount),
             actorBHighestSequence));
 
         // Success means the transport durably owns this message for both
@@ -2011,8 +2180,9 @@ namespace
             hostActorId,
             host.ConnectionNonce(),
             static_cast<std::uint32_t>(
+                (logicalPerStreamCapacity + 1) *
                 fable::multiplayer::ReliableStreamTransport::
-                    PerStreamQueueLimit + 1),
+                    MaximumFragmentCount),
             actorBHighestSequence,
             std::chrono::milliseconds(2'000)));
 
@@ -2024,16 +2194,17 @@ namespace
             hostActorId,
             host.ConnectionNonce(),
             static_cast<std::uint32_t>(
+                (logicalPerStreamCapacity + 1) *
                 fable::multiplayer::ReliableStreamTransport::
-                    PerStreamQueueLimit + 1),
+                    MaximumFragmentCount),
             actorAHighestSequence,
             std::chrono::milliseconds(7'500)));
-        CHECK(test, actorAHighestSequence ==
+        const auto expectedPhysicalSequence = static_cast<std::uint32_t>(
+            (logicalPerStreamCapacity + 1) *
             fable::multiplayer::ReliableStreamTransport::
-                PerStreamQueueLimit + 1);
-        CHECK(test, actorBHighestSequence ==
-            fable::multiplayer::ReliableStreamTransport::
-                PerStreamQueueLimit + 1);
+                MaximumFragmentCount);
+        CHECK(test, actorAHighestSequence == expectedPhysicalSequence);
+        CHECK(test, actorBHighestSequence == expectedPhysicalSequence);
 
         closesocket(actorA);
         closesocket(actorB);
@@ -2082,10 +2253,12 @@ namespace
         }));
         CHECK(test, observedHostNonce == host.ConnectionNonce());
 
-        const auto blockedActor = Construct(
+        auto blockedActor = Construct(
             700, 1, 1, 1, kMapId, "Albion", blockedActorId);
-        const auto availableActor = Construct(
+        auto availableActor = Construct(
             700, 1, 1, 1, kMapId, "Albion", availableActorId);
+        PopulateAllBoneScales(blockedActor);
+        PopulateAllBoneScales(availableActor);
         std::array<std::uint8_t, 1472> blockedPayload = {};
         std::array<std::uint8_t, 1472> availablePayload = {};
         std::size_t blockedPayloadSize = 0;
@@ -2143,10 +2316,14 @@ namespace
             hostActorId,
             availableActorId,
             host.ConnectionNonce(),
-            1,
+            static_cast<std::uint32_t>(
+                fable::multiplayer::ReliableStreamTransport::
+                    MaximumFragmentCount),
             availableHighestSequence,
             std::chrono::milliseconds(2'000)));
-        CHECK(test, availableHighestSequence == 1);
+        CHECK(test, availableHighestSequence ==
+            fable::multiplayer::ReliableStreamTransport::
+                MaximumFragmentCount);
         CHECK(test, !host.SubmitReliable(
             fable::multiplayer::reliable_stream::Actor(blockedActorId),
             fable::multiplayer::protocol::PacketType::PlayerActorState,
@@ -2162,8 +2339,9 @@ namespace
     {
         constexpr const char* test = "recreated stream ack incarnation";
         constexpr std::uint64_t actorId = 0xD000000000000042ull;
-        const auto actor = Construct(
+        auto actor = Construct(
             700, 1, 1, 1, kMapId, "Albion", actorId);
+        PopulateAllBoneScales(actor);
         std::array<std::uint8_t, 1472> payload = {};
         std::size_t payloadSize = 0;
         CHECK(test, EncodeActorPayload(actor, payload, payloadSize));
@@ -2187,7 +2365,17 @@ namespace
             stream,
             original.streamIncarnation,
             original.sequence));
-        CHECK(test, transport.Due(2, 100).empty());
+        const auto originalTailDue = transport.Due(2, 100);
+        CHECK(test, originalTailDue.size() == 1);
+        if (originalTailDue.empty())
+        {
+            return;
+        }
+        CHECK(test, transport.AcceptAcknowledgement(
+            stream,
+            originalTailDue.front().streamIncarnation,
+            originalTailDue.front().sequence));
+        CHECK(test, transport.Due(3, 100).empty());
         CHECK(test, transport.OutboundSize() == 0);
 
         CHECK(test, transport.Enqueue(
@@ -2196,7 +2384,7 @@ namespace
             actorId,
             payload.data(),
             payloadSize));
-        const auto recreatedDue = transport.Due(3, 100);
+        const auto recreatedDue = transport.Due(4, 100);
         CHECK(test, recreatedDue.size() == 1);
         if (recreatedDue.empty())
         {
@@ -2211,7 +2399,7 @@ namespace
             original.streamIncarnation,
             original.sequence));
 
-        const auto retry = transport.Due(104, 100);
+        const auto retry = transport.Due(105, 100);
         CHECK(test, retry.size() == 1);
         if (!retry.empty())
         {
@@ -2223,7 +2411,17 @@ namespace
             stream,
             recreated.streamIncarnation,
             recreated.sequence));
-        CHECK(test, transport.Due(105, 100).empty());
+        const auto recreatedTailDue = transport.Due(106, 100);
+        CHECK(test, recreatedTailDue.size() == 1);
+        if (recreatedTailDue.empty())
+        {
+            return;
+        }
+        CHECK(test, transport.AcceptAcknowledgement(
+            stream,
+            recreatedTailDue.front().streamIncarnation,
+            recreatedTailDue.front().sequence));
+        CHECK(test, transport.Due(107, 100).empty());
         CHECK(test, transport.OutboundSize() == 0);
     }
 
@@ -2236,10 +2434,12 @@ namespace
             fable::multiplayer::ReliableStreamTransport::
                 StreamMetadataLimit + 2;
 
-        const auto activeActor = Construct(
+        auto activeActor = Construct(
             700, 1, 1, 1, kMapId, "Albion", activeActorId);
-        const auto churnActor = Construct(
+        auto churnActor = Construct(
             700, 1, 1, 1, kMapId, "Albion", churnActorId);
+        PopulateAllBoneScales(activeActor);
+        PopulateAllBoneScales(churnActor);
         std::array<std::uint8_t, 1472> activePayload = {};
         std::array<std::uint8_t, 1472> churnPayload = {};
         std::size_t activePayloadSize = 0;
@@ -2267,7 +2467,20 @@ namespace
         {
             return;
         }
-        const TransportMessage activeMessage = activeDue.front();
+        const TransportMessage activeFirstMessage = activeDue.front();
+        CHECK(test, receiver.AcceptIncoming(activeFirstMessage) ==
+            fable::multiplayer::ReliableReceiveResult::Accepted);
+        CHECK(test, sender.AcceptAcknowledgement(
+            activeStream,
+            activeFirstMessage.streamIncarnation,
+            activeFirstMessage.sequence));
+        const auto activeTailDue = sender.Due(2, 100);
+        CHECK(test, activeTailDue.size() == 1);
+        if (activeTailDue.empty())
+        {
+            return;
+        }
+        const TransportMessage activeMessage = activeTailDue.front();
         CHECK(test, receiver.AcceptIncoming(activeMessage) ==
             fable::multiplayer::ReliableReceiveResult::Accepted);
         TransportMessage consumed;
@@ -2277,7 +2490,7 @@ namespace
             activeStream,
             activeMessage.streamIncarnation,
             activeMessage.sequence));
-        CHECK(test, sender.Due(2, 100).empty());
+        CHECK(test, sender.Due(3, 100).empty());
         CHECK(test, sender.OutboundSize() == 0);
 
         TransportMessage oldestChurnMessage;
@@ -2305,16 +2518,30 @@ namespace
                 churnCompleted = false;
                 break;
             }
-            const TransportMessage message = due.front();
+            const TransportMessage firstMessage = due.front();
             incarnationsMonotonic = incarnationsMonotonic &&
-                message.streamIncarnation > previousIncarnation;
-            previousIncarnation = message.streamIncarnation;
-            if (index == 0)
+                firstMessage.streamIncarnation > previousIncarnation;
+            previousIncarnation = firstMessage.streamIncarnation;
+            if (receiver.AcceptIncoming(firstMessage) !=
+                    fable::multiplayer::ReliableReceiveResult::Accepted ||
+                !sender.AcceptAcknowledgement(
+                    churnStream,
+                    firstMessage.streamIncarnation,
+                    firstMessage.sequence))
             {
-                oldestChurnMessage = message;
+                churnCompleted = false;
+                break;
             }
-            newestChurnMessage = message;
-            if (receiver.AcceptIncoming(message) !=
+            const auto tailDue = sender.Due(now + 1, 100);
+            if (tailDue.size() != 1)
+            {
+                churnCompleted = false;
+                break;
+            }
+            const TransportMessage message = tailDue.front();
+            if (message.streamIncarnation !=
+                    firstMessage.streamIncarnation ||
+                receiver.AcceptIncoming(message) !=
                     fable::multiplayer::ReliableReceiveResult::Accepted ||
                 !receiver.TryConsume(consumed) ||
                 consumed.streamId != churnStream ||
@@ -2326,13 +2553,18 @@ namespace
                 churnCompleted = false;
                 break;
             }
-            if (!sender.Due(now + 1, 100).empty() ||
+            if (index == 0)
+            {
+                oldestChurnMessage = message;
+            }
+            newestChurnMessage = message;
+            if (!sender.Due(now + 2, 100).empty() ||
                 sender.OutboundSize() != 0)
             {
                 churnCompleted = false;
                 break;
             }
-            now += 2;
+            now += 3;
         }
         CHECK(test, churnCompleted);
         CHECK(test, incarnationsMonotonic);
@@ -2553,8 +2785,9 @@ namespace
              ++index)
         {
             const std::uint64_t actorId = firstActorId + index;
-            const auto actor = Construct(
+            auto actor = Construct(
                 700, 1, 1, 1, kMapId, "Albion", actorId);
+            PopulateAllBoneScales(actor);
             std::array<std::uint8_t, 1472> payload = {};
             std::size_t payloadSize = 0;
             CHECK(test, EncodeActorPayload(actor, payload, payloadSize));
@@ -2567,8 +2800,9 @@ namespace
 
         const std::uint64_t overflowActorId = firstActorId +
             fable::multiplayer::ReliableStreamTransport::StreamMetadataLimit;
-        const auto overflowActor = Construct(
+        auto overflowActor = Construct(
             700, 1, 1, 1, kMapId, "Albion", overflowActorId);
+        PopulateAllBoneScales(overflowActor);
         std::array<std::uint8_t, 1472> overflowPayload = {};
         std::size_t overflowPayloadSize = 0;
         CHECK(test, EncodeActorPayload(
@@ -2589,7 +2823,17 @@ namespace
                 message.streamIncarnation,
                 message.sequence));
         }
-        CHECK(test, outbound.Due(2, 100).empty());
+        const auto tails = outbound.Due(2, 100);
+        CHECK(test, tails.size() ==
+            fable::multiplayer::ReliableStreamTransport::StreamMetadataLimit);
+        for (const auto& message : tails)
+        {
+            CHECK(test, outbound.AcceptAcknowledgement(
+                message.streamId,
+                message.streamIncarnation,
+                message.sequence));
+        }
+        CHECK(test, outbound.Due(3, 100).empty());
         CHECK(test, outbound.OutboundSize() == 0);
         CHECK(test, outbound.Enqueue(
             fable::multiplayer::reliable_stream::Actor(overflowActorId),
@@ -2821,21 +3065,8 @@ namespace
 
         const auto actor = Construct(
             700, 1, 1, 1, kMapId, "Albion", 1001);
-        std::array<std::uint8_t, 1472> actorPayload = {};
-        std::size_t actorPayloadSize = 0;
-        CHECK(test, EncodeActorPayload(
-            actor, actorPayload, actorPayloadSize));
         TransportMessage reliable;
-        reliable.type =
-            fable::multiplayer::protocol::PacketType::PlayerActorState;
-        reliable.sourceActorId = 1001;
-        reliable.streamId =
-            fable::multiplayer::reliable_stream::Actor(1001);
-        reliable.streamIncarnation = 1;
-        reliable.sequence = 1;
-        reliable.payloadSize = actorPayloadSize;
-        std::memcpy(
-            reliable.payload.data(), actorPayload.data(), actorPayloadSize);
+        CHECK(test, MakeFirstActorReliableDatagram(actor, reliable));
         CHECK(test,
             fable::multiplayer::transport_codec::EncodeReliablePacket(
                 reliable, 1001, oldHostNonce, datagram, datagramSize));
@@ -2930,9 +3161,12 @@ namespace
                     packet))
             {
                 if (packet.payload != nullptr &&
-                    packet.envelope.type ==
+                    (packet.envelope.type ==
                         fable::multiplayer::protocol::PacketType::
-                            PlayerActorState &&
+                            ReliableFragment ||
+                        packet.envelope.type ==
+                            fable::multiplayer::protocol::PacketType::
+                                PlayerActorState) &&
                     packet.envelope.flags ==
                         fable::multiplayer::protocol::packet_flag::Reliable &&
                     packet.envelope.streamKind == static_cast<std::uint8_t>(
@@ -3148,12 +3382,13 @@ namespace
 
             const auto staleHostActor = Construct(
                 700, 1, 1, 1, kMapId, "Albion", hostActorId);
-            TransportMessage stale = MakeReliableTransportMessage(
-                staleHostActor,
-                oldHostNonce,
-                acceptedCurrentHostMessage.sequence + 1);
+            TransportMessage stale;
+            CHECK(test, MakeFirstActorReliableDatagram(
+                staleHostActor, stale));
+            stale.connectionNonce = oldHostNonce;
             stale.streamIncarnation =
                 acceptedCurrentHostMessage.streamIncarnation;
+            stale.sequence = acceptedCurrentHostMessage.sequence + 1;
             std::array<std::uint8_t,
                 fable::multiplayer::protocol::MaximumDatagramBytes>
                 datagram = {};
@@ -3387,6 +3622,9 @@ namespace
 
         CHECK(test, EncodePlayerActorStateMessage(
             source, bytes.data(), bytes.size(), encodedSize));
+        // The normal hero has one materialized bone-scale entry. The compact
+        // mask/triple representation fits in one conservative datagram.
+        CHECK(test, encodedSize == 446);
         CHECK(test, !DecodePlayerActorStateMessage(
             bytes.data(), encodedSize - 1, decoded));
 
@@ -3397,6 +3635,47 @@ namespace
             ~(AppearancePresent | EquipmentPresent));
         CHECK(test, !DecodePlayerActorStateMessage(
             bytes.data(), encodedSize, decoded));
+
+        // Bone entries are indexed by the stable skeleton order and are
+        // rejected when duplicated or outside the compact mask range.
+        auto duplicateBone = source;
+        duplicateBone.heroBoneScales.count = 2;
+        duplicateBone.heroBoneScales.entries[1] =
+            duplicateBone.heroBoneScales.entries[0];
+        CHECK(test, !EncodePlayerActorStateMessage(
+            duplicateBone, bytes.data(), bytes.size(), encodedSize));
+        auto outOfRangeBone = source;
+        outOfRangeBone.heroBoneScales.entries[0].boneIndex =
+            static_cast<std::uint16_t>(
+                fable::game::hero_pawn::appearance::HeroBoneScaleState::
+                    MaximumEntries);
+        CHECK(test, !EncodePlayerActorStateMessage(
+            outOfRangeBone, bytes.data(), bytes.size(), encodedSize));
+
+        auto allBones = source;
+        allBones.heroBoneScales.count =
+            fable::game::hero_pawn::appearance::HeroBoneScaleState::
+                MaximumEntries;
+        for (std::size_t index = 0;
+             index < allBones.heroBoneScales.count; ++index)
+        {
+            allBones.heroBoneScales.entries[index] = {
+                static_cast<std::uint16_t>(index), 1.0f, 1.25f, 0.75f};
+        }
+        std::size_t allBonesSize = 0;
+        CHECK(test, EncodePlayerActorStateMessage(
+            allBones, bytes.data(), bytes.size(), allBonesSize));
+        // 425-byte fixed prefix + 15-byte mask + 120 compact XYZ triples.
+        CHECK(test, allBonesSize == 1160);
+        CHECK(test, allBonesSize +
+                fable::multiplayer::protocol::PacketHeaderBytes >
+            fable::multiplayer::protocol::MaximumDatagramBytes);
+        CHECK(test, DecodePlayerActorStateMessage(
+            bytes.data(), allBonesSize, decoded));
+        CHECK(test, decoded.heroBoneScales.count ==
+            fable::game::hero_pawn::appearance::HeroBoneScaleState::
+                MaximumEntries);
+        CHECK(test, decoded.heroBoneScales.entries[119].boneIndex == 119);
 
         const PlayerMovementMessage movement = MakeMovement();
         PlayerMovementMessage decodedMovement;
@@ -3827,6 +4106,7 @@ int main()
     TestDelayedRetireCannotEraseReplacementSession();
     TestMandatoryComponentRemovalIsRejected();
     TestConstructionRetransmissionOrdersBaselineBeforeAction();
+    TestLargeActorBaselineFragmentsReliably();
     TestQueuedActionAndVitalsAreFencedByReplacementSession();
     TestActionQueueClearsAcrossRetirementAndMapHandoff();
     TestActionAndVitalsProducersStayFairUnderActorBackpressure();
@@ -3845,6 +4125,7 @@ int main()
     TestGuestRecoversFromRestartedHostWithoutRestarting();
     TestBoundedChallengeReconnectFencing();
     failures += RunCombatHitReplicationTests();
+    failures += RunCodePatchTests();
 
     if (failures != 0)
     {

@@ -42,63 +42,6 @@ namespace
         }
     }
 
-    bool ReplaceSlot(void** slot, void* replacement) noexcept
-    {
-        if (slot == nullptr || replacement == nullptr)
-        {
-            return false;
-        }
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                PAGE_READWRITE,
-                &previousProtection))
-        {
-            return false;
-        }
-        *slot = replacement;
-        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-        DWORD discardedProtection = 0;
-        const bool restored = VirtualProtect(
-            slot,
-            sizeof(*slot),
-            previousProtection,
-            &discardedProtection) != FALSE;
-        return restored;
-    }
-
-    void RestoreSlot(
-        void** slot,
-        void* replacement,
-        void* original) noexcept
-    {
-        if (slot == nullptr || original == nullptr)
-        {
-            return;
-        }
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                slot,
-                sizeof(*slot),
-                PAGE_READWRITE,
-                &previousProtection))
-        {
-            return;
-        }
-        if (*slot == replacement)
-        {
-            *slot = original;
-            FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-        }
-        DWORD discardedProtection = 0;
-        VirtualProtect(
-            slot,
-            sizeof(*slot),
-            previousProtection,
-            &discardedProtection);
-    }
-
     void* ReadOwner(void* component) noexcept
     {
         if (component == nullptr)
@@ -187,9 +130,6 @@ namespace fable::game::hero_pawn::abilities::hooks
 
         gameModule_ = gameModule;
         diagnostics_ = diagnostics;
-        frameUpdateSlot_ = frameSlot;
-        controlledPositionSlot_ = controlledSlot;
-        navigatorPositionSlot_ = navigatorSlot;
         originalFrameUpdate_ = reinterpret_cast<FrameUpdatePointer>(
             *frameSlot);
         // Preserve any earlier locomotion observer by chaining the currently
@@ -198,32 +138,48 @@ namespace fable::game::hero_pawn::abilities::hooks
             reinterpret_cast<SetWorldPositionPointer>(*controlledSlot);
         originalNavigatorPosition_ =
             reinterpret_cast<SetWorldPositionPointer>(*navigatorSlot);
+        void* const controlledExpected = *controlledSlot;
+        void* const controlledReplacement = reinterpret_cast<void*>(
+            &ObserveControlledPosition);
+        void* const navigatorExpected = *navigatorSlot;
+        void* const navigatorReplacement = reinterpret_cast<void*>(
+            &ObserveNavigatorPosition);
+        void* const frameExpected = *frameSlot;
+        void* const frameReplacement = reinterpret_cast<void*>(
+            &ObserveFrameUpdate);
         active_ = this;
-
-        if (!ReplaceSlot(
+        if (!controlledPositionPatch_.Install(
                 controlledSlot,
-                reinterpret_cast<void*>(&ObserveControlledPosition)) ||
-            !ReplaceSlot(
+                &controlledExpected,
+                sizeof(controlledExpected),
+                &controlledReplacement,
+                sizeof(controlledReplacement)) ||
+            !navigatorPositionPatch_.Install(
                 navigatorSlot,
-                reinterpret_cast<void*>(&ObserveNavigatorPosition)) ||
-            !ReplaceSlot(
+                &navigatorExpected,
+                sizeof(navigatorExpected),
+                &navigatorReplacement,
+                sizeof(navigatorReplacement)) ||
+            !frameUpdatePatch_.Install(
                 frameSlot,
-                reinterpret_cast<void*>(&ObserveFrameUpdate)))
+                &frameExpected,
+                sizeof(frameExpected),
+                &frameReplacement,
+                sizeof(frameReplacement)))
         {
             Shutdown();
             return false;
         }
-
         char detail[320] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "frame_slot=%p frame=%p controlled_slot=%p controlled_chain=%p navigator_slot=%p navigator_chain=%p capacity=%zu",
-            frameUpdateSlot_,
+            frameSlot,
             reinterpret_cast<void*>(originalFrameUpdate_),
-            controlledPositionSlot_,
+            controlledSlot,
             reinterpret_cast<void*>(originalControlledPosition_),
-            navigatorPositionSlot_,
+            navigatorSlot,
             reinterpret_cast<void*>(originalNavigatorPosition_),
             bindings_.size());
         diagnostics_.Event("AssassinRushPresentationHookReady", detail);
@@ -233,20 +189,26 @@ namespace fable::game::hero_pawn::abilities::hooks
 
     void AssassinRushPresentationHook::Shutdown() noexcept
     {
+        const bool frameRestored = frameUpdatePatch_.Shutdown();
+        const bool navigatorRestored = navigatorPositionPatch_.Shutdown();
+        const bool controlledRestored = controlledPositionPatch_.Shutdown();
+        if (!frameRestored || !navigatorRestored || !controlledRestored)
+        {
+            diagnostics_.Event(
+                "AssassinRushHookUninstallSkipped",
+                "target-changed-by-another-hook");
+            return;
+        }
+        if (frameUpdatePatch_.ProtectionRestoreFailed() ||
+            navigatorPositionPatch_.ProtectionRestoreFailed() ||
+            controlledPositionPatch_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Event(
+                "AssassinRushHookProtectionRestoreWarning",
+                "original-bytes-restored");
+        }
         if (active_ == this)
         {
-            RestoreSlot(
-                frameUpdateSlot_,
-                reinterpret_cast<void*>(&ObserveFrameUpdate),
-                reinterpret_cast<void*>(originalFrameUpdate_));
-            RestoreSlot(
-                navigatorPositionSlot_,
-                reinterpret_cast<void*>(&ObserveNavigatorPosition),
-                reinterpret_cast<void*>(originalNavigatorPosition_));
-            RestoreSlot(
-                controlledPositionSlot_,
-                reinterpret_cast<void*>(&ObserveControlledPosition),
-                reinterpret_cast<void*>(originalControlledPosition_));
             active_ = nullptr;
         }
         AcquireSRWLockExclusive(&bindingLock_);
@@ -256,9 +218,6 @@ namespace fable::game::hero_pawn::abilities::hooks
         originalFrameUpdate_ = nullptr;
         originalControlledPosition_ = nullptr;
         originalNavigatorPosition_ = nullptr;
-        frameUpdateSlot_ = nullptr;
-        controlledPositionSlot_ = nullptr;
-        navigatorPositionSlot_ = nullptr;
         gameModule_ = nullptr;
         diagnostics_ = {};
     }
@@ -321,9 +280,9 @@ namespace fable::game::hero_pawn::abilities::hooks
             originalFrameUpdate_ != nullptr &&
             originalControlledPosition_ != nullptr &&
             originalNavigatorPosition_ != nullptr &&
-            frameUpdateSlot_ != nullptr &&
-            controlledPositionSlot_ != nullptr &&
-            navigatorPositionSlot_ != nullptr;
+            frameUpdatePatch_.IsInstalled() &&
+            controlledPositionPatch_.IsInstalled() &&
+            navigatorPositionPatch_.IsInstalled();
     }
 
     void __fastcall AssassinRushPresentationHook::ObserveFrameUpdate(

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Runtime/PresentationLifecycleCoordinator.h"
 
 #include <cstdint>
 #include <string>
@@ -27,6 +28,8 @@ namespace fable::multiplayer
     class MultiplayerRuntimeGraph final
     {
     public:
+        ~MultiplayerRuntimeGraph();
+
         bool Initialize(
             const automation::runtime::RuntimeConfiguration& configuration,
             game::EntityService& entities,
@@ -49,6 +52,7 @@ namespace fable::multiplayer
         bool AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer);
         bool AttachWorldTravelObserver(game::world::travel::WorldTravelObserver& observer);
         bool OnWorldReady();
+        bool ProcessPresentationLifecycle();
         bool ProcessPlayerActorState();
         void DriveReplicatedMovement();
         void Shutdown() noexcept;
@@ -78,6 +82,7 @@ namespace fable::multiplayer
         void MarkStage(InitializationStage stage) noexcept;
         [[nodiscard]] bool HasStage(InitializationStage stage) const noexcept;
         MultiplayerSessionContexts contexts_;
+        PresentationLifecycleCoordinator lifecycle_;
         core::Diagnostics diagnostics_ = {};
         std::uint32_t initializedStages_ = 0;
         bool enabled_ = false;

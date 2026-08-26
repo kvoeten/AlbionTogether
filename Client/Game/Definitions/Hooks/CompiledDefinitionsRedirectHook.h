@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Definitions/Native/CreateFileFunctions.h"
 
 #include <Windows.h>
@@ -66,8 +67,7 @@ namespace fable::game::definitions
         native::CreateFileFunctions::AnsiFunction originalAnsi_ = nullptr;
         native::CreateFileFunctions::NativeFunction originalNative_ = nullptr;
         native::CreateFileFunctions::NativeOpenFunction originalNativeOpen_ = nullptr;
-        void* trampolineMemory_ = nullptr;
-        std::array<void*, 4> targets_ = {};
+        std::array<core::hooking::InlineHook, 4> patches_;
         std::wstring gameDefinitionsPath_;
         std::wstring gameDefinitionsNtPath_;
         std::string gameDefinitionsPathAnsi_;

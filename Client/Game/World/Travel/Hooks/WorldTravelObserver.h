@@ -1,13 +1,14 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/World/Travel/Native/WorldTravelFunctions.h"
 #include "Game/World/Travel/WorldTravelPreparation.h"
 
 #include <Windows.h>
 
-#include <array>
 #include <atomic>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -45,17 +46,6 @@ namespace fable::game::world::travel
     private:
         static constexpr unsigned int DiagnosticEventLimit = 32;
         static constexpr std::size_t MaximumLevelNames = 32;
-        static constexpr std::size_t MaximumDisplacedBytes =
-            native::WorldTravelFunctions::RegionExitDisplacedBytes;
-
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::size_t displacedBytes = 0;
-            std::array<std::uint8_t, MaximumDisplacedBytes> originalBytes = {};
-        };
-
         struct DeferredMapChange final
         {
             void* worldInfo = nullptr;
@@ -76,12 +66,6 @@ namespace fable::game::world::travel
         bool ObservePrepareMapChange(
             void* worldInfo,
             const native::NativeNameArray* levelNames) noexcept;
-        bool InstallDetour(
-            std::uint8_t* target,
-            void* replacement,
-            std::size_t displacedBytes,
-            Detour& detour) noexcept;
-        static void RestoreDetour(Detour& detour) noexcept;
         void ReportRegionExit(
             const WorldTravelPreparation& preparation) noexcept;
         void ReportPrepareMapChange(
@@ -98,8 +82,8 @@ namespace fable::game::world::travel
             originalRegionExitTrigger_ = nullptr;
         native::WorldTravelFunctions::PrepareMapChangePointer
             originalPrepareMapChange_ = nullptr;
-        Detour regionExitDetour_ = {};
-        Detour prepareMapChangeDetour_ = {};
+        core::hooking::InlineHook regionExitDetour_;
+        core::hooking::InlineHook prepareMapChangeDetour_;
         WorldTravelPreparation pending_ = {};
         DeferredMapChange deferred_ = {};
         std::atomic<PreparationSink> sink_{nullptr};

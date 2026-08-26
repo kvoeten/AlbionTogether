@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Player/Input/Native/PlayerCommandPollFunction.h"
 
 #include <Windows.h>
@@ -27,7 +28,7 @@ namespace fable::game::player::input
         static PlayerCommandPollObserver* active_;
         core::Diagnostics diagnostics_ = {};
         HMODULE gameModule_ = nullptr;
-        void** vtableSlot_ = nullptr;
+        core::hooking::CodePatch patch_;
         native::PlayerCommandPollFunction::Pointer original_ = nullptr;
         std::atomic<unsigned int> observedCommandCount_{0};
     };

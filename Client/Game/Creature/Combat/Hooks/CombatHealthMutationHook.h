@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Combat/CombatHealthMutationEvent.h"
 #include "Game/Creature/Combat/Native/CombatHealthMutationFunction.h"
 
 #include <Windows.h>
 
-#include <array>
 #include <atomic>
 
 namespace fable::game::creature::combat
@@ -66,11 +66,7 @@ namespace fable::game::creature::combat
 
         static CombatHealthMutationHook* active_;
         native::CombatHealthMutationFunction::Pointer original_ = nullptr;
-        void* trampoline_ = nullptr;
-        std::uint8_t* target_ = nullptr;
-        std::array<std::uint8_t,
-            native::CombatHealthMutationFunction::DisplacedBytes>
-                originalBytes_ = {};
+        core::hooking::InlineHook hook_;
         HMODULE gameModule_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         std::atomic<EventSink> eventSink_{nullptr};

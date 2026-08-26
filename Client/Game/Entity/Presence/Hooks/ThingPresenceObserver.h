@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Core/Hooking/CodePatch.h"
 #include "Game/Entity/Presence/Native/MapwhoFunctions.h"
 #include "Game/Entity/Presence/ThingPresenceEvent.h"
 
@@ -31,15 +32,6 @@ namespace fable::game::entity::presence
 
     private:
         static constexpr unsigned int DiagnosticEventLimit = 2048;
-
-        struct Detour final
-        {
-            std::uint8_t* target = nullptr;
-            void* trampoline = nullptr;
-            std::array<
-                std::uint8_t,
-                native::MapwhoFunctions::DisplacedBytes> originalBytes = {};
-        };
 
         struct ThingContext final
         {
@@ -81,8 +73,8 @@ namespace fable::game::entity::presence
         bool InstallDetour(
             std::uint8_t* target,
             void* replacement,
-            Detour& detour) noexcept;
-        void RestoreDetour(Detour& detour) noexcept;
+            core::hooking::InlineHook& detour) noexcept;
+        bool RestoreDetour(core::hooking::InlineHook& detour) noexcept;
         void Report(
             ThingPresencePhase phase,
             void* component,
@@ -100,10 +92,10 @@ namespace fable::game::entity::presence
         native::MapwhoFunctions::RegisterPointer originalUpdate_ = nullptr;
         native::MapwhoFunctions::UnregisterPointer originalUnregister_ = nullptr;
         native::MapwhoFunctions::DestructorPointer originalDestructor_ = nullptr;
-        Detour registerDetour_ = {};
-        Detour updateDetour_ = {};
-        Detour unregisterDetour_ = {};
-        Detour destructorDetour_ = {};
+        core::hooking::InlineHook registerDetour_;
+        core::hooking::InlineHook updateDetour_;
+        core::hooking::InlineHook unregisterDetour_;
+        core::hooking::InlineHook destructorDetour_;
         std::atomic_uint registrationCount_{0};
         std::atomic_uint unregistrationCount_{0};
         std::atomic<EventSink> eventSink_{nullptr};

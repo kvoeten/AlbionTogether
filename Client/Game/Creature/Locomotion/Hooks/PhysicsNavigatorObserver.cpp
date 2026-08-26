@@ -126,57 +126,51 @@ namespace fable::game::creature::locomotion
             return false;
         }
 
-        DWORD requestProtection = 0;
-        DWORD updateProtection = 0;
-        if (!VirtualProtect(
+        void* const expectedRequest = reinterpret_cast<void*>(request);
+        void* const replacementRequest = reinterpret_cast<void*>(
+            &PhysicsNavigatorObserver::ObserveRequest);
+        if (!requestPatch_.Install(
                 requestSlot,
-                sizeof(*requestSlot),
-                PAGE_READWRITE,
-                &requestProtection))
+                &expectedRequest,
+                sizeof(expectedRequest),
+                &replacementRequest,
+                sizeof(replacementRequest)))
         {
-            diagnostics_.Log("Hook: navigator request-slot protection change failed.");
+            diagnostics_.Log("Hook: navigator request-slot patch installation failed.");
             return false;
         }
-        if (!VirtualProtect(
+        void* const expectedUpdate = reinterpret_cast<void*>(update);
+        void* const replacementUpdate = reinterpret_cast<void*>(
+            &PhysicsNavigatorObserver::ObserveUpdate);
+        if (!updatePatch_.Install(
                 updateSlot,
-                sizeof(*updateSlot),
-                PAGE_READWRITE,
-                &updateProtection))
+                &expectedUpdate,
+                sizeof(expectedUpdate),
+                &replacementUpdate,
+                sizeof(replacementUpdate)))
         {
-            DWORD discarded = 0;
-            VirtualProtect(
-                requestSlot,
-                sizeof(*requestSlot),
-                requestProtection,
-                &discarded);
-            diagnostics_.Log("Hook: navigator update-slot protection change failed.");
+            const bool requestRemoved = requestPatch_.Shutdown();
+            if (!requestRemoved)
+            {
+                originalRequest_ = request;
+                originalUpdate_ = update;
+                active_ = this;
+                diagnostics_.Log(
+                    "Hook: navigator update-slot install failed and the request-slot patch could not be rolled back; callback state retained.");
+                return false;
+            }
+            if (requestPatch_.ProtectionRestoreFailed())
+            {
+                diagnostics_.Log(
+                    "Hook: navigator request-slot rollback restored bytes, but memory protection restoration failed.");
+            }
+            diagnostics_.Log("Hook: navigator update-slot patch installation failed.");
             return false;
         }
 
         originalRequest_ = request;
         originalUpdate_ = update;
-        requestVtableSlot_ = requestSlot;
-        updateVtableSlot_ = updateSlot;
         active_ = this;
-        *requestSlot = reinterpret_cast<void*>(&PhysicsNavigatorObserver::ObserveRequest);
-        *updateSlot = reinterpret_cast<void*>(&PhysicsNavigatorObserver::ObserveUpdate);
-        FlushInstructionCache(GetCurrentProcess(), requestSlot, sizeof(*requestSlot));
-        FlushInstructionCache(GetCurrentProcess(), updateSlot, sizeof(*updateSlot));
-
-        DWORD discarded = 0;
-        if (!VirtualProtect(
-                updateSlot,
-                sizeof(*updateSlot),
-                updateProtection,
-                &discarded) ||
-            !VirtualProtect(
-                requestSlot,
-                sizeof(*requestSlot),
-                requestProtection,
-                &discarded))
-        {
-            diagnostics_.Log("Hook: navigator observers installed, but vtable protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -198,30 +192,25 @@ namespace fable::game::creature::locomotion
     {
         return active_ == this &&
             originalRequest_ != nullptr && originalUpdate_ != nullptr &&
-            requestVtableSlot_ != nullptr && updateVtableSlot_ != nullptr;
+            requestPatch_.IsInstalled() && updatePatch_.IsInstalled();
     }
 
     void PhysicsNavigatorObserver::Shutdown() noexcept
     {
-        auto restore = [](void** slot, void* replacement, void* original) noexcept
+        const bool updateRemoved = !updatePatch_.IsInstalled() || updatePatch_.Shutdown();
+        const bool requestRemoved = !requestPatch_.IsInstalled() || requestPatch_.Shutdown();
+        if (!updateRemoved || !requestRemoved)
         {
-            if (slot == nullptr || original == nullptr) return;
-            DWORD protection = 0;
-            if (VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &protection))
-            {
-                if (*slot == replacement) *slot = original;
-                DWORD discarded = 0;
-                VirtualProtect(slot, sizeof(*slot), protection, &discarded);
-                FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
-            }
-        };
-        restore(updateVtableSlot_, reinterpret_cast<void*>(&PhysicsNavigatorObserver::ObserveUpdate),
-            reinterpret_cast<void*>(originalUpdate_));
-        restore(requestVtableSlot_, reinterpret_cast<void*>(&PhysicsNavigatorObserver::ObserveRequest),
-            reinterpret_cast<void*>(originalRequest_));
+            diagnostics_.Log("Hook: navigator shutdown skipped because a vtable slot changed.");
+            return;
+        }
+        if (updatePatch_.ProtectionRestoreFailed() ||
+            requestPatch_.ProtectionRestoreFailed())
+        {
+            diagnostics_.Log(
+                "Hook: navigator vtable slots restored, but memory protection restoration failed.");
+        }
         if (active_ == this) active_ = nullptr;
-        updateVtableSlot_ = nullptr;
-        requestVtableSlot_ = nullptr;
         originalUpdate_ = nullptr;
         originalRequest_ = nullptr;
         gameModule_ = nullptr;

@@ -44,6 +44,12 @@ namespace fable::game::entity::persistence
         {
             return false;
         }
+        if (active_ == this)
+        {
+            diagnostics_.Log(
+                "Hook: saved-entity map installation is partially active; shutdown is required before retrying.");
+            return false;
+        }
 
         std::uint8_t* textTarget = nullptr;
         std::uint8_t* binaryTarget = nullptr;
@@ -71,7 +77,7 @@ namespace fable::game::entity::persistence
         }
         originalLoadText_ =
             reinterpret_cast<native::SavedEntitiesFunctions::LoadPointer>(
-                loadTextDetour_.trampoline);
+                loadTextDetour_.Original());
 
         if (!InstallDetour(
                 binaryTarget,
@@ -79,24 +85,30 @@ namespace fable::game::entity::persistence
                     &SavedEntityMapBlobObserver::LoadBinaryObserved),
                 loadBinaryDetour_))
         {
-            RestoreDetour(loadTextDetour_);
+            const bool rollbackRestored = RestoreDetour(loadTextDetour_);
+            if (!rollbackRestored)
+            {
+                diagnostics_.Log(
+                    "Hook: saved-entity map rollback deferred because a target is owned by another hook.");
+                return false;
+            }
             originalLoadText_ = nullptr;
             active_ = nullptr;
             return false;
         }
         originalLoadBinary_ =
             reinterpret_cast<native::SavedEntitiesFunctions::LoadPointer>(
-                loadBinaryDetour_.trampoline);
+                loadBinaryDetour_.Original());
 
         char detail[384] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "text=%p text_trampoline=%p binary=%p binary_trampoline=%p vector_offset=0x10 record_bytes=0x1C populated_offset=0x18",
-            loadTextDetour_.target,
-            loadTextDetour_.trampoline,
-            loadBinaryDetour_.target,
-            loadBinaryDetour_.trampoline);
+            textTarget,
+            loadTextDetour_.Original(),
+            binaryTarget,
+            loadBinaryDetour_.Original());
         diagnostics_.Event("SavedEntityMapBlobObserverReady", detail);
         return true;
 #endif
@@ -104,11 +116,18 @@ namespace fable::game::entity::persistence
 
     void SavedEntityMapBlobObserver::Shutdown() noexcept
     {
+        bool allRestored = true;
+        allRestored = RestoreDetour(loadBinaryDetour_) && allRestored;
+        allRestored = RestoreDetour(loadTextDetour_) && allRestored;
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: saved-entity map shutdown deferred because a target is owned by another hook.");
+            return;
+        }
         SetPostLoadBarrierSink(nullptr, nullptr);
         SetCollectionSink(nullptr, nullptr);
         SetSnapshotSink(nullptr, nullptr);
-        RestoreDetour(loadBinaryDetour_);
-        RestoreDetour(loadTextDetour_);
         if (active_ == this) active_ = nullptr;
         originalLoadBinary_ = nullptr;
         originalLoadText_ = nullptr;
@@ -141,10 +160,8 @@ namespace fable::game::entity::persistence
 
     bool SavedEntityMapBlobObserver::IsInstalled() const noexcept
     {
-        return active_ == this && loadTextDetour_.target != nullptr &&
-            loadTextDetour_.trampoline != nullptr &&
-            loadBinaryDetour_.target != nullptr &&
-            loadBinaryDetour_.trampoline != nullptr &&
+        return active_ == this && loadTextDetour_.IsInstalled() &&
+            loadBinaryDetour_.IsInstalled() &&
             originalLoadText_ != nullptr && originalLoadBinary_ != nullptr;
     }
 
@@ -441,116 +458,26 @@ namespace fable::game::entity::persistence
     bool SavedEntityMapBlobObserver::InstallDetour(
         std::uint8_t* target,
         void* replacement,
-        Detour& detour) noexcept
+        core::hooking::InlineHook& detour) noexcept
     {
         constexpr std::size_t displacedBytes =
             native::SavedEntitiesFunctions::DisplacedBytes;
         if (target == nullptr || replacement == nullptr ||
-            detour.target != nullptr)
+            detour.IsInstalled())
         {
             return false;
         }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-
-        std::memcpy(detour.originalBytes.data(), target, displacedBytes);
-        std::memcpy(trampoline, target, displacedBytes);
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(
-                trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        trampoline[displacedBytes] = 0xE9;
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        detour.target = target;
-        detour.trampoline = trampoline;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-        DWORD discarded = 0;
-        VirtualProtect(target, patch.size(), previousProtection, &discarded);
-        return true;
+        return detour.Install(
+            target,
+            target,
+            displacedBytes,
+            replacement,
+            displacedBytes);
     }
 
-    void SavedEntityMapBlobObserver::RestoreDetour(
-        Detour& detour) noexcept
+    bool SavedEntityMapBlobObserver::RestoreDetour(
+        core::hooking::InlineHook& detour) noexcept
     {
-        if (detour.target == nullptr)
-        {
-            return;
-        }
-        DWORD previousProtection = 0;
-        if (VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            std::memcpy(
-                detour.target,
-                detour.originalBytes.data(),
-                detour.originalBytes.size());
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                detour.target,
-                detour.originalBytes.size());
-            DWORD discarded = 0;
-            VirtualProtect(
-                detour.target,
-                detour.originalBytes.size(),
-                previousProtection,
-                &discarded);
-        }
-        if (detour.trampoline != nullptr)
-        {
-            VirtualFree(detour.trampoline, 0, MEM_RELEASE);
-        }
-        detour = {};
+        return detour.Shutdown();
     }
 }

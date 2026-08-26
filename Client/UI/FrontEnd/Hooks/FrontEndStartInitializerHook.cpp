@@ -1,7 +1,5 @@
 #include "FrontEndStartInitializerHook.h"
 
-#include <array>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -49,90 +47,21 @@ namespace fable::ui::front_end
 
         constexpr std::size_t displacedBytes =
             native::FrontEndStartInitializer::DisplacedBytes;
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            displacedBytes + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            diagnostics_.Log(
-                "Hook: front-end native initializer trampoline allocation failed.");
-            return false;
-        }
-
-        std::memcpy(trampoline, target, displacedBytes);
-        trampoline[displacedBytes] = 0xE9;
-        const std::intptr_t trampolineDisplacement =
-            reinterpret_cast<std::intptr_t>(target + displacedBytes) -
-            (reinterpret_cast<std::intptr_t>(trampoline + displacedBytes) + 5);
-        const std::intptr_t replacementDisplacement =
-            reinterpret_cast<std::intptr_t>(&FrontEndStartInitializerHook::Invoke) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (trampolineDisplacement < INT32_MIN ||
-            trampolineDisplacement > INT32_MAX ||
-            replacementDisplacement < INT32_MIN ||
-            replacementDisplacement > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            diagnostics_.Log(
-                "Hook: front-end native initializer trampoline or callback is outside the x86 relative-jump range.");
-            return false;
-        }
-
-        const std::int32_t trampolineRelative =
-            static_cast<std::int32_t>(trampolineDisplacement);
-        std::memcpy(
-            trampoline + displacedBytes + 1,
-            &trampolineRelative,
-            sizeof(trampolineRelative));
-        FlushInstructionCache(
-            GetCurrentProcess(),
-            trampoline,
-            displacedBytes + 5);
-
-        std::array<std::uint8_t, displacedBytes> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t replacementRelative =
-            static_cast<std::int32_t>(replacementDisplacement);
-        std::memcpy(
-            patch.data() + 1,
-            &replacementRelative,
-            sizeof(replacementRelative));
-
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
+        if (!patch_.Install(
                 target,
-                patch.size(),
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
+                target,
+                displacedBytes,
+                reinterpret_cast<void*>(&FrontEndStartInitializerHook::Invoke),
+                displacedBytes))
         {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
             diagnostics_.Log(
-                "Hook: front-end native initializer could not change code protection.");
+                "Hook: front-end native initializer patch installation failed.");
             return false;
         }
-
-        trampoline_ = trampoline;
-        target_ = target;
         original_ = reinterpret_cast<native::FrontEndStartInitializer::Pointer>(
-            trampoline_);
+            patch_.Original());
         initializedCallback_ = initializedCallback;
         active_ = this;
-        std::memcpy(target, patch.data(), patch.size());
-        FlushInstructionCache(GetCurrentProcess(), target, patch.size());
-
-        DWORD discardedProtection = 0;
-        if (!VirtualProtect(
-                target,
-                patch.size(),
-                previousProtection,
-                &discardedProtection))
-        {
-            diagnostics_.Log(
-                "Hook: front-end native initializer installed, but code protection restoration failed.");
-        }
 
         char detail[256] = {};
         std::snprintf(
@@ -141,7 +70,7 @@ namespace fable::ui::front_end
             "target=%p replacement=%p trampoline=%p",
             target,
             &FrontEndStartInitializerHook::Invoke,
-            trampoline_);
+            patch_.Original());
         diagnostics_.Log("Hook: front-end native initializer installed.");
         diagnostics_.Event(
             "FrontEndNativeInitHookReady",
@@ -152,32 +81,21 @@ namespace fable::ui::front_end
 
     void FrontEndStartInitializerHook::Shutdown() noexcept
     {
-#if defined(_M_IX86)
-        if (target_ != nullptr && trampoline_ != nullptr)
+        if (!patch_.Shutdown())
         {
-            constexpr std::size_t bytes = native::FrontEndStartInitializer::DisplacedBytes;
-            DWORD protection = 0;
-            if (VirtualProtect(target_, bytes, PAGE_EXECUTE_READWRITE, &protection))
-            {
-                std::memcpy(target_, trampoline_, bytes);
-                FlushInstructionCache(GetCurrentProcess(), target_, bytes);
-                DWORD discarded = 0;
-                VirtualProtect(target_, bytes, protection, &discarded);
-            }
+            diagnostics_.Log(
+                "Hook: front-end native initializer patch was not removed because target ownership changed.");
+            return;
         }
-#endif
         if (active_ == this) active_ = nullptr;
         original_ = nullptr;
         initializedCallback_ = nullptr;
-        target_ = nullptr;
-        if (trampoline_ != nullptr) VirtualFree(trampoline_, 0, MEM_RELEASE);
-        trampoline_ = nullptr;
         diagnostics_ = {};
     }
 
     bool FrontEndStartInitializerHook::IsInstalled() const noexcept
     {
-        return original_ != nullptr && trampoline_ != nullptr && active_ == this;
+        return original_ != nullptr && patch_.IsInstalled() && active_ == this;
     }
 
     void __fastcall FrontEndStartInitializerHook::Invoke(

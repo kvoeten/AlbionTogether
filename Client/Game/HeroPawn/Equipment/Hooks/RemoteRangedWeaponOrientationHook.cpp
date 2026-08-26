@@ -1,6 +1,5 @@
 #include "RemoteRangedWeaponOrientationHook.h"
 
-#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -82,15 +81,15 @@ namespace fable::game::hero_pawn::equipment::hooks
             active_ = nullptr;
             return false;
         }
-        original_ = reinterpret_cast<ResolveTransform>(trampoline_);
+        original_ = reinterpret_cast<ResolveTransform>(patch_.Original());
 
         char detail[192] = {};
         std::snprintf(
             detail,
             sizeof(detail),
             "target=%p trampoline=%p registrations=%zu scope=remote-active-ranged-final-attachment",
-            target_,
-            trampoline_,
+            target,
+            patch_.Original(),
             registrations_.size());
         diagnostics_.Event("RemoteRangedWeaponOrientationHookReady", detail);
         return true;
@@ -99,11 +98,16 @@ namespace fable::game::hero_pawn::equipment::hooks
 
     void RemoteRangedWeaponOrientationHook::Shutdown() noexcept
     {
+        if (!patch_.Shutdown())
+        {
+            diagnostics_.Log(
+                "Hook: remote ranged orientation patch was not removed because target ownership changed.");
+            return;
+        }
         if (active_ == this)
         {
             active_ = nullptr;
         }
-        RestoreDetour();
         original_ = nullptr;
         for (Registration& registration : registrations_)
         {
@@ -210,8 +214,7 @@ namespace fable::game::hero_pawn::equipment::hooks
 
     bool RemoteRangedWeaponOrientationHook::IsInstalled() const noexcept
     {
-        return active_ == this && original_ != nullptr && target_ != nullptr &&
-            trampoline_ != nullptr;
+        return active_ == this && original_ != nullptr && patch_.IsInstalled();
     }
 
     bool __fastcall
@@ -363,92 +366,12 @@ namespace fable::game::hero_pawn::equipment::hooks
         {
             return false;
         }
-        auto* const trampoline = static_cast<std::uint8_t*>(VirtualAlloc(
-            nullptr,
-            PrologueSize + 5,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE));
-        if (trampoline == nullptr)
-        {
-            return false;
-        }
-        std::memcpy(originalBytes_.data(), target, PrologueSize);
-        std::memcpy(trampoline, target, PrologueSize);
-        trampoline[PrologueSize] = 0xE9;
-        const std::intptr_t resume =
-            reinterpret_cast<std::intptr_t>(target + PrologueSize) -
-            (reinterpret_cast<std::intptr_t>(trampoline + PrologueSize) + 5);
-        const std::intptr_t redirect =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (resume < INT32_MIN || resume > INT32_MAX ||
-            redirect < INT32_MIN || redirect > INT32_MAX)
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        const auto resumeRelative = static_cast<std::int32_t>(resume);
-        std::memcpy(
-            trampoline + PrologueSize + 1,
-            &resumeRelative,
-            sizeof(resumeRelative));
-
-        std::array<std::uint8_t, PrologueSize> patch = {};
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const auto redirectRelative = static_cast<std::int32_t>(redirect);
-        std::memcpy(
-            patch.data() + 1,
-            &redirectRelative,
-            sizeof(redirectRelative));
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                target,
-                PrologueSize,
-                PAGE_EXECUTE_READWRITE,
-                &previousProtection))
-        {
-            VirtualFree(trampoline, 0, MEM_RELEASE);
-            return false;
-        }
-        std::memcpy(target, patch.data(), PrologueSize);
-        FlushInstructionCache(GetCurrentProcess(), target, PrologueSize);
-        FlushInstructionCache(
-            GetCurrentProcess(), trampoline, PrologueSize + 5);
-        DWORD discarded = 0;
-        VirtualProtect(
-            target, PrologueSize, previousProtection, &discarded);
-        target_ = target;
-        trampoline_ = trampoline;
-        return true;
+        return patch_.Install(
+            target,
+            target,
+            PrologueSize,
+            replacement,
+            PrologueSize);
     }
 
-    void RemoteRangedWeaponOrientationHook::RestoreDetour() noexcept
-    {
-        if (target_ != nullptr)
-        {
-            DWORD previousProtection = 0;
-            if (VirtualProtect(
-                    target_,
-                    PrologueSize,
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtection))
-            {
-                std::memcpy(
-                    target_, originalBytes_.data(), PrologueSize);
-                FlushInstructionCache(
-                    GetCurrentProcess(), target_, PrologueSize);
-                DWORD discarded = 0;
-                VirtualProtect(
-                    target_, PrologueSize, previousProtection, &discarded);
-            }
-        }
-        if (trampoline_ != nullptr)
-        {
-            VirtualFree(trampoline_, 0, MEM_RELEASE);
-        }
-        target_ = nullptr;
-        trampoline_ = nullptr;
-        originalBytes_ = {};
-    }
 }

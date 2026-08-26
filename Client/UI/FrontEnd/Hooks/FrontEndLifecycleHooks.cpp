@@ -1,7 +1,7 @@
 #include "FrontEndLifecycleHooks.h"
 
+#include <algorithm>
 #include <array>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -208,27 +208,6 @@ namespace
 #endif
     }
 
-    template <std::size_t Size>
-    bool BuildRelativeJump(
-        const std::uint8_t* target,
-        const void* replacement,
-        std::array<std::uint8_t, Size>& patch) noexcept
-    {
-        static_assert(Size >= 5, "An x86 relative jump requires five bytes.");
-        const std::intptr_t displacement =
-            reinterpret_cast<std::intptr_t>(replacement) -
-            (reinterpret_cast<std::intptr_t>(target) + 5);
-        if (displacement < INT32_MIN || displacement > INT32_MAX)
-        {
-            return false;
-        }
-
-        patch.fill(0x90);
-        patch[0] = 0xE9;
-        const std::int32_t relative = static_cast<std::int32_t>(displacement);
-        std::memcpy(patch.data() + 1, &relative, sizeof(relative));
-        return true;
-    }
 }
 
 namespace fable::ui::front_end
@@ -241,6 +220,16 @@ namespace fable::ui::front_end
         if (IsInstalled())
         {
             return true;
+        }
+        if (active_ == this || installed_ ||
+            std::any_of(
+                patches_.begin(),
+                patches_.end(),
+                [](const auto& patch) { return patch.IsInstalled(); }))
+        {
+            diagnostics.Log(
+                "Hook: front-end lifecycle installation is partially active; shutdown is required before retrying.");
+            return false;
         }
         diagnostics_ = diagnostics;
 
@@ -280,48 +269,6 @@ namespace fable::ui::front_end
         }
 
         const auto replacements = LifecycleReplacements();
-        using Patch = std::array<
-            std::uint8_t,
-            native::FrontEndLifecycleFunctions::DisplacedBytes>;
-        std::array<Patch, BoundaryCount> patches = {};
-        for (std::size_t index = 0; index < BoundaryCount; ++index)
-        {
-            if (!BuildRelativeJump(
-                    targets[index],
-                    replacements[index],
-                    patches[index]))
-            {
-                diagnostics_.Log(
-                    "Hook: a front-end lifecycle callback is outside the x86 relative-jump range.");
-                return false;
-            }
-        }
-
-        std::array<DWORD, BoundaryCount> previousProtections = {};
-        std::size_t protectedCount = 0;
-        for (; protectedCount < BoundaryCount; ++protectedCount)
-        {
-            if (!VirtualProtect(
-                    targets[protectedCount],
-                    patches[protectedCount].size(),
-                    PAGE_EXECUTE_READWRITE,
-                    &previousProtections[protectedCount]))
-            {
-                for (std::size_t restore = protectedCount; restore > 0; --restore)
-                {
-                    DWORD discarded = 0;
-                    VirtualProtect(
-                        targets[restore - 1],
-                        patches[restore - 1].size(),
-                        previousProtections[restore - 1],
-                        &discarded);
-                }
-                diagnostics_.Log(
-                    "Hook: a front-end lifecycle boundary could not change code protection.");
-                return false;
-            }
-        }
-
         callbacks_ = {{
             callbacks.uiPageDoBegin,
             callbacks.uiPageDoInit,
@@ -333,41 +280,41 @@ namespace fable::ui::front_end
         targets_ = targets;
         for (std::size_t index = 0; index < BoundaryCount; ++index)
         {
-            std::memcpy(
-                originalBytes_[index].data(),
-                targets[index],
-                originalBytes_[index].size());
-        }
-        for (std::size_t index = 0; index < BoundaryCount; ++index)
-        {
             *g_resumeSlots[index] = reinterpret_cast<std::uintptr_t>(
                 targets[index] + native::FrontEndLifecycleFunctions::DisplacedBytes);
         }
         active_ = this;
-
         for (std::size_t index = 0; index < BoundaryCount; ++index)
         {
-            std::memcpy(
-                targets[index],
-                patches[index].data(),
-                patches[index].size());
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                targets[index],
-                patches[index].size());
-        }
-
-        for (std::size_t restore = BoundaryCount; restore > 0; --restore)
-        {
-            DWORD discarded = 0;
-            if (!VirtualProtect(
-                    targets[restore - 1],
-                    patches[restore - 1].size(),
-                    previousProtections[restore - 1],
-                    &discarded))
+            if (!patches_[index].Install(
+                    targets[index],
+                    targets[index],
+                    native::FrontEndLifecycleFunctions::DisplacedBytes,
+                    replacements[index],
+                    native::FrontEndLifecycleFunctions::DisplacedBytes))
             {
+                bool rollbackRestored = true;
+                for (std::size_t restore = index; restore > 0; --restore)
+                {
+                    rollbackRestored =
+                        patches_[restore - 1].Shutdown() && rollbackRestored;
+                }
+                if (!rollbackRestored)
+                {
+                    diagnostics_.Log(
+                        "Hook: front-end lifecycle rollback deferred because a target is owned by another hook.");
+                    return false;
+                }
+                active_ = nullptr;
+                callbacks_ = {};
+                targets_ = {};
+                for (std::uintptr_t* const resumeSlot : g_resumeSlots)
+                {
+                    *resumeSlot = 0;
+                }
                 diagnostics_.Log(
-                    "Hook: a front-end lifecycle observer installed, but code protection restoration failed.");
+                    "Hook: a front-end lifecycle boundary patch could not be installed.");
+                return false;
             }
         }
 
@@ -383,33 +330,42 @@ namespace fable::ui::front_end
 
     void FrontEndLifecycleHooks::Shutdown() noexcept
     {
-#if defined(_M_IX86)
+        bool allRestored = true;
         for (std::size_t index = BoundaryCount; index > 0; --index)
         {
-            const std::size_t targetIndex = index - 1;
-            std::uint8_t* target = targets_[targetIndex];
-            if (target == nullptr) continue;
-            DWORD protection = 0;
-            if (VirtualProtect(target, originalBytes_[targetIndex].size(), PAGE_EXECUTE_READWRITE, &protection))
-            {
-                std::memcpy(target, originalBytes_[targetIndex].data(), originalBytes_[targetIndex].size());
-                FlushInstructionCache(GetCurrentProcess(), target, originalBytes_[targetIndex].size());
-                DWORD discarded = 0;
-                VirtualProtect(target, originalBytes_[targetIndex].size(), protection, &discarded);
-            }
+            allRestored = patches_[index - 1].Shutdown() && allRestored;
         }
-#endif
+        if (!allRestored)
+        {
+            diagnostics_.Log(
+                "Hook: front-end lifecycle shutdown deferred because a target boundary is owned by another hook.");
+            return;
+        }
         if (active_ == this) active_ = nullptr;
         callbacks_ = {};
         targets_ = {};
-        originalBytes_ = {};
+        for (std::uintptr_t* const resumeSlot : g_resumeSlots)
+        {
+            *resumeSlot = 0;
+        }
         installed_ = false;
         diagnostics_ = {};
     }
 
     bool FrontEndLifecycleHooks::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this;
+        if (!installed_ || active_ != this)
+        {
+            return false;
+        }
+        for (const auto& patch : patches_)
+        {
+            if (!patch.IsInstalled())
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     void FrontEndLifecycleHooks::Dispatch(

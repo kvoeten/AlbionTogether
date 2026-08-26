@@ -38,37 +38,26 @@ namespace fable::core::game_thread
             return false;
         }
 
-        DWORD previousProtection = 0;
-        if (!VirtualProtect(
-                imported.slot,
-                sizeof(*imported.slot),
-                PAGE_READWRITE,
-                &previousProtection))
-        {
-            diagnostics_.Log(
-                "Hook: game-thread idle boundary could not change IAT protection.");
-            return false;
-        }
-
         original_ = imported.importedFunction;
-        slot_ = imported.slot;
         idleCallback_ = idleCallback;
         gameThreadId_ = gameThreadId;
-        active_ = this;
-        *imported.slot = &GameThreadIdleHook::PeekMessage;
-
-        DWORD discardedProtection = 0;
-        if (!VirtualProtect(
+        native::PeekMessageImport::Function replacement =
+            &GameThreadIdleHook::PeekMessage;
+        if (!patch_.Install(
                 imported.slot,
+                &imported.importedFunction,
                 sizeof(*imported.slot),
-                previousProtection,
-                &discardedProtection))
+                &replacement,
+                sizeof(replacement)))
         {
             diagnostics_.Log(
-                "Hook: game-thread idle boundary installed, but IAT protection restoration failed.");
+                "Hook: game-thread idle boundary could not patch the PeekMessageW IAT slot.");
+            original_ = nullptr;
+            idleCallback_ = nullptr;
+            gameThreadId_ = 0;
+            return false;
         }
-
-        installed_ = true;
+        active_ = this;
         char detail[256] = {};
         std::snprintf(
             detail,
@@ -85,20 +74,13 @@ namespace fable::core::game_thread
 
     void GameThreadIdleHook::Shutdown() noexcept
     {
-        if (slot_ != nullptr && original_ != nullptr)
+        if (!patch_.Shutdown())
         {
-            DWORD protection = 0;
-            if (VirtualProtect(slot_, sizeof(*slot_), PAGE_READWRITE, &protection))
-            {
-                if (*slot_ == &GameThreadIdleHook::PeekMessage) *slot_ = original_;
-                DWORD discarded = 0;
-                VirtualProtect(slot_, sizeof(*slot_), protection, &discarded);
-                FlushInstructionCache(GetCurrentProcess(), slot_, sizeof(*slot_));
-            }
+            diagnostics_.Log(
+                "Hook: game-thread idle patch was not removed because its IAT slot changed.");
+            return;
         }
         if (active_ == this) active_ = nullptr;
-        installed_ = false;
-        slot_ = nullptr;
         original_ = nullptr;
         idleCallback_ = nullptr;
         gameThreadId_ = 0;
@@ -106,7 +88,7 @@ namespace fable::core::game_thread
 
     bool GameThreadIdleHook::IsInstalled() const noexcept
     {
-        return installed_ && active_ == this && original_ != nullptr;
+        return active_ == this && original_ != nullptr && patch_.IsInstalled();
     }
 
     BOOL WINAPI GameThreadIdleHook::PeekMessage(

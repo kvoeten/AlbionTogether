@@ -21,6 +21,7 @@
     <Filter Include="Core\Bootstrap"><UniqueIdentifier>{5B5D3C87-7F7A-4CF8-AD4D-8CE4D8AB0A21}</UniqueIdentifier></Filter>
     <Filter Include="Core\Capabilities"><UniqueIdentifier>{D47B069E-6DF2-4F83-A162-5DD12EFFFAF6}</UniqueIdentifier></Filter>
     <Filter Include="Core\Diagnostics"><UniqueIdentifier>{616263A2-6815-43FD-A1F6-BED028E9AC52}</UniqueIdentifier></Filter>
+    <Filter Include="Core\Hooking"><UniqueIdentifier>{3FEAEFCF-0E89-4E19-B3DB-79C3E26833B9}</UniqueIdentifier></Filter>
     <Filter Include="Core\Target"><UniqueIdentifier>{26A2B8D7-8D71-46E5-962A-DBA0E6B4B1A8}</UniqueIdentifier></Filter>
     <Filter Include="Core\GameThread"><UniqueIdentifier>{430EAD3A-A5E2-486E-97A0-490CB9B48B9E}</UniqueIdentifier></Filter>
     <Filter Include="Core\GameThread\Hooks"><UniqueIdentifier>{4A55B6B8-E047-4A10-969F-694FBACD34B8}</UniqueIdentifier></Filter>
@@ -175,6 +176,7 @@
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp"><Filter>Core\Capabilities</Filter></ClCompile>
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp"><Filter>Core\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Core\Hooking\CodePatch.cpp"><Filter>Core\Hooking</Filter></ClCompile>
     <ClCompile Include="Core\GameThread\Hooks\GameThreadIdleHook.cpp"><Filter>Core\GameThread\Hooks</Filter></ClCompile>
     <ClCompile Include="Core\GameThread\Native\PeekMessageImport.cpp"><Filter>Core\GameThread\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\CreatureService.cpp"><Filter>Game\Creature</Filter></ClCompile>
@@ -341,7 +343,6 @@
     <ClCompile Include="Multiplayer\Replication\LocalPlayerChannel.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\RemotePlayerChannels.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\VillageMembershipReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
-    <ClCompile Include="Multiplayer\Runtime\MultiplayerSession.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\ReliableMessageDispatcher.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\ConnectionNonceRegistry.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\MovementTransport.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
@@ -411,6 +412,7 @@
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h"><Filter>Core\Capabilities</Filter></ClInclude>
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h"><Filter>Core\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Core\Diagnostics\Diagnostics.h"><Filter>Core\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Core\Hooking\CodePatch.h"><Filter>Core\Hooking</Filter></ClInclude>
     <ClInclude Include="Core\GameThread\Hooks\GameThreadIdleHook.h"><Filter>Core\GameThread\Hooks</Filter></ClInclude>
     <ClInclude Include="Core\GameThread\Native\PeekMessageImport.h"><Filter>Core\GameThread\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\CreatureService.h"><Filter>Game\Creature</Filter></ClInclude>
