@@ -69,6 +69,12 @@ namespace fable::multiplayer
         if (!graph.ProcessPlayerActorState()) diagnostics.Event("ClientFailed", "multiplayer-player-actor-state-replication");
         InvalidateRemotePlayerState(graph);
         if (!transport.reliableMessages.Pump()) diagnostics.Event("ClientFailed", "multiplayer-reliable-dispatch");
+        // Actor lifecycle, vitals, and actions share an ordered per-actor
+        // stream but are dispatched to separate bounded services. Apply any
+        // Construct accepted by this pump before invalidating dependent state;
+        // otherwise a new-generation vitals baseline can be mistaken for
+        // residue from the Retire immediately ahead of it.
+        if (!graph.ProcessPlayerActorState()) diagnostics.Event("ClientFailed", "multiplayer-player-actor-state-replication");
         InvalidateRemotePlayerState(graph);
         (void)authority.ProcessControl();
         if (!localHero.IsWorldReady()) {

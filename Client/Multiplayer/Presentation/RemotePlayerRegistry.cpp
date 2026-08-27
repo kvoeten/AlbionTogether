@@ -18,6 +18,7 @@ namespace fable::multiplayer::presentation
         game::creature::animation::CreatureAnimationService& animation,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+        ui::HudService& hud,
         multiplayer::combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics,
         std::uint64_t localActorId)
@@ -33,6 +34,7 @@ namespace fable::multiplayer::presentation
         combatants_ = &combatants;
         diagnostics_ = diagnostics;
         localActorId_ = localActorId;
+        partyHud_.Initialize(hud, diagnostics, localActorId);
         if (!rangedOrientation_.Install(entities.GameModule(), diagnostics))
         {
             diagnostics_.Event(
@@ -91,6 +93,7 @@ namespace fable::multiplayer::presentation
         {
             return;
         }
+        partyHud_.Reconcile(snapshots);
         for (const replication::RemotePlayerSnapshot& snapshot : snapshots)
         {
             const PlayerState& state = snapshot.state;
@@ -153,6 +156,7 @@ namespace fable::multiplayer::presentation
 
     void RemotePlayerRegistry::Remove(std::uint64_t actorId) noexcept
     {
+        partyHud_.Remove(actorId);
         const auto iterator = presentations_.find(actorId);
         if (iterator == presentations_.end())
         {
@@ -164,6 +168,7 @@ namespace fable::multiplayer::presentation
 
     void RemotePlayerRegistry::BeginWorldTransition() noexcept
     {
+        partyHud_.BeginWorldTransition();
         for (auto& [actorId, presentation] : presentations_)
         {
             (void)actorId;
@@ -173,6 +178,7 @@ namespace fable::multiplayer::presentation
 
     void RemotePlayerRegistry::CompleteWorldTransition() noexcept
     {
+        partyHud_.CompleteWorldTransition();
         for (auto& [actorId, presentation] : presentations_)
         {
             (void)actorId;
@@ -195,6 +201,8 @@ namespace fable::multiplayer::presentation
         float maximumHealth,
         std::uint32_t revision)
     {
+        partyHud_.UpdateHealth(
+            actorId, currentHealth, maximumHealth, revision);
         const auto iterator = presentations_.find(actorId);
         return iterator != presentations_.end() &&
             iterator->second != nullptr &&
@@ -296,6 +304,7 @@ namespace fable::multiplayer::presentation
 
     void RemotePlayerRegistry::Shutdown() noexcept
     {
+        partyHud_.Shutdown();
         for (auto& [actorId, presentation] : presentations_)
         {
             (void)actorId;

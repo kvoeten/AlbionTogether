@@ -80,6 +80,7 @@ namespace fable::multiplayer
         game::creature::animation::CreatureAnimationService& animation,
         game::creature::combat::CreatureCombatService& combat,
         game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+        ui::HudService& hud,
         game::QuestService& quests,
         game::npc::village::VillageMembershipService& villages,
         game::npc::simulation::DummyVillagerService& dummyVillagers,
@@ -100,7 +101,7 @@ namespace fable::multiplayer
         auto& w = contexts_.world;
         auto& e = contexts_.entities;
         auto& a = contexts_.actions;
-        if (!p.remotePlayers.Initialize(entities, npcs, locomotion, look, animation, combat, abilities, p.playerCombatants, diagnostics_, actorId)) return false;
+        if (!p.remotePlayers.Initialize(entities, npcs, locomotion, look, animation, combat, abilities, hud, p.playerCombatants, diagnostics_, actorId)) return false;
         MarkStage(InitializationStage::Players);
         const bool started = role == PeerRole::Host
             ? t.transport.StartHost(configuration.MultiplayerPort(), actorId, diagnostics_)

@@ -5,6 +5,7 @@
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroDefinitionHook.h"
 #include "Game/HeroPawn/Equipment/Hooks/RemoteRangedWeaponOrientationHook.h"
 #include "Game/HeroPawn/Remote/RemoteHeroActor.h"
+#include "Multiplayer/Presentation/RemotePlayerPartyHud.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 
 #include <cstdint>
@@ -50,6 +51,11 @@ namespace fable::multiplayer::combat
     class PlayerCombatantDirectory;
 }
 
+namespace fable::ui
+{
+    class HudService;
+}
+
 namespace fable::multiplayer::presentation
 {
     // Dynamically owns one native presentation per live remote actor ID. The
@@ -65,6 +71,7 @@ namespace fable::multiplayer::presentation
             game::creature::animation::CreatureAnimationService& animation,
             game::creature::combat::CreatureCombatService& combat,
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+            ui::HudService& hud,
             multiplayer::combat::PlayerCombatantDirectory& combatants,
             const core::Diagnostics& diagnostics,
             std::uint64_t localActorId);
@@ -147,6 +154,7 @@ namespace fable::multiplayer::presentation
             presentationFactory_;
         game::hero_pawn::equipment::hooks::
             RemoteRangedWeaponOrientationHook rangedOrientation_;
+        RemotePlayerPartyHud partyHud_;
         std::unordered_map<
             std::uint64_t,
             std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>>

@@ -209,6 +209,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp" />
     <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp" />
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp" />
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerPartyHud.cpp" />
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp" />
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp" />
     <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp" />
@@ -457,6 +458,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h" />
     <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h" />
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h" />
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerPartyHud.h" />
     <ClInclude Include="Multiplayer\Protocol\AuthorityMessage.h" />
     <ClInclude Include="Multiplayer\Protocol\EntityActionMessage.h" />
     <ClInclude Include="Multiplayer\Protocol\PlayerActionMessage.h" />

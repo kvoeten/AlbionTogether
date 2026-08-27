@@ -170,12 +170,16 @@ namespace fable::multiplayer::replication
             return false;
         }
         authoredPlayerCreature_ = event.creature;
-        char detail[224] = {};
+        authoredPlayerGeneration_ = state->actorGeneration;
+        authoredPlayerMapEpoch_ = state->mapEpoch;
+        char detail[256] = {};
         std::snprintf(
             detail,
             sizeof(detail),
-            "subject=player actor=%llu revision=%u health=%.3f maximum=%.3f",
+            "subject=player actor=%llu generation=%u map_epoch=%u revision=%u health=%.3f maximum=%.3f",
             static_cast<unsigned long long>(localActorId_),
+            state->actorGeneration,
+            state->mapEpoch,
             publishedRevision,
             publishedCurrent,
             publishedMaximum);
@@ -268,7 +272,15 @@ namespace fable::multiplayer::replication
         const entities::LiveEntityRegistry& liveEntities)
     {
         void* const hero = localHero.NativeHero();
-        if (hero != nullptr && hero != authoredPlayerCreature_)
+        const PlayerState* const state = localHero.CurrentState();
+        const bool validLifecycle = state != nullptr &&
+            state->actorId == localActorId_ &&
+            state->actorGeneration != 0 && state->mapEpoch != 0;
+        const bool baselineChanged = validLifecycle &&
+            (hero != authoredPlayerCreature_ ||
+             state->actorGeneration != authoredPlayerGeneration_ ||
+             state->mapEpoch != authoredPlayerMapEpoch_);
+        if (hero != nullptr && baselineChanged)
         {
             float currentHealth = 0.0f;
             float maximumHealth = 0.0f;
@@ -1217,6 +1229,8 @@ namespace fable::multiplayer::replication
         processingLocalHero_ = nullptr;
         processingLiveEntities_ = nullptr;
         authoredPlayerCreature_ = nullptr;
+        authoredPlayerGeneration_ = 0;
+        authoredPlayerMapEpoch_ = 0;
         nextLocalRevision_ = 0;
         knownPeerRevision_ = 0;
         publishBackpressured_ = false;

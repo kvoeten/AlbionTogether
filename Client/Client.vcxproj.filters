@@ -326,6 +326,7 @@
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp"><Filter>Game\HeroPawn\Remote</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerPartyHud.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
@@ -574,6 +575,7 @@
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerPartyHud.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\AuthorityMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityActionMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PlayerActionMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
