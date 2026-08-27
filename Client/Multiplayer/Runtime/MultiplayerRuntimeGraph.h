@@ -22,6 +22,7 @@ namespace fable::game::creature::actions { class CreatureActionLifecycleObserver
 namespace fable::game::creature::locomotion { class CreatureModeManagerObserver; }
 namespace fable::game::creature::ai { class AiBrainUpdateObserver; }
 namespace fable::game::world::travel { class WorldTravelObserver; }
+namespace fable::ui { class HudService; }
 
 namespace fable::multiplayer
 {
@@ -39,6 +40,7 @@ namespace fable::multiplayer
             game::creature::animation::CreatureAnimationService& animation,
             game::creature::combat::CreatureCombatService& combat,
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
+            ui::HudService& hud,
             game::QuestService& quests,
             game::npc::village::VillageMembershipService& villages,
             game::npc::simulation::DummyVillagerService& dummyVillagers,

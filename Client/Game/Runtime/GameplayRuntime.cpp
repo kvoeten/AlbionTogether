@@ -64,6 +64,7 @@ namespace fable::game
                 state_->services.Animation(),
                 state_->services.Combat(),
                 state_->services.HeroWill(),
+                state_->services.Hud(),
                 state_->services.Quests(),
                 state_->services.Villages(),
                 state_->services.DummyVillagers(),

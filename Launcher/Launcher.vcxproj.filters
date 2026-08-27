@@ -12,6 +12,7 @@
     <Filter Include="Source Files\Multiplayer"><UniqueIdentifier>{4D76B0D7-EA36-44CA-9BE8-064A38F9F3AA}</UniqueIdentifier></Filter>
     <Filter Include="Source Files\Multiplayer\Scenarios"><UniqueIdentifier>{6D9A8BE8-16A1-4E29-B4D4-83E6A73F133A}</UniqueIdentifier></Filter>
     <Filter Include="Source Files\Multiplayer\Scenarios\Combat"><UniqueIdentifier>{B4A5B4E1-A04A-4B89-A8F5-6AAB7B8B1E6D}</UniqueIdentifier></Filter>
+    <Filter Include="Source Files\UI"><UniqueIdentifier>{7400B1D4-E555-4619-A8D1-D3C3A3AB7844}</UniqueIdentifier></Filter>
     <Filter Include="Header Files"><UniqueIdentifier>{A5F75ED8-02AC-44ED-9A2A-36BFD0A7D7E9}</UniqueIdentifier></Filter>
     <Filter Include="Header Files\Configuration"><UniqueIdentifier>{B6BEEB3D-8B7F-4C64-A84E-6CE399C2C4DA}</UniqueIdentifier></Filter>
     <Filter Include="Header Files\Platform"><UniqueIdentifier>{C541A089-06A4-40B1-996A-C7A36A0AA8CC}</UniqueIdentifier></Filter>
@@ -23,6 +24,7 @@
     <Filter Include="Header Files\Multiplayer"><UniqueIdentifier>{7D2F47AE-CB79-4CF6-A1D9-0A0C0A4B286A}</UniqueIdentifier></Filter>
     <Filter Include="Header Files\Multiplayer\Scenarios"><UniqueIdentifier>{F737C0B8-4A04-4C95-8F07-3B5373C07324}</UniqueIdentifier></Filter>
     <Filter Include="Header Files\Multiplayer\Scenarios\Combat"><UniqueIdentifier>{C5B6DD42-9E50-4418-9D0B-5B00E6EE7552}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files\UI"><UniqueIdentifier>{4DB86768-D9C7-4035-BE61-0A04C4768D2C}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -33,6 +35,7 @@
     <ClCompile Include="Application\SingleGameLaunch.cpp"><Filter>Source Files\Application</Filter></ClCompile>
     <ClCompile Include="Automation\WindowControl.cpp"><Filter>Source Files\Automation</Filter></ClCompile>
     <ClCompile Include="Diagnostics\EventLog.cpp"><Filter>Source Files\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Platform\CommandLineStreams.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
     <ClCompile Include="Platform\Win32Error.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
     <ClCompile Include="Platform\ScopedEnvironmentVariable.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
     <ClCompile Include="Runtime\ClientInjector.cpp"><Filter>Source Files\Runtime</Filter></ClCompile>
@@ -54,6 +57,19 @@
     <ClCompile Include="Multiplayer\Scenarios\Combat\CombatVisualPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\Combat\HeroWillPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\Combat\CombatCompletionPhase.cpp"><Filter>Source Files\Multiplayer\Scenarios\Combat</Filter></ClCompile>
+    <ClCompile Include="Application\InteractiveLaunch.cpp"><Filter>Source Files\Application</Filter></ClCompile>
+    <ClCompile Include="Application\LauncherWorkflow.cpp"><Filter>Source Files\Application</Filter></ClCompile>
+    <ClCompile Include="Configuration\LauncherSettings.cpp"><Filter>Source Files\Configuration</Filter></ClCompile>
+    <ClCompile Include="Diagnostics\FirewallManager.cpp"><Filter>Source Files\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Diagnostics\GameCompatibility.cpp"><Filter>Source Files\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Diagnostics\LauncherDiagnostics.cpp"><Filter>Source Files\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Diagnostics\NetworkDiagnostics.cpp"><Filter>Source Files\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Platform\FolderPicker.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
+    <ClCompile Include="UI\LauncherWindow.cpp"><Filter>Source Files\UI</Filter></ClCompile>
+    <ClCompile Include="UI\LauncherWindowActions.cpp"><Filter>Source Files\UI</Filter></ClCompile>
+    <ClCompile Include="UI\LauncherWindowControls.cpp"><Filter>Source Files\UI</Filter></ClCompile>
+    <ClCompile Include="UI\LauncherWindowPaint.cpp"><Filter>Source Files\UI</Filter></ClCompile>
+    <ClCompile Include="UI\LauncherDiagnosticsTask.cpp"><Filter>Source Files\UI</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Automation\InputStimulus.h"><Filter>Header Files\Automation</Filter></ClInclude>
@@ -64,6 +80,7 @@
     <ClInclude Include="Automation\WindowControl.h"><Filter>Header Files\Automation</Filter></ClInclude>
     <ClInclude Include="Configuration\LauncherConstants.h"><Filter>Header Files\Configuration</Filter></ClInclude>
     <ClInclude Include="Diagnostics\EventLog.h"><Filter>Header Files\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Platform\CommandLineStreams.h"><Filter>Header Files\Platform</Filter></ClInclude>
     <ClInclude Include="Platform\UniqueHandle.h"><Filter>Header Files\Platform</Filter></ClInclude>
     <ClInclude Include="Platform\ScopedEnvironmentVariable.h"><Filter>Header Files\Platform</Filter></ClInclude>
     <ClInclude Include="Platform\Win32Error.h"><Filter>Header Files\Platform</Filter></ClInclude>
@@ -83,5 +100,18 @@
     <ClInclude Include="Multiplayer\Scenarios\Combat\CombatVisualPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Scenarios\Combat\HeroWillPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Scenarios\Combat\CombatCompletionPhase.h"><Filter>Header Files\Multiplayer\Scenarios\Combat</Filter></ClInclude>
+    <ClInclude Include="Application\InteractiveLaunch.h"><Filter>Header Files\Application</Filter></ClInclude>
+    <ClInclude Include="Application\LauncherWorkflow.h"><Filter>Header Files\Application</Filter></ClInclude>
+    <ClInclude Include="Configuration\LauncherSettings.h"><Filter>Header Files\Configuration</Filter></ClInclude>
+    <ClInclude Include="Diagnostics\FirewallManager.h"><Filter>Header Files\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Diagnostics\GameCompatibility.h"><Filter>Header Files\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Diagnostics\LauncherDiagnostics.h"><Filter>Header Files\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Diagnostics\NetworkDiagnostics.h"><Filter>Header Files\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Platform\FolderPicker.h"><Filter>Header Files\Platform</Filter></ClInclude>
+    <ClInclude Include="UI\LauncherLayout.h"><Filter>Header Files\UI</Filter></ClInclude>
+    <ClInclude Include="UI\LauncherControlIds.h"><Filter>Header Files\UI</Filter></ClInclude>
+    <ClInclude Include="UI\LauncherTheme.h"><Filter>Header Files\UI</Filter></ClInclude>
+    <ClInclude Include="UI\LauncherWindow.h"><Filter>Header Files\UI</Filter></ClInclude>
+    <ClInclude Include="UI\LauncherDiagnosticsTask.h"><Filter>Header Files\UI</Filter></ClInclude>
   </ItemGroup>
 </Project>

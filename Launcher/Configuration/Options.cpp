@@ -96,6 +96,14 @@ namespace
         {
             options.dryRun = true;
         }
+        else if (argument == L"--no-console")
+        {
+            options.showConsole = false;
+        }
+        else if (argument == L"--no-logs")
+        {
+            options.generateLogs = false;
+        }
         else if (argument == L"--dual-instance-test")
         {
             options.dualInstanceTest = true;
@@ -563,6 +571,8 @@ void PrintUsage()
         << L"  --hold <sec>        Dual-instance stability interval from 5 to 300 seconds (default: 10)\n"
         << L"  --transform-probe  Explicitly enable the unsafe number-row 1 experiment\n"
         << L"  --dry-run          Resolve and validate paths without launching\n"
+        << L"  --no-console       Do not open the injected client diagnostics console\n"
+        << L"  --no-logs          Do not create client or event log files\n"
         << L"  --help, -h         Show this help\n";
 }
 }

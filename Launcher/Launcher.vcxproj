@@ -31,11 +31,13 @@
   <PropertyGroup><OutDir>$(SolutionDir)bin\Release\</OutDir><IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir><TargetName>AlbionTogether.Launcher</TargetName></PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>Disabled</Optimization><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError></ClCompile>
-    <Link><SubSystem>Console</SubSystem><UACExecutionLevel>AsInvoker</UACExecutionLevel></Link>
+    <Link><SubSystem>Windows</SubSystem><EntryPointSymbol>wmainCRTStartup</EntryPointSymbol><UACExecutionLevel>AsInvoker</UACExecutionLevel></Link>
+    <Manifest><EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness></Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>MaxSpeed</Optimization><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError></ClCompile>
-    <Link><SubSystem>Console</SubSystem><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences><UACExecutionLevel>AsInvoker</UACExecutionLevel></Link>
+    <Link><SubSystem>Windows</SubSystem><EntryPointSymbol>wmainCRTStartup</EntryPointSymbol><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences><UACExecutionLevel>AsInvoker</UACExecutionLevel></Link>
+    <Manifest><EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness></Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp" />
@@ -46,6 +48,7 @@
     <ClCompile Include="Application\SingleGameLaunch.cpp" />
     <ClCompile Include="Automation\WindowControl.cpp" />
     <ClCompile Include="Diagnostics\EventLog.cpp" />
+    <ClCompile Include="Platform\CommandLineStreams.cpp" />
     <ClCompile Include="Platform\Win32Error.cpp" />
     <ClCompile Include="Platform\ScopedEnvironmentVariable.cpp" />
     <ClCompile Include="Runtime\ClientInjector.cpp" />
@@ -67,6 +70,19 @@
     <ClCompile Include="Multiplayer\Scenarios\Combat\CombatVisualPhase.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\Combat\HeroWillPhase.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\Combat\CombatCompletionPhase.cpp" />
+    <ClCompile Include="Application\InteractiveLaunch.cpp" />
+    <ClCompile Include="Application\LauncherWorkflow.cpp" />
+    <ClCompile Include="Configuration\LauncherSettings.cpp" />
+    <ClCompile Include="Diagnostics\FirewallManager.cpp" />
+    <ClCompile Include="Diagnostics\GameCompatibility.cpp" />
+    <ClCompile Include="Diagnostics\LauncherDiagnostics.cpp" />
+    <ClCompile Include="Diagnostics\NetworkDiagnostics.cpp" />
+    <ClCompile Include="Platform\FolderPicker.cpp" />
+    <ClCompile Include="UI\LauncherWindow.cpp" />
+    <ClCompile Include="UI\LauncherWindowActions.cpp" />
+    <ClCompile Include="UI\LauncherWindowControls.cpp" />
+    <ClCompile Include="UI\LauncherWindowPaint.cpp" />
+    <ClCompile Include="UI\LauncherDiagnosticsTask.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Automation\InputStimulus.h" />
@@ -91,11 +107,25 @@
     <ClInclude Include="Multiplayer\Scenarios\Combat\HeroWillPhase.h" />
     <ClInclude Include="Multiplayer\Scenarios\Combat\CombatCompletionPhase.h" />
     <ClInclude Include="Diagnostics\EventLog.h" />
+    <ClInclude Include="Platform\CommandLineStreams.h" />
     <ClInclude Include="Platform\ScopedEnvironmentVariable.h" />
     <ClInclude Include="Platform\UniqueHandle.h" />
     <ClInclude Include="Platform\Win32Error.h" />
     <ClInclude Include="Runtime\ClientInjector.h" />
     <ClInclude Include="Runtime\GameProcess.h" />
+    <ClInclude Include="Application\InteractiveLaunch.h" />
+    <ClInclude Include="Application\LauncherWorkflow.h" />
+    <ClInclude Include="Configuration\LauncherSettings.h" />
+    <ClInclude Include="Diagnostics\FirewallManager.h" />
+    <ClInclude Include="Diagnostics\GameCompatibility.h" />
+    <ClInclude Include="Diagnostics\LauncherDiagnostics.h" />
+    <ClInclude Include="Diagnostics\NetworkDiagnostics.h" />
+    <ClInclude Include="Platform\FolderPicker.h" />
+    <ClInclude Include="UI\LauncherLayout.h" />
+    <ClInclude Include="UI\LauncherControlIds.h" />
+    <ClInclude Include="UI\LauncherTheme.h" />
+    <ClInclude Include="UI\LauncherWindow.h" />
+    <ClInclude Include="UI\LauncherDiagnosticsTask.h" />
   </ItemGroup>
   <ItemGroup><ProjectReference Include="..\Client\Client.vcxproj"><Project>{EF7DF930-D6E3-47AA-9475-76128B7DBF88}</Project><ReferenceOutputAssembly>false</ReferenceOutputAssembly><LinkLibraryDependencies>false</LinkLibraryDependencies></ProjectReference></ItemGroup>
   <Target Name="DeployAutomationFixture" AfterTargets="Build">

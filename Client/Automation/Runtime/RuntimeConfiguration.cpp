@@ -9,6 +9,10 @@ namespace
     constexpr wchar_t kRunIdEnvironment[] = L"ALBIONTOGETHER_RUN_ID";
     constexpr wchar_t kEventPathEnvironment[] = L"ALBIONTOGETHER_EVENT_PATH";
     constexpr wchar_t kLogPathEnvironment[] = L"ALBIONTOGETHER_LOG_PATH";
+    constexpr wchar_t kConsoleEnabledEnvironment[] =
+        L"ALBIONTOGETHER_CONSOLE_ENABLED";
+    constexpr wchar_t kLogFilesEnabledEnvironment[] =
+        L"ALBIONTOGETHER_LOG_FILES_ENABLED";
     constexpr wchar_t kFixtureDocumentsEnvironment[] =
         L"ALBIONTOGETHER_FIXTURE_DOCUMENTS";
     constexpr wchar_t kCharacterSnapshotEnvironment[] =
@@ -78,6 +82,9 @@ namespace fable::automation::runtime
         scenario_ = ReadEnvironment(kScenarioEnvironment);
         eventPath_ = ReadEnvironment(kEventPathEnvironment);
         logPath_ = ReadEnvironment(kLogPathEnvironment);
+        showConsole_ = ReadEnvironment(kConsoleEnabledEnvironment) != L"0";
+        generateLogFiles_ =
+            ReadEnvironment(kLogFilesEnabledEnvironment) != L"0";
         fixtureDocumentsPath_ = ReadEnvironment(kFixtureDocumentsEnvironment);
         characterSnapshotPath_ = ReadEnvironment(kCharacterSnapshotEnvironment);
         scriptDataPath_ = ReadEnvironment(kScriptDataEnvironment);
@@ -197,6 +204,16 @@ namespace fable::automation::runtime
     bool RuntimeConfiguration::ManualPlaytest() const noexcept
     {
         return manualPlaytest_;
+    }
+
+    bool RuntimeConfiguration::ShowConsole() const noexcept
+    {
+        return showConsole_;
+    }
+
+    bool RuntimeConfiguration::GenerateLogFiles() const noexcept
+    {
+        return generateLogFiles_;
     }
 
     HANDLE RuntimeConfiguration::ShutdownEvent() const noexcept

@@ -358,16 +358,36 @@ namespace fable::multiplayer::combat
         }
         // Keep the concrete strike response for the terminal hit, then submit
         // the real retail death action once for this creature incarnation.
-        const bool reactionEligible = ShouldSubmitVictimReaction(result) &&
+        const bool victimReactionRequested =
+            ShouldSubmitVictimReaction(result);
+        const bool nativeReactionObserved = victimReactionRequested &&
+            nativeObservations_.Consume(result, GetTickCount64());
+        const bool resolverNativeReaction =
+            victimReactionRequested && localResolution;
+        const bool reactionEligible =
+            ShouldReplayVictimReaction(result, localActorId_) &&
             (!terminalWorldEntity || !terminalProgress.reactionHandled);
         const char* reactionRoute = "none";
-        if (reactionEligible)
+        if (resolverNativeReaction)
         {
-            if (nativeObservations_.Consume(result, GetTickCount64()))
+            // Candidate creation is downstream of retail OnHit, so the source
+            // resolver must never re-enter the target action stack when the
+            // host echoes the authoritative result. The observation only
+            // distinguishes concrete native arbitration for diagnostics.
+            reactionRoute = nativeReactionObserved
+                ? "resolver-native-action"
+                : "resolver-native-hit";
+            if (terminalWorldEntity)
             {
-                reactionRoute = localResolution
-                    ? "owner-native"
-                    : "observer-native";
+                terminalTransitions_.MarkReactionHandled(terminalLifecycle);
+                terminalProgress.reactionHandled = true;
+            }
+        }
+        else if (reactionEligible)
+        {
+            if (nativeReactionObserved)
+            {
+                reactionRoute = "observer-native";
                 diagnostics_.Event(
                     "MultiplayerCombatHitReactionSuppressed",
                     "native victim reaction was already observed locally");
@@ -413,9 +433,7 @@ namespace fable::multiplayer::combat
                 {
                     return false;
                 }
-                reactionRoute = localResolution
-                    ? "owner-replay"
-                    : "observer-replay";
+                reactionRoute = "observer-replay";
             }
             if (terminalWorldEntity)
             {

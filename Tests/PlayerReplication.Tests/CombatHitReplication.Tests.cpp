@@ -568,10 +568,10 @@ namespace
         COMBAT_CHECK(test, cache.Size() == 0);
     }
 
-    void TestOwnerReactionReplayNeedsNativeObservation()
+    void TestResolverNeverReplaysItsNativeReaction()
     {
         constexpr const char* test =
-            "owner reaction replay needs native observation";
+            "resolver never replays its native reaction";
         CombatHitObservationCache cache;
         CombatHitMessage ownerResult = PlayerToPlayerCandidate();
         ownerResult.phase = CombatHitPhase::Result;
@@ -596,12 +596,19 @@ namespace
         observation.observedAt = 500;
         cache.Observe(observation);
 
-        // A source-resolver result still consumes a confirmed local native
-        // response rather than submitting a second one.
+        // Correlation still consumes an observed native response, but replay
+        // eligibility must not depend on whether native arbitration replaced
+        // the active action. Retail OnHit already ran on the resolver.
         COMBAT_CHECK(test, cache.Consume(ownerResult, 600));
-        // With no observation, the applicator's owner-replay branch remains
-        // eligible and must not be mistaken for owner-native completion.
         COMBAT_CHECK(test, !cache.Consume(ownerResult, 601));
+        COMBAT_CHECK(
+            test,
+            !fable::multiplayer::combat::ShouldReplayVictimReaction(
+                ownerResult, kSourceActorId));
+        COMBAT_CHECK(
+            test,
+            fable::multiplayer::combat::ShouldReplayVictimReaction(
+                ownerResult, kTargetActorId));
     }
 
     void TestTerminalHitRetainsVictimReaction()
@@ -716,7 +723,7 @@ int RunCombatHitReplicationTests()
     TestCombatResultRevisionSessionScope();
     TestCombatPublicationReservationAndFairness();
     TestNativeObservationSuppressesDuplicateReaction();
-    TestOwnerReactionReplayNeedsNativeObservation();
+    TestResolverNeverReplaysItsNativeReaction();
     TestTerminalHitRetainsVictimReaction();
     TestTerminalTransitionProgressIsLifecycleScoped();
     TestDeferredNativeObservationIsRecordedOnce();

@@ -35,6 +35,8 @@ namespace fable::automation::runtime
         [[nodiscard]] unsigned short MultiplayerPort() const noexcept;
         [[nodiscard]] bool MorphSelfTest() const noexcept;
         [[nodiscard]] bool ManualPlaytest() const noexcept;
+        [[nodiscard]] bool ShowConsole() const noexcept;
+        [[nodiscard]] bool GenerateLogFiles() const noexcept;
         [[nodiscard]] HANDLE ShutdownEvent() const noexcept;
 
         [[nodiscard]] bool IsLocalInstance() const noexcept;
@@ -61,6 +63,8 @@ namespace fable::automation::runtime
         unsigned short multiplayerPort_ = 0;
         bool morphSelfTest_ = false;
         bool manualPlaytest_ = false;
+        bool showConsole_ = true;
+        bool generateLogFiles_ = true;
         HANDLE shutdownEvent_ = nullptr;
     };
 }

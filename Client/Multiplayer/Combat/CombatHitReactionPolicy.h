@@ -20,4 +20,16 @@ namespace fable::multiplayer::combat
         // strike response before the creature controller submits Die.
         return (result.reactionFlags & suppressed) == 0;
     }
+
+    [[nodiscard]] inline bool ShouldReplayVictimReaction(
+        const protocol::CombatHitMessage& result,
+        const std::uint64_t localActorId) noexcept
+    {
+        // The resolver already ran retail OnHit synchronously while producing
+        // the candidate. Re-entering SubmitAction when its authoritative result
+        // returns can race a terminal spell hit with native creature teardown.
+        // Other peers still replay the compact reaction so they see the impact.
+        return result.resolverActorId != localActorId &&
+            ShouldSubmitVictimReaction(result);
+    }
 }

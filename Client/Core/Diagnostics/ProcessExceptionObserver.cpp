@@ -212,10 +212,14 @@ namespace
         core.diagnosticLog.Initialize(
             core.clientModule,
             core.configuration.LogPath().c_str(),
+            core.configuration.GenerateLogFiles(),
             core.configuration.EventPath().c_str(),
             core.configuration.RunId().c_str(),
             core.configuration.Scenario().c_str());
-        core.diagnosticLog.AttachConsole();
+        if (core.configuration.ShowConsole())
+        {
+            core.diagnosticLog.AttachConsole();
+        }
         Log("AlbionTogether client loaded.");
         LogStartupContext();
 

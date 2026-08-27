@@ -234,6 +234,8 @@ namespace fable::multiplayer::replication
         std::atomic_uint droppedEvents_{0};
         unsigned int reportedDroppedEvents_ = 0;
         void* authoredPlayerCreature_ = nullptr;
+        std::uint32_t authoredPlayerGeneration_ = 0;
+        std::uint32_t authoredPlayerMapEpoch_ = 0;
         std::uint32_t nextLocalRevision_ = 0;
         std::uint64_t knownPeerRevision_ = 0;
         bool publishBackpressured_ = false;
