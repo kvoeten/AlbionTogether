@@ -16,7 +16,6 @@ using fable::launcher::kClientPreResumeReady;
 using fable::launcher::kClientRuntimeReady;
 using fable::launcher::kFableSteamAppId;
 using fable::launcher::kFixtureDocumentsEnvironment;
-using fable::launcher::kGameDefinitionsEnvironment;
 using fable::launcher::kInjectionTimeoutMilliseconds;
 using fable::launcher::kLocalInstanceEnvironment;
 using fable::launcher::kLocalSessionEnvironment;
@@ -242,7 +241,7 @@ bool BootstrapInjectedClient(HANDLE process, HANDLE primaryThread, const fs::pat
 class ChildEnvironment final
 {
   public:
-    ChildEnvironment(const GameLaunchSpec &spec, const fs::path &definitions)
+    explicit ChildEnvironment(const GameLaunchSpec &spec)
     {
         LPWCH inherited = GetEnvironmentStringsW();
         if (inherited == nullptr)
@@ -273,7 +272,6 @@ class ChildEnvironment final
                  spec.multiplayerRole.empty() ? L"" : std::to_wstring(spec.multiplayerPort));
         Override(kMultiplayerPlayerIdEnvironment, spec.multiplayerPlayerId);
         Override(kMultiplayerAppearanceEnvironment, spec.multiplayerAppearance);
-        Override(kGameDefinitionsEnvironment, definitions.wstring());
         BuildBlock();
     }
 
@@ -333,17 +331,8 @@ bool SpawnGame(const GameLaunchSpec &spec, LaunchedGame &launched)
     const std::wstring &scenario = spec.scenario;
     const std::wstring &runId = spec.runId;
     const std::wstring &localInstance = spec.localInstance;
-    const std::wstring &multiplayerRole = spec.multiplayerRole;
     const std::vector<std::wstring> &arguments = spec.arguments;
     launched = {};
-    const fs::path gameDefinitions =
-        multiplayerRole.empty() ? fs::path() : fs::absolute(clientDll.parent_path() / L"definitions" / L"game.bin");
-    if (!multiplayerRole.empty() && !fs::is_regular_file(gameDefinitions))
-    {
-        std::wcerr << L"Multiplayer requires the remote-Hero definitions sidecar: " << gameDefinitions.wstring()
-                   << L'\n';
-        return false;
-    }
     std::error_code logError;
     fs::remove(clientLog, logError);
     if (logError)
@@ -355,7 +344,7 @@ bool SpawnGame(const GameLaunchSpec &spec, LaunchedGame &launched)
     startupInfo.cb = sizeof(startupInfo);
     PROCESS_INFORMATION processInfo = {};
     const std::wstring workingDirectory = executable.parent_path().wstring();
-    ChildEnvironment environment(spec, gameDefinitions);
+    ChildEnvironment environment(spec);
     // Build a private inherited environment block so sequential peer launches
     // never mutate or race the launcher's own environment variables.
     if (!environment.Applied())

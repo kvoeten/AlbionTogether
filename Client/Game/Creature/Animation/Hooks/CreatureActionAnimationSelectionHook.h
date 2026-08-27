@@ -75,6 +75,8 @@ namespace fable::game::creature::animation
             void* context,
             const actions::CreatureActionLifecycleEvent& event) noexcept;
         static bool ActiveActionMatches(const Selection& selection) noexcept;
+        static bool ScopedActiveActionMatches(
+            const Selection& selection) noexcept;
         static bool AnimationStateMatches(
             const Selection& selection,
             void* animationState) noexcept;

@@ -38,6 +38,10 @@ During alpha, expect some jank. Systems are being roughly implemented to make a 
 
 This is an early development release. Back up ordinary saves before testing.
 
+Some antivirus tools may flag the launcher or client because AlbionTogether
+injects the mod into the running game. This is expected to be a false positive
+for official releases downloaded from this repository.
+
 ## Install and play
 
 AlbionTogether currently targets the 32-bit Steam build of Fable Anniversary.
@@ -63,6 +67,7 @@ Use `--port <port>` on both computers to choose a different UDP port.
 ## Build
 
 Build `AlbionTogether.sln` as `Release | Win32`. Deployable files are written to `bin\Release`.
+Create an allowlisted release ZIP with `tools\Package-Release.ps1 -Version vX.Y.Z-alpha.N`.
 
 The project also includes an embedded AngelScript runtime and native scripting APIs for future gameplay mods.
 

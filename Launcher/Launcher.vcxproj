@@ -106,6 +106,12 @@
     <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Hero3\AutoSave" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Hero3\AutoSave" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(SolutionDir)config\server-character.fixture.json" DestinationFiles="$(OutDir)config\server-character.fixture.json" SkipUnchangedFiles="true" />
   </Target>
+  <Target Name="RejectRetailDefinitionFiles" AfterTargets="Build">
+    <ItemGroup>
+      <RetailDefinitionFile Include="$(OutDir)**\game.bin;$(OutDir)**\gamehard.bin;$(OutDir)**\names.bin" />
+    </ItemGroup>
+    <Error Condition="'@(RetailDefinitionFile)' != ''" Text="Retail Fable definition databases must not be present in AlbionTogether build or release output: @(RetailDefinitionFile)" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

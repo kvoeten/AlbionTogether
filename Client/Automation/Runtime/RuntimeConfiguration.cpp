@@ -14,8 +14,6 @@ namespace
     constexpr wchar_t kCharacterSnapshotEnvironment[] =
         L"ALBIONTOGETHER_CHARACTER_SNAPSHOT";
     constexpr wchar_t kScriptDataEnvironment[] = L"ALBIONTOGETHER_SCRIPT_DATA";
-    constexpr wchar_t kGameDefinitionsEnvironment[] =
-        L"ALBIONTOGETHER_GAME_DEFINITIONS";
     constexpr wchar_t kLocalSessionEnvironment[] =
         L"ALBIONTOGETHER_LOCAL_SESSION";
     constexpr wchar_t kLocalInstanceEnvironment[] =
@@ -83,7 +81,6 @@ namespace fable::automation::runtime
         fixtureDocumentsPath_ = ReadEnvironment(kFixtureDocumentsEnvironment);
         characterSnapshotPath_ = ReadEnvironment(kCharacterSnapshotEnvironment);
         scriptDataPath_ = ReadEnvironment(kScriptDataEnvironment);
-        gameDefinitionsPath_ = ReadEnvironment(kGameDefinitionsEnvironment);
         localSessionId_ = ReadEnvironment(kLocalSessionEnvironment);
         localInstanceId_ = ReadEnvironment(kLocalInstanceEnvironment);
         multiplayerRole_ = ReadEnvironment(kMultiplayerRoleEnvironment);
@@ -155,11 +152,6 @@ namespace fable::automation::runtime
     const std::wstring& RuntimeConfiguration::ScriptDataPath() const noexcept
     {
         return scriptDataPath_;
-    }
-
-    const std::wstring& RuntimeConfiguration::GameDefinitionsPath() const noexcept
-    {
-        return gameDefinitionsPath_;
     }
 
     const std::wstring& RuntimeConfiguration::LocalSessionId() const noexcept

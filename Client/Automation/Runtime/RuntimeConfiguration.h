@@ -26,7 +26,6 @@ namespace fable::automation::runtime
         [[nodiscard]] const std::wstring& FixtureDocumentsPath() const noexcept;
         [[nodiscard]] const std::wstring& CharacterSnapshotPath() const noexcept;
         [[nodiscard]] const std::wstring& ScriptDataPath() const noexcept;
-        [[nodiscard]] const std::wstring& GameDefinitionsPath() const noexcept;
         [[nodiscard]] const std::wstring& LocalSessionId() const noexcept;
         [[nodiscard]] const std::wstring& LocalInstanceId() const noexcept;
         [[nodiscard]] const std::wstring& MultiplayerRole() const noexcept;
@@ -53,7 +52,6 @@ namespace fable::automation::runtime
         std::wstring fixtureDocumentsPath_;
         std::wstring characterSnapshotPath_;
         std::wstring scriptDataPath_;
-        std::wstring gameDefinitionsPath_;
         std::wstring localSessionId_;
         std::wstring localInstanceId_;
         std::wstring multiplayerRole_;

@@ -39,6 +39,8 @@ namespace fable::game::hero_pawn::remote
         multiplayer::combat::PlayerCombatantDirectory& combatants,
         const core::Diagnostics& diagnostics,
         game::hero_pawn::appearance::hooks::
+            RemoteHeroDefinitionHook& definitionHook,
+        game::hero_pawn::appearance::hooks::
             RemoteHeroPresentationFactoryHook& presentationFactory,
         game::hero_pawn::equipment::hooks::
             RemoteRangedWeaponOrientationHook& orientationHook)
@@ -49,6 +51,7 @@ namespace fable::game::hero_pawn::remote
         look_ = &look;
         combatants_ = &combatants;
         diagnostics_ = diagnostics;
+        definitionHook_ = &definitionHook;
         presentationFactory_ = &presentationFactory;
         movement_.Initialize(locomotion, diagnostics);
         appearance_.Initialize(diagnostics);
@@ -377,10 +380,20 @@ namespace fable::game::hero_pawn::remote
     {
         Retire();
         nextSpawnAttemptAt_ = GetTickCount64() + 5'000;
+        definitionArmToken_ = definitionHook_->Arm();
+        if (definitionArmToken_ == 0)
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-remote-runtime-definition-arm");
+            return false;
+        }
         factoryArmToken_ = presentationFactory_->Arm(state.position);
         avatar_ = npcs_->Spawn(
             state.appearanceDefinition, state.position,
             "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER");
+        definitionHook_->Cancel(definitionArmToken_);
+        definitionArmToken_ = 0;
         if (avatar_ == nullptr || !avatar_->IsValid() ||
             avatar_->GetDefinitionName() != state.appearanceDefinition)
         {
@@ -795,6 +808,11 @@ namespace fable::game::hero_pawn::remote
             presentationFactory_->Cancel(factoryArmToken_);
         }
         factoryArmToken_ = 0;
+        if (definitionHook_ != nullptr)
+        {
+            definitionHook_->Cancel(definitionArmToken_);
+        }
+        definitionArmToken_ = 0;
         if (companionRegistered_ && entities_ != nullptr &&
             nativeAvatar_ != nullptr && nativeCompanionHero_ != nullptr)
         {
@@ -879,6 +897,7 @@ namespace fable::game::hero_pawn::remote
         npcs_ = nullptr;
         look_ = nullptr;
         combatants_ = nullptr;
+        definitionHook_ = nullptr;
         presentationFactory_ = nullptr;
         diagnostics_ = {};
         nextSpawnAttemptAt_ = 0;

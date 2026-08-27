@@ -17,3 +17,8 @@
 *.id2
 *.nam
 *.til
+
+# Retail Fable definition databases must never be committed or packaged.
+**/game.bin
+**/gamehard.bin
+**/names.bin

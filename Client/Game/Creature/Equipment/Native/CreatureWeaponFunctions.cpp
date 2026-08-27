@@ -349,10 +349,17 @@ namespace
                 kAttachWeaponBodySignature);
         const bool removeReady = IsRelativeDetour(remove) ||
             BytesMatch(remove, kRemoveWeaponSignature);
-        const bool resolveAttachmentSlotReady = ValidateSehFunction(
-            resolveAttachmentSlot,
-            base + kResolveAttachmentSlotExceptionHandlerRva,
-            kResolveAttachmentSlotBodySignature);
+        // RemoteHeroDefinitionHook detours this shared definition lookup only
+        // while constructing a remote Hero, then forwards every unrelated
+        // lookup through its validated trampoline. Treat that owned hook the
+        // same way as the carrying observers above instead of disabling the
+        // entire weapon stack after remote-Hero support is installed.
+        const bool resolveAttachmentSlotReady =
+            IsRelativeDetour(resolveAttachmentSlot) ||
+            ValidateSehFunction(
+                resolveAttachmentSlot,
+                base + kResolveAttachmentSlotExceptionHandlerRva,
+                kResolveAttachmentSlotBodySignature);
         const bool attachmentReferenceGuardReady =
             EnsureAttachmentReferenceGuard(gameModule);
         const std::uint32_t mask =

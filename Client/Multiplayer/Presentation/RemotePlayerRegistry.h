@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroPresentationFactoryHook.h"
+#include "Game/HeroPawn/Appearance/Hooks/RemoteHeroDefinitionHook.h"
 #include "Game/HeroPawn/Equipment/Hooks/RemoteRangedWeaponOrientationHook.h"
 #include "Game/HeroPawn/Remote/RemoteHeroActor.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
@@ -140,6 +141,8 @@ namespace fable::multiplayer::presentation
             nullptr;
         multiplayer::combat::PlayerCombatantDirectory* combatants_ = nullptr;
         core::Diagnostics diagnostics_ = {};
+        game::hero_pawn::appearance::hooks::RemoteHeroDefinitionHook
+            definitionHook_;
         game::hero_pawn::appearance::hooks::RemoteHeroPresentationFactoryHook
             presentationFactory_;
         game::hero_pawn::equipment::hooks::

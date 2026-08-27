@@ -41,6 +41,14 @@ namespace fable::multiplayer::presentation
             Shutdown();
             return false;
         }
+        if (!definitionHook_.Install(entities.GameModule(), diagnostics))
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-remote-hero-runtime-definition-hook");
+            Shutdown();
+            return false;
+        }
         if (!presentationFactory_.Install(entities.GameModule(), diagnostics))
         {
             diagnostics_.Event(
@@ -66,6 +74,7 @@ namespace fable::multiplayer::presentation
                 *combat_,
                 *abilities_,
                 *combatants_, diagnostics_,
+                definitionHook_,
                 presentationFactory_, rangedOrientation_))
         {
             return nullptr;
@@ -296,6 +305,8 @@ namespace fable::multiplayer::presentation
         rangedOrientation_.Shutdown();
         presentationFactory_.Cancel();
         presentationFactory_.Shutdown();
+        definitionHook_.Cancel();
+        definitionHook_.Shutdown();
         entities_ = nullptr;
         npcs_ = nullptr;
         locomotion_ = nullptr;

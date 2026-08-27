@@ -14,6 +14,8 @@ namespace fable::game::native
         inline constexpr std::uintptr_t CharStringConstructor = 0x012B7800;
         inline constexpr std::uintptr_t CharStringDestructor = 0x012B75D0;
         inline constexpr std::uintptr_t DefinitionNameByIndex = 0x012CB160;
+        inline constexpr std::uintptr_t DefinitionIndexByName = 0x012CC3C0;
+        inline constexpr std::uintptr_t DefinitionByIndex = 0x01719230;
         inline constexpr std::uintptr_t DefinitionNameToCharString =
             0x012CABB0;
         inline constexpr std::uintptr_t ParentDefinitionGetInstantiationName =
@@ -33,6 +35,12 @@ namespace fable::game::native
         inline constexpr std::uintptr_t ScriptedControlDeleteFunction = 0x01B0B0F8;
         inline constexpr std::uintptr_t ThingRequestDestroy = 0x01B2E530;
         inline constexpr std::uintptr_t ThingAddComponent = 0x01B2F3F0;
+        inline constexpr std::uintptr_t ThingCreatureApplyDefinition =
+            0x01B30B50;
+        inline constexpr std::uintptr_t ThingCreatureDefinitionConstructor =
+            0x01865310;
+        inline constexpr std::uintptr_t ThingCreatureDefinitionVtable =
+            0x02ADFD4C;
         inline constexpr std::uintptr_t GameHeapFree = 0x00001060;
         inline constexpr std::uintptr_t TurnCreatureInto = 0x01898200;
         inline constexpr std::uintptr_t TeleportThing = 0x0189EE20;

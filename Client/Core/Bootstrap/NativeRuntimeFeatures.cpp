@@ -25,7 +25,6 @@ namespace
         auto& hooks = NativeHooksContext();
         const auto rollback = [&hooks]() noexcept
         {
-            hooks.definitions.Shutdown();
             hooks.documents.Shutdown();
             hooks.singleton.Shutdown();
             return false;
@@ -46,13 +45,6 @@ namespace
         {
             return rollback();
         }
-        if (!core.configuration.GameDefinitionsPath().empty() &&
-            !hooks.definitions.InstallEarly(
-                core.gameModule,
-                core.configuration.GameDefinitionsPath().c_str()))
-        {
-            return rollback();
-        }
         return true;
     }
 
@@ -63,7 +55,6 @@ namespace
             return;
         }
         auto& hooks = NativeHooksContext();
-        hooks.definitions.Shutdown();
         hooks.documents.Shutdown();
         hooks.singleton.Shutdown();
     }
@@ -94,10 +85,6 @@ namespace
         {
             GameplayContext().runtime.Shutdown();
             return false;
-        }
-        if (!core.configuration.GameDefinitionsPath().empty())
-        {
-            NativeHooksContext().definitions.Report(diagnostics);
         }
         if (core.configuration.IsLocalInstance())
         {

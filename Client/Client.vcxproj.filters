@@ -60,9 +60,6 @@
     <Filter Include="Game\Creature\Locomotion\Hooks"><UniqueIdentifier>{94BD3CE0-1BE2-45D2-B110-46DBD3EC4EA1}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Locomotion\Native"><UniqueIdentifier>{C1E16800-F8C2-4137-89ED-D3BE66C0A9F4}</UniqueIdentifier></Filter>
     <Filter Include="Game\Creature\Native"><UniqueIdentifier>{BED999AF-3FFE-466C-BC11-2BEB53BB8389}</UniqueIdentifier></Filter>
-    <Filter Include="Game\Definitions"><UniqueIdentifier>{CA0D0205-808B-49B1-953D-2EAA39312841}</UniqueIdentifier></Filter>
-    <Filter Include="Game\Definitions\Hooks"><UniqueIdentifier>{1B783315-E3FC-4639-A2E2-9DA049161547}</UniqueIdentifier></Filter>
-    <Filter Include="Game\Definitions\Native"><UniqueIdentifier>{4902D7C3-E5BA-4D25-9BAB-49ACFC11D06B}</UniqueIdentifier></Filter>
     <Filter Include="Game\Entity"><UniqueIdentifier>{0790B3CF-1EF9-4D1D-BA95-5A9FB07D4D2A}</UniqueIdentifier></Filter>
     <Filter Include="Game\Entity\Bindings"><UniqueIdentifier>{3A090B13-FE2C-4D1F-AB44-F85EEDDDF97E}</UniqueIdentifier></Filter>
     <Filter Include="Game\Entity\Native"><UniqueIdentifier>{A7C9BDEF-1F25-47A4-8E6D-0C2A0D44DA34}</UniqueIdentifier></Filter>
@@ -228,8 +225,6 @@
     <ClCompile Include="Game\Creature\Locomotion\Native\PhysicsNavigatorFunctions.cpp"><Filter>Game\Creature\Locomotion\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Native\CreatureConstructorFunction.cpp"><Filter>Game\Creature\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Native\CreatureFrameFunctions.cpp"><Filter>Game\Creature\Native</Filter></ClCompile>
-    <ClCompile Include="Game\Definitions\Hooks\CompiledDefinitionsRedirectHook.cpp"><Filter>Game\Definitions\Hooks</Filter></ClCompile>
-    <ClCompile Include="Game\Definitions\Native\CreateFileFunctions.cpp"><Filter>Game\Definitions\Native</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Entity.cpp"><Filter>Game\Entity</Filter></ClCompile>
     <ClCompile Include="Game\Entity\EntityService.cpp"><Filter>Game\Entity</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Bindings\EntityBindings.cpp"><Filter>Game\Entity\Bindings</Filter></ClCompile>
@@ -256,11 +251,13 @@
     <ClCompile Include="Game\HeroPawn\Abilities\RemoteHeroAbilityController.cpp"><Filter>Game\HeroPawn\Abilities</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Expression\RemoteHeroExpressionController.cpp"><Filter>Game\HeroPawn\Expression</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroPresentationFactoryHook.cpp"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroDefinitionHook.cpp"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Hooks\HeroAppearanceMutationObserver.cpp"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Diagnostics\HeroPresentationDiagnostics.cpp"><Filter>Game\HeroPawn\Appearance\Diagnostics</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroAttachableAppearanceComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroClothingComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Appearance\Native\RemoteHeroRuntimeDefinition.cpp"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.cpp"><Filter>Game\HeroPawn\Appearance</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroCombatController.cpp"><Filter>Game\HeroPawn\Combat</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.cpp"><Filter>Game\HeroPawn\Combat</Filter></ClCompile>
@@ -470,8 +467,6 @@
     <ClInclude Include="Game\Creature\Locomotion\Native\PhysicsNavigatorFunctions.h"><Filter>Game\Creature\Locomotion\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Native\CreatureConstructorFunction.h"><Filter>Game\Creature\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Native\CreatureFrameFunctions.h"><Filter>Game\Creature\Native</Filter></ClInclude>
-    <ClInclude Include="Game\Definitions\Hooks\CompiledDefinitionsRedirectHook.h"><Filter>Game\Definitions\Hooks</Filter></ClInclude>
-    <ClInclude Include="Game\Definitions\Native\CreateFileFunctions.h"><Filter>Game\Definitions\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Entity.h"><Filter>Game\Entity</Filter></ClInclude>
     <ClInclude Include="Game\Entity\EntityService.h"><Filter>Game\Entity</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Bindings\EntityBindings.h"><Filter>Game\Entity\Bindings</Filter></ClInclude>
@@ -506,10 +501,12 @@
     <ClInclude Include="Game\HeroPawn\Appearance\HeroMorphState.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Diagnostics\HeroPresentationDiagnostics.h"><Filter>Game\HeroPawn\Appearance\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroPresentationFactoryHook.h"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroDefinitionHook.h"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Hooks\HeroAppearanceMutationObserver.h"><Filter>Game\HeroPawn\Appearance\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroAttachableAppearanceComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroClothingComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Appearance\Native\RemoteHeroRuntimeDefinition.h"><Filter>Game\HeroPawn\Appearance\Native</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.h"><Filter>Game\HeroPawn\Appearance</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroCombatController.h"><Filter>Game\HeroPawn\Combat</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.h"><Filter>Game\HeroPawn\Combat</Filter></ClInclude>

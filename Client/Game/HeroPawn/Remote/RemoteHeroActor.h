@@ -2,6 +2,7 @@
 
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroPresentationFactoryHook.h"
+#include "Game/HeroPawn/Appearance/Hooks/RemoteHeroDefinitionHook.h"
 #include "Game/HeroPawn/Appearance/RemoteHeroAppearanceController.h"
 #include "Game/Creature/Equipment/CreatureWeaponFamily.h"
 #include "Game/HeroPawn/Equipment/RemoteHeroEquipmentController.h"
@@ -88,6 +89,8 @@ namespace fable::game::hero_pawn::remote
             game::hero_pawn::abilities::HeroWillAbilityService& abilities,
             multiplayer::combat::PlayerCombatantDirectory& combatants,
             const core::Diagnostics& diagnostics,
+            game::hero_pawn::appearance::hooks::
+                RemoteHeroDefinitionHook& definitionHook,
             game::hero_pawn::appearance::hooks::
                 RemoteHeroPresentationFactoryHook& presentationFactory,
             game::hero_pawn::equipment::hooks::
@@ -188,6 +191,8 @@ namespace fable::game::hero_pawn::remote
         core::Diagnostics diagnostics_ = {};
         game::hero_pawn::appearance::hooks::RemoteHeroPresentationFactoryHook*
             presentationFactory_ = nullptr;
+        game::hero_pawn::appearance::hooks::RemoteHeroDefinitionHook*
+            definitionHook_ = nullptr;
         movement::ReplicatedActorMovement movement_;
         game::hero_pawn::appearance::RemoteHeroAppearanceController
             appearance_;
@@ -198,6 +203,8 @@ namespace fable::game::hero_pawn::remote
             expressions_;
         game::hero_pawn::appearance::hooks::
             RemoteHeroPresentationFactoryHook::ArmToken factoryArmToken_ = 0;
+        game::hero_pawn::appearance::hooks::
+            RemoteHeroDefinitionHook::ArmToken definitionArmToken_ = 0;
         game::Entity* avatar_ = nullptr;
         void* nativeAvatar_ = nullptr;
         void* nativeCompanionHero_ = nullptr;

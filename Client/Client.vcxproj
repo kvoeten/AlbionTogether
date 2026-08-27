@@ -114,8 +114,6 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\Creature\Locomotion\Native\PhysicsNavigatorFunctions.cpp" />
     <ClCompile Include="Game\Creature\Native\CreatureConstructorFunction.cpp" />
     <ClCompile Include="Game\Creature\Native\CreatureFrameFunctions.cpp" />
-    <ClCompile Include="Game\Definitions\Hooks\CompiledDefinitionsRedirectHook.cpp" />
-    <ClCompile Include="Game\Definitions\Native\CreateFileFunctions.cpp" />
     <ClCompile Include="Game\Entity\Entity.cpp" />
     <ClCompile Include="Game\Entity\EntityService.cpp" />
     <ClCompile Include="Game\Entity\Native\ThingComponentAccess.cpp" />
@@ -141,11 +139,13 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\HeroPawn\Abilities\RemoteHeroAbilityController.cpp" />
     <ClCompile Include="Game\HeroPawn\Expression\RemoteHeroExpressionController.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroPresentationFactoryHook.cpp" />
+    <ClCompile Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroDefinitionHook.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\Hooks\HeroAppearanceMutationObserver.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\Diagnostics\HeroPresentationDiagnostics.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroAttachableAppearanceComponent.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroClothingComponent.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.cpp" />
+    <ClCompile Include="Game\HeroPawn\Appearance\Native\RemoteHeroRuntimeDefinition.cpp" />
     <ClCompile Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.cpp" />
     <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroCombatController.cpp" />
     <ClCompile Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.cpp" />
@@ -356,8 +356,6 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Creature\Locomotion\Native\PhysicsNavigatorFunctions.h" />
     <ClInclude Include="Game\Creature\Native\CreatureConstructorFunction.h" />
     <ClInclude Include="Game\Creature\Native\CreatureFrameFunctions.h" />
-    <ClInclude Include="Game\Definitions\Hooks\CompiledDefinitionsRedirectHook.h" />
-    <ClInclude Include="Game\Definitions\Native\CreateFileFunctions.h" />
     <ClInclude Include="Game\Entity\Entity.h" />
     <ClInclude Include="Game\Entity\EntityService.h" />
     <ClInclude Include="Game\Entity\Native\ThingComponentAccess.h" />
@@ -391,10 +389,12 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\HeroPawn\Appearance\HeroMorphState.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\Diagnostics\HeroPresentationDiagnostics.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroPresentationFactoryHook.h" />
+    <ClInclude Include="Game\HeroPawn\Appearance\Hooks\RemoteHeroDefinitionHook.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\Hooks\HeroAppearanceMutationObserver.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroAttachableAppearanceComponent.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroClothingComponent.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\Native\HeroMorphComponent.h" />
+    <ClInclude Include="Game\HeroPawn\Appearance\Native\RemoteHeroRuntimeDefinition.h" />
     <ClInclude Include="Game\HeroPawn\Appearance\RemoteHeroAppearanceController.h" />
     <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroCombatController.h" />
     <ClInclude Include="Game\HeroPawn\Combat\RemoteHeroRangedAimController.h" />

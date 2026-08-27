@@ -169,7 +169,8 @@ namespace fable::game::creature::animation::native
             {
                 *reinterpret_cast<std::uint8_t*>(
                     static_cast<std::uint8_t*>(attempt.animationState) +
-                    0x59) |= 0x02;
+                    ResourceClassFallbackStateOffset) |=
+                        ResourceClassFallbackStateFlag;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {

@@ -14,7 +14,6 @@
 #include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
 #include "Game/Creature/Locomotion/Hooks/FollowCreatureActionHook.h"
 #include "Game/Creature/Locomotion/Hooks/PhysicsNavigatorObserver.h"
-#include "Game/Definitions/Hooks/CompiledDefinitionsRedirectHook.h"
 #include "Game/Entity/Presence/Hooks/ThingPresenceObserver.h"
 #include "Game/Entity/Persistence/Hooks/SavedEntityMapBlobObserver.h"
 #include "Game/Entity/Persistence/Hooks/ThingSaveProjectionHook.h"
@@ -182,7 +181,6 @@ namespace fable::core::bootstrap
         fable::game::creature::locomotion::CreatureModeManagerObserver creatureModes;
         fable::game::creature::locomotion::FollowCreatureActionHook followCreature;
         fable::game::creature::locomotion::PhysicsNavigatorObserver physicsNavigator;
-        fable::game::definitions::CompiledDefinitionsRedirectHook definitions;
         fable::game::hero_pawn::transform_probe::HeroTransformCompatibilityHooks transformCompatibility;
         fable::ui::front_end::FrontEndLifecycleHooks frontEndLifecycle;
         fable::ui::front_end::FrontEndStartInitializerHook frontEndInitializer;

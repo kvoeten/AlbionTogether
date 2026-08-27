@@ -62,6 +62,8 @@ namespace fable::game::creature::animation::native
         static constexpr std::uintptr_t AnimationComplexVtableRva =
             0x02AED3D4;
         static constexpr std::size_t AnimationStateOffset = 0x0C;
+        static constexpr std::size_t ResourceClassFallbackStateOffset = 0x59;
+        static constexpr std::uint8_t ResourceClassFallbackStateFlag = 0x02;
         static constexpr std::uint32_t MaximumAnimationId = 0xFFFF;
         static constexpr std::uint32_t SupportedFlags = 0x07;
 

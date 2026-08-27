@@ -299,6 +299,47 @@ namespace fable::game::creature::animation
             std::strcmp(actionType, selection.actionType.data()) == 0;
     }
 
+    bool CreatureActionAnimationSelectionHook::ScopedActiveActionMatches(
+        const Selection& selection) noexcept
+    {
+        if (selection.token == 0 || selection.creature == nullptr ||
+            selection.actionType[0] == '\0')
+        {
+            return false;
+        }
+        if (selection.action != nullptr)
+        {
+            return ActiveActionMatches(selection);
+        }
+        if (scopedSelectionToken_ != selection.token)
+        {
+            return false;
+        }
+
+        // SubmitAction installs its clone in creature +0x120 before invoking
+        // the action's Start callback. Some Hero combat actions request their
+        // animation inside that callback, before the post-submit lifecycle
+        // event can bind the cloned pointer. During the caller's narrow
+        // thread-local scope, matching the installed action type identifies
+        // that synchronous request without affecting an older action,
+        // another creature, or another thread.
+        void* activeAction = nullptr;
+        __try
+        {
+            activeAction = *reinterpret_cast<void**>(
+                static_cast<std::uint8_t*>(selection.creature) + 0x120);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        char actionType[ActionTypeCapacity] = {};
+        return activeAction != nullptr &&
+            actions::CreatureActionLifecycleObserver::DescribeActionType(
+                activeAction, actionType, sizeof(actionType)) &&
+            std::strcmp(actionType, selection.actionType.data()) == 0;
+    }
+
     bool CreatureActionAnimationSelectionHook::AnimationStateMatches(
         const Selection& selection,
         void* animationState) noexcept
@@ -430,7 +471,7 @@ namespace fable::game::creature::animation
         {
             if (pending.token == 0 ||
                 !AnimationStateMatches(pending, animationState) ||
-                !ActiveActionMatches(pending))
+                !ScopedActiveActionMatches(pending))
             {
                 continue;
             }
@@ -453,9 +494,27 @@ namespace fable::game::creature::animation
         {
             valid = false;
         }
+        // CreatureAction_PlayResolvedAnimation treats this probe as a
+        // resource-class hint, not an acceptance check. When it is false the
+        // retail path marks the animation state and still submits the exact
+        // request. Mirror that behavior so an owner-selected Hero combo is
+        // not discarded merely because this remote presentation has not yet
+        // resolved the same resource class.
         if (!valid)
         {
-            return false;
+            __try
+            {
+                *reinterpret_cast<std::uint8_t*>(
+                    static_cast<std::uint8_t*>(animationState) +
+                    native::AnimationPlaybackFunctions::
+                        ResourceClassFallbackStateOffset) |=
+                    native::AnimationPlaybackFunctions::
+                        ResourceClassFallbackStateFlag;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
         }
         Selection completed;
         AcquireSRWLockExclusive(&selectionLock_);
@@ -465,7 +524,7 @@ namespace fable::game::creature::animation
                 pending.creature != candidate.creature ||
                 pending.action != candidate.action ||
                 !AnimationStateMatches(pending, animationState) ||
-                !ActiveActionMatches(pending))
+                !ScopedActiveActionMatches(pending))
             {
                 continue;
             }
