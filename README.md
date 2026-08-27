@@ -24,6 +24,7 @@ During alpha, expect some jank. Systems are being roughly implemented to make a 
 - NPC presence, position, movement, health, and death.
 - NPC ownership when players split across different regions.
 - Player health synchronization during combat.
+- Connected-player health bars.
 - Stable map transitions and background rendering.
 - Reliable character, equipment, action, and NPC synchronization.
 - Native launcher for hosting, joining, connection checks, and firewall setup.
