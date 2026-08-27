@@ -2,6 +2,7 @@
 #include "../Configuration/LauncherConstants.h"
 #include "../Platform/Win32Error.h"
 #include "ClientInjector.h"
+#include <TlHelp32.h>
 #include <algorithm>
 #include <cwchar>
 #include <iostream>
@@ -12,6 +13,7 @@ namespace fable::launcher::runtime
 namespace fs = std::filesystem;
 using fable::launcher::kCharacterSnapshotEnvironment;
 using fable::launcher::kClientModeEnvironment;
+using fable::launcher::kConsoleEnabledEnvironment;
 using fable::launcher::kClientPreResumeReady;
 using fable::launcher::kClientRuntimeReady;
 using fable::launcher::kFableSteamAppId;
@@ -20,6 +22,7 @@ using fable::launcher::kInjectionTimeoutMilliseconds;
 using fable::launcher::kLocalInstanceEnvironment;
 using fable::launcher::kLocalSessionEnvironment;
 using fable::launcher::kLogPathEnvironment;
+using fable::launcher::kLogFilesEnabledEnvironment;
 using fable::launcher::kMultiplayerAddressEnvironment;
 using fable::launcher::kMultiplayerAppearanceEnvironment;
 using fable::launcher::kMultiplayerPlayerIdEnvironment;
@@ -31,6 +34,30 @@ using fable::launcher::kScriptDataEnvironment;
 using fable::launcher::kShutdownEventPrefix;
 using fable::launcher::platform::FormatWindowsError;
 using fable::launcher::platform::UniqueHandle;
+
+bool IsGameProcessRunning() noexcept
+{
+    UniqueHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+    if (!snapshot.valid())
+    {
+        return false;
+    }
+
+    PROCESSENTRY32W entry = {};
+    entry.dwSize = sizeof(entry);
+    if (!Process32FirstW(snapshot.get(), &entry))
+    {
+        return false;
+    }
+    do
+    {
+        if (_wcsicmp(entry.szExeFile, kGameExecutableName) == 0)
+        {
+            return true;
+        }
+    } while (Process32NextW(snapshot.get(), &entry));
+    return false;
+}
 
 static std::wstring QuoteArgument(const std::wstring &argument)
 {
@@ -259,8 +286,12 @@ class ChildEnvironment final
         Override(kClientModeEnvironment, spec.clientMode);
         Override(kScenarioEnvironment, spec.scenario);
         Override(kRunIdEnvironment, spec.runId);
-        Override(kEventPathEnvironment, spec.eventPath.wstring());
-        Override(kLogPathEnvironment, spec.clientLog.wstring());
+        Override(kEventPathEnvironment,
+            spec.generateLogs ? spec.eventPath.wstring() : L"");
+        Override(kLogPathEnvironment,
+            spec.generateLogs ? spec.clientLog.wstring() : L"");
+        Override(kConsoleEnabledEnvironment, spec.showConsole ? L"1" : L"0");
+        Override(kLogFilesEnabledEnvironment, spec.generateLogs ? L"1" : L"0");
         Override(kFixtureDocumentsEnvironment, spec.fixtureDocuments.wstring());
         Override(kCharacterSnapshotEnvironment, spec.characterSnapshot.wstring());
         Override(kScriptDataEnvironment, spec.scriptData.wstring());
@@ -333,10 +364,13 @@ bool SpawnGame(const GameLaunchSpec &spec, LaunchedGame &launched)
     const std::wstring &localInstance = spec.localInstance;
     const std::vector<std::wstring> &arguments = spec.arguments;
     launched = {};
-    std::error_code logError;
-    fs::remove(clientLog, logError);
-    if (logError)
-        std::wcerr << L"Log:    could not clear the previous log: " << logError.message().c_str() << L'\n';
+    if (spec.generateLogs)
+    {
+        std::error_code logError;
+        fs::remove(clientLog, logError);
+        if (logError)
+            std::wcerr << L"Log:    could not clear the previous log: " << logError.message().c_str() << L'\n';
+    }
     std::wstring commandLine = BuildCommandLine(executable, arguments);
     std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
     mutableCommandLine.push_back(L'\0');

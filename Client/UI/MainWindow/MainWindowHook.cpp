@@ -59,7 +59,9 @@ namespace
 
         wchar_t className[128] = {};
         GetClassNameW(window, className, static_cast<int>(std::size(className)));
-        if (std::wcscmp(className, L"#32770") == 0)
+        if (std::wcscmp(className, L"#32770") == 0 ||
+            std::wcscmp(className, L"ConsoleWindowClass") == 0 ||
+            window == GetConsoleWindow())
         {
             return TRUE;
         }

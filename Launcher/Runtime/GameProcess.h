@@ -37,9 +37,12 @@ struct GameLaunchSpec final
     unsigned short multiplayerPort = 0;
     std::wstring multiplayerPlayerId;
     std::wstring multiplayerAppearance;
+    bool showConsole = true;
+    bool generateLogs = true;
     std::vector<std::wstring> arguments;
 };
 
 bool SpawnGame(const GameLaunchSpec &spec, LaunchedGame &launched);
 bool CloseCreatedProcess(HANDLE process, DWORD processId, HANDLE shutdownEvent);
+[[nodiscard]] bool IsGameProcessRunning() noexcept;
 } // namespace fable::launcher::runtime

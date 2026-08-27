@@ -29,6 +29,8 @@ namespace fable::launcher::application
         spec.multiplayerPort = plan.options.multiplayerPort;
         spec.multiplayerPlayerId = plan.options.multiplayerPlayerId;
         spec.multiplayerAppearance = plan.options.multiplayerAppearance;
+        spec.showConsole = plan.options.showConsole;
+        spec.generateLogs = plan.options.generateLogs;
         spec.arguments = BuildGameArguments(plan);
 
         runtime::LaunchedGame launched;

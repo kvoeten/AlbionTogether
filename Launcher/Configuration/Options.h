@@ -37,6 +37,8 @@ struct Options
     bool multiplayerCombatTest = false;
     bool multiplayerHeroWillTest = false;
     bool multiplayerPlaytest = false;
+    bool showConsole = true;
+    bool generateLogs = true;
     bool dryRun = false;
     bool showHelp = false;
 };

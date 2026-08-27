@@ -26,6 +26,7 @@ During alpha, expect some jank. Systems are being roughly implemented to make a 
 - Player health synchronization during combat.
 - Stable map transitions and background rendering.
 - Reliable character, equipment, action, and NPC synchronization.
+- Native launcher for hosting, joining, connection checks, and firewall setup.
 
 ### Next
 
@@ -33,7 +34,6 @@ During alpha, expect some jank. Systems are being roughly implemented to make a 
 - Equipment, loot, trading, currency, shops, and property ownership.
 - Player names, interaction menus, door/key permissions, and RP tools.
 - Proximity voice chat.
-- A friendly host/join launcher UI and production networking.
 - Slow Time and Raise Dead synchronization (optional; may be omitted).
 
 This is an early development release. Back up ordinary saves before testing.
@@ -47,22 +47,14 @@ for official releases downloaded from this repository.
 AlbionTogether currently targets the 32-bit Steam build of Fable Anniversary.
 
 1. Download and extract the release into Fable Anniversary's `Binaries\Win32` folder.
-2. Allow the chosen UDP port through the host's firewall. The default is `38171`.
-3. Start the host:
-
-   ```powershell
-   .\AlbionTogether.Launcher.exe --host --player-id Host
-   ```
-
-4. On the other computer, join using the host's IPv4 address:
-
-   ```powershell
-   .\AlbionTogether.Launcher.exe --join 192.168.1.10 --player-id Guest
-   ```
-
+2. Run `AlbionTogether.Launcher.exe`.
+3. The host enters a display name and selects **Host Game**. Accept the firewall prompt if Windows shows one.
+4. Other players enter a display name, the host's IP address, and the same port, then select **Join Game**.
 5. Each player selects the save containing the Hero they want to use.
 
-Use `--port <port>` on both computers to choose a different UDP port.
+The default port is `38171`. The launcher's **Network** page can test the connection and repair the Windows Firewall rule.
+
+![AlbionTogether launcher](media/launcher.png)
 
 ## Build
 

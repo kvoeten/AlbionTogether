@@ -5,9 +5,14 @@
 #include "Application/LaunchPlan.h"
 #include "Application/SingleGameLaunch.h"
 #include "Multiplayer/Scenarios/ScenarioRunners.h"
+#include "Diagnostics/FirewallManager.h"
+#include "Platform/CommandLineStreams.h"
+#include "UI/LauncherWindow.h"
 
 #include <filesystem>
+#include <cwchar>
 #include <iostream>
+#include <iterator>
 #include <string>
 
 namespace
@@ -31,10 +36,54 @@ namespace
     using fable::launcher::ParseOptions;
     using fable::launcher::PrintUsage;
 
+    bool IsArgument(const wchar_t* value, const wchar_t* expected)
+    {
+        return value != nullptr && _wcsicmp(value, expected) == 0;
+    }
+
+    int RunFirewallRepair(int argc, wchar_t** argv)
+    {
+        unsigned short port = 38171;
+        for (int index = 2; index < argc; ++index)
+        {
+            if (!IsArgument(argv[index], L"--port") || ++index >= argc)
+            {
+                return 2;
+            }
+            wchar_t* end = nullptr;
+            const unsigned long value = std::wcstoul(argv[index], &end, 10);
+            if (end == argv[index] || *end != L'\0' ||
+                value == 0 || value > 65'535)
+            {
+                return 2;
+            }
+            port = static_cast<unsigned short>(value);
+        }
+        std::wstring error;
+        return fable::launcher::diagnostics::InstallFirewallRule(port, error)
+            ? 0 : 1;
+    }
+
 }
 
 int wmain(int argc, wchar_t** argv)
 {
+    // Establish DPI ownership before touching any console or window handle.
+    // Calling this after Win32 has virtualized the process would scale the
+    // native layout twice on high-DPI desktops.
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (argc == 1 ||
+        (argc == 2 && IsArgument(argv[1], L"--launcher-ui")))
+    {
+        return fable::launcher::ui::RunLauncherUi(GetModuleHandleW(nullptr));
+    }
+    if (argc >= 2 && IsArgument(argv[1], L"--repair-firewall"))
+    {
+        return RunFirewallRepair(argc, argv);
+    }
+
+    fable::launcher::platform::AttachCommandLineStreams();
+
     Options options;
     std::wstring optionError;
     if (!ParseOptions(argc, argv, options, optionError))

@@ -5,12 +5,18 @@
 namespace fable::launcher {
 inline constexpr wchar_t kGameExecutableName[] = L"Fable Anniversary.exe";
 inline constexpr wchar_t kClientDllName[] = L"AlbionTogether.Client.dll";
+inline constexpr wchar_t kLauncherVersion[] = L"v0.1.0-alpha.11";
+inline constexpr wchar_t kDiscordUrl[] = L"https://discord.gg/5JSKmjKd85";
 inline constexpr wchar_t kClientModeEnvironment[] =
     L"ALBIONTOGETHER_CLIENT_MODE";
 inline constexpr wchar_t kScenarioEnvironment[] = L"ALBIONTOGETHER_SCENARIO";
 inline constexpr wchar_t kRunIdEnvironment[] = L"ALBIONTOGETHER_RUN_ID";
 inline constexpr wchar_t kEventPathEnvironment[] = L"ALBIONTOGETHER_EVENT_PATH";
 inline constexpr wchar_t kLogPathEnvironment[] = L"ALBIONTOGETHER_LOG_PATH";
+inline constexpr wchar_t kConsoleEnabledEnvironment[] =
+    L"ALBIONTOGETHER_CONSOLE_ENABLED";
+inline constexpr wchar_t kLogFilesEnabledEnvironment[] =
+    L"ALBIONTOGETHER_LOG_FILES_ENABLED";
 inline constexpr wchar_t kFixtureDocumentsEnvironment[] =
     L"ALBIONTOGETHER_FIXTURE_DOCUMENTS";
 inline constexpr wchar_t kCharacterSnapshotEnvironment[] =
