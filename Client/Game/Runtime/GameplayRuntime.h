@@ -61,6 +61,7 @@ namespace fable::game
         void DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed);
         void DispatchWorldReady();
         bool ProcessMultiplayerPresentation();
+        bool ProcessAutomationGameThreadIdle();
         void DriveReplicatedMovement();
         void Tick(float deltaSeconds);
         bool Reload();

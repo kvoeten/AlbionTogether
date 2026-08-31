@@ -61,7 +61,8 @@ namespace fable::multiplayer::replication
         std::uint16_t mapId,
         const game::Vector3& position,
         float facing,
-        std::uint64_t capturedAtMilliseconds)
+        std::uint64_t capturedAtMilliseconds,
+        const protocol::SessionTimeMs capturedAtSessionTime)
     {
         // Every successful native Hero bind is a new actor incarnation. This
         // includes re-entering the same map after a level reload: old movement,
@@ -91,6 +92,8 @@ namespace fable::multiplayer::replication
         state_.mapId = mapId;
         state_.position = position;
         state_.facing = NormalizeFacing(facing);
+        state_.movementSampleTimeMs = capturedAtSessionTime;
+        state_.movementSampleAt = capturedAtMilliseconds;
         const bool appearanceReady = !appearanceDefinition.empty() &&
             heroMorph.IsSane() && heroClothing.IsSane() &&
             heroBoneScales.IsSane() && modifiers.IsSane();
@@ -117,7 +120,8 @@ namespace fable::multiplayer::replication
         const std::string& mapName,
         const game::Vector3& position,
         float facing,
-        std::uint64_t capturedAtMilliseconds)
+        std::uint64_t capturedAtMilliseconds,
+        const protocol::SessionTimeMs capturedAtSessionTime)
     {
         if (!open_ || mapName != state_.mapName ||
             !std::isfinite(position.x) ||
@@ -160,6 +164,8 @@ namespace fable::multiplayer::replication
         state_.facing = normalizedFacing;
         state_.angularVelocity = angularVelocity;
         state_.moving = moving;
+        state_.movementSampleTimeMs = capturedAtSessionTime;
+        state_.movementSampleAt = capturedAtMilliseconds;
         lastCaptureAt_ = capturedAtMilliseconds;
         const bool angularVelocityChanged = std::fabs(
             previousAngularVelocity - angularVelocity) >= 0.0005f;

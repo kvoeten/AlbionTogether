@@ -416,6 +416,38 @@ namespace fable::multiplayer
         return result;
     }
 
+    void ReliableStreamTransport::ExpireReassemblies(
+        const std::uint64_t now) noexcept
+    {
+        for (auto iterator = reassemblies_.begin();
+             iterator != reassemblies_.end();)
+        {
+            const Reassembly& reassembly = iterator->second;
+            if (now < reassembly.lastTouchedAt ||
+                now - reassembly.lastTouchedAt <=
+                    ReassemblyTimeoutMilliseconds)
+            {
+                ++iterator;
+                continue;
+            }
+
+            const auto incarnation = receivedIncarnations_.find(
+                iterator->first.streamId);
+            const auto sequence = receivedSequences_.find(
+                iterator->first.streamId);
+            if (incarnation != receivedIncarnations_.end() &&
+                sequence != receivedSequences_.end() &&
+                incarnation->second == iterator->first.incarnation &&
+                sequence->second == reassembly.firstSequence)
+            {
+                sequence->second = reassembly.firstSequence == 1
+                    ? 0
+                    : reassembly.firstSequence - 1;
+            }
+            iterator = reassemblies_.erase(iterator);
+        }
+    }
+
     bool ReliableStreamTransport::AcceptFragment(TransportMessage message)
     {
         ParsedFragment fragment;
@@ -424,24 +456,6 @@ namespace fable::multiplayer
             return false;
         }
         const std::uint64_t now = NowMilliseconds();
-        // Only a new logical message can safely reap old partial messages.
-        // Reaping while waiting for a later fragment would make a delayed
-        // fragment unrecoverable after the first fragment had been ACKed.
-        for (auto iterator = reassemblies_.begin();
-             fragment.wire.fragmentIndex == 0 &&
-                 iterator != reassemblies_.end();)
-        {
-            if (now >= iterator->second.lastTouchedAt &&
-                now - iterator->second.lastTouchedAt >
-                    ReassemblyTimeoutMilliseconds)
-            {
-                iterator = reassemblies_.erase(iterator);
-            }
-            else
-            {
-                ++iterator;
-            }
-        }
         const ReassemblyKey key = {
             message.streamId,
             message.streamIncarnation,
@@ -465,6 +479,7 @@ namespace fable::multiplayer
             reassembly.fragmentCount = fragment.wire.fragmentCount;
             reassembly.totalSize = fragment.wire.totalSize;
             reassembly.lastTouchedAt = now;
+            reassembly.firstSequence = message.sequence;
             iterator = reassemblies_.emplace(key, std::move(reassembly)).first;
         }
         Reassembly& reassembly = iterator->second;
@@ -570,18 +585,56 @@ namespace fable::multiplayer
         const auto stream = outbound_.find(streamId);
         if (stream == outbound_.end() || streamIncarnation == 0 ||
             stream->second.incarnation != streamIncarnation ||
-            stream->second.queue.empty() ||
-            stream->second.queue.front().sequence != sequence)
+            stream->second.queue.empty() || sequence == 0)
         {
             return false;
         }
-        stream->second.acknowledgedSequence = sequence;
-        return true;
+        // ACK datagrams themselves may arrive out of order. Retain each ACK
+        // until the contiguous queue prefix can be reclaimed; this preserves
+        // progress when a later ACK overtakes an earlier one on the wire.
+        for (const TransportMessage& message : stream->second.queue)
+        {
+            if (message.sequence == sequence)
+            {
+                if (stream->second.sentAt.find(sequence) ==
+                    stream->second.sentAt.end())
+                {
+                    // A queued packet must have been emitted before its ACK
+                    // can retire it. This also prevents a forged ACK from
+                    // skipping the unsent tail outside the send window.
+                    return false;
+                }
+                if (message.type == protocol::PacketType::ReliableFragment &&
+                    message.logicalMessageEnd)
+                {
+                    // UdpPeer acknowledges only the final fragment. Treat
+                    // that ACK as cumulative for this logical message so a
+                    // timed-out partial reassembly can be retransmitted from
+                    // its first fragment.
+                    for (const TransportMessage& preceding :
+                         stream->second.queue)
+                    {
+                        stream->second.acknowledgedSequences.insert(
+                            preceding.sequence);
+                        if (preceding.sequence == sequence)
+                        {
+                            break;
+                        }
+                    }
+                    return true;
+                }
+                stream->second.acknowledgedSequences.insert(sequence);
+                return true;
+            }
+        }
+        return false;
     }
 
     ReliableReceiveResult ReliableStreamTransport::AcceptIncoming(
         TransportMessage message)
     {
+        acknowledgeLastIncoming_ = false;
+        ExpireReassemblies(NowMilliseconds());
         ParsedFragment fragment;
         const bool isFragment =
             message.type == protocol::PacketType::ReliableFragment;
@@ -634,8 +687,18 @@ namespace fable::multiplayer
                 message.streamIncarnation);
         }
         std::uint32_t& previous = receivedSequences_[message.streamId];
+        // A newly observed stream must begin at sequence one. Without this
+        // fence, a reordered second packet could become the stream origin and
+        // permanently skip the construction/state record ahead of it.
+        if (previous == 0 && message.sequence != 1)
+        {
+            return ReliableReceiveResult::Rejected;
+        }
         if (message.sequence == previous)
         {
+            acknowledgeLastIncoming_ = !isFragment ||
+                fragment.wire.fragmentIndex + 1 ==
+                    fragment.wire.fragmentCount;
             return ReliableReceiveResult::Duplicate;
         }
         if (previous != 0 && message.sequence != NextSequence(previous))
@@ -681,6 +744,8 @@ namespace fable::multiplayer
             // reassembly succeeded; rejected fragments must not poison the
             // ordered stream's next expected sequence.
             previous = acceptedSequence;
+            acknowledgeLastIncoming_ = fragment.wire.fragmentIndex + 1 ==
+                fragment.wire.fragmentCount;
             return ReliableReceiveResult::Accepted;
         }
         std::deque<TransportMessage>& stream = inbound_[message.streamId];
@@ -690,6 +755,7 @@ namespace fable::multiplayer
         }
         previous = message.sequence;
         stream.push_back(std::move(message));
+        acknowledgeLastIncoming_ = true;
         if (readyStreamSet_.insert(stream.front().streamId).second)
         {
             readyStreams_.push_back(stream.front().streamId);
@@ -706,29 +772,53 @@ namespace fable::multiplayer
         for (auto& [streamId, stream] : outbound_)
         {
             while (!stream.queue.empty() &&
-                stream.acknowledgedSequence == stream.queue.front().sequence)
+                stream.acknowledgedSequences.erase(
+                    stream.queue.front().sequence) != 0)
             {
+                stream.sentAt.erase(stream.queue.front().sequence);
                 if (stream.queue.front().logicalMessageEnd &&
                     stream.logicalQueueSize != 0)
                 {
                     --stream.logicalQueueSize;
                 }
                 stream.queue.pop_front();
-                stream.lastSentSequence = 0;
-                stream.lastSentAt = 0;
             }
             if (stream.queue.empty())
             {
                 emptyStreams.push_back(streamId);
                 continue;
             }
-            const TransportMessage& message = stream.queue.front();
-            if (stream.lastSentSequence != message.sequence ||
-                now - stream.lastSentAt >= resendMilliseconds)
+            // Fragment and complete records share the same bounded window.
+            // The receiver still rejects gaps and only advances its
+            // contiguous cursor, so loss or reordering merely schedules the
+            // missing record for retransmission without changing delivery
+            // order.
+            constexpr std::size_t windowLimit = ReliableWindowSize;
+            std::size_t inFlight = 0;
+            for (const TransportMessage& message : stream.queue)
             {
-                result.push_back(message);
-                stream.lastSentSequence = message.sequence;
-                stream.lastSentAt = now;
+                if (stream.acknowledgedSequences.find(message.sequence) !=
+                    stream.acknowledgedSequences.end())
+                {
+                    continue;
+                }
+                if (inFlight >= windowLimit)
+                {
+                    break;
+                }
+                const auto sent = stream.sentAt.find(message.sequence);
+                if (sent == stream.sentAt.end())
+                {
+                    result.push_back(message);
+                    stream.sentAt.emplace(message.sequence, now);
+                }
+                else if (now >= sent->second &&
+                    now - sent->second >= resendMilliseconds)
+                {
+                    result.push_back(message);
+                    sent->second = now;
+                }
+                ++inFlight;
             }
         }
         for (const ReliableStreamId streamId : emptyStreams)
@@ -785,5 +875,6 @@ namespace fable::multiplayer
         retiredIncarnations_.clear();
         retiredStreams_.clear();
         reassemblies_.clear();
+        acknowledgeLastIncoming_ = false;
     }
 }

@@ -30,13 +30,19 @@ namespace fable::multiplayer::replication
                 continue;
             }
             ++actorPendingCount;
+            if (iterator->operation != protocol::PlayerActorStateOperation::
+                    ComponentDelta ||
+                iterator->authorityEpoch != message.authorityEpoch ||
+                iterator->actorGeneration != message.actorGeneration ||
+                iterator->mapEpoch != message.mapEpoch)
+            {
+                // A structural message is an ordering barrier. Never rewrite
+                // a delta that would be published before that barrier.
+                mergeCandidate = pending_.end();
+                continue;
+            }
             if (message.operation == protocol::PlayerActorStateOperation::
-                    ComponentDelta &&
-                iterator->operation ==
-                    protocol::PlayerActorStateOperation::ComponentDelta &&
-                iterator->authorityEpoch == message.authorityEpoch &&
-                iterator->actorGeneration == message.actorGeneration &&
-                iterator->mapEpoch == message.mapEpoch)
+                    ComponentDelta)
             {
                 mergeCandidate = iterator;
             }

@@ -115,7 +115,15 @@ namespace fable::multiplayer
         e.entityIdentities.Initialize(diagnostics_);
         e.entityPresence.Initialize(e.entityIdentities, diagnostics_);
         e.entityLifecycle.Initialize(role, actorId, t.transport, w.authority, diagnostics_);
-        e.entityMaterialization.Initialize(role, actorId, entities, e.entityPresence, e.entityIdentities, villages, diagnostics_);
+        e.entityMaterialization.Initialize(
+            role,
+            actorId,
+            entities,
+            e.entityPresence,
+            e.entityIdentities,
+            dummyVillagers,
+            villages,
+            diagnostics_);
         w.hostWorldState.Initialize(role, e.entityLifecycle, e.entityIdentities, diagnostics_);
         w.savedEntityMapBaseline.Initialize(role, actorId, t.transport, diagnostics_);
         w.authority.SetMapBaselineGate(&w.savedEntityMapBaseline);
@@ -143,7 +151,7 @@ namespace fable::multiplayer
         }
         t.reliableMessages.Initialize(t.transport, diagnostics_);
         MarkStage(InitializationStage::ReliableDispatcher);
-        w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, w.authority, diagnostics_);
+        w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, a.playerActions, w.authority, diagnostics_);
         MarkStage(InitializationStage::ConstructionGate);
         if (!ReliableSinkDescriptorRegistry::RegisterDiscovered(
                 contexts_, t.reliableMessages, diagnostics_))

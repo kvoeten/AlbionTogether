@@ -593,7 +593,23 @@ using namespace fable::core::target;
 
         if (hero.vtable == expectedScriptThingVtable)
         {
-            RetainTransformHandle(hero, "world Hero observation");
+            // GetThingWithScriptName returns a counted temporary handle. The
+            // world and LocalHeroReplication own their own references; keeping
+            // this probe handle alive across map changes pins the departed
+            // Hero and its skeletal presentation during native level teardown.
+            const auto destroyHero = reinterpret_cast<ScriptThingDestructor>(
+                base + kScriptThingDestructorRva);
+            __try
+            {
+                destroyHero(&hero, 0);
+                hero = {};
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                LogEvent(
+                    "ClientFailed",
+                    "world-Hero-observation-handle-cleanup-failed");
+            }
         }
         if (heroScriptNameConstructed)
         {

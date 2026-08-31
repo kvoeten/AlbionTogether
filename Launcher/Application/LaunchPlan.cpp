@@ -17,7 +17,9 @@ namespace fable::launcher::application
         bool IsMultiplayer(const Options& options)
         {
             return options.multiplayerTest || options.multiplayerRosterTest ||
-                options.multiplayerTransitionTest || options.multiplayerAuthorityTest ||
+                options.multiplayerTransitionTest || options.multiplayerMapStressTest ||
+                options.multiplayerSaveTest ||
+                options.multiplayerAuthorityTest ||
                 options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
                 options.multiplayerPlaytest;
         }
@@ -94,6 +96,14 @@ namespace fable::launcher::application
             if (options.multiplayerTransitionTest)
             {
                 return L"multiplayer_map_transition";
+            }
+            if (options.multiplayerMapStressTest)
+            {
+                return L"multiplayer_map_stress";
+            }
+            if (options.multiplayerSaveTest)
+            {
+                return L"multiplayer_save_reload";
             }
             if (options.multiplayerRosterTest)
             {

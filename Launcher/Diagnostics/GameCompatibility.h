@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -27,4 +29,8 @@ namespace fable::launcher::diagnostics
 
     [[nodiscard]] GameCompatibilityResult CheckGameCompatibility(
         const std::filesystem::path& executable);
+
+    [[nodiscard]] bool Sha256File(
+        const std::filesystem::path& path,
+        std::array<std::uint8_t, 32>& digest);
 }

@@ -205,6 +205,12 @@ namespace fable::game
             state_->multiplayer.ProcessPresentationLifecycle();
     }
 
+    bool GameplayRuntime::ProcessAutomationGameThreadIdle()
+    {
+        return state_->automationReady &&
+            state_->automation.ProcessGameThreadIdle();
+    }
+
     void GameplayRuntime::DriveReplicatedMovement()
     {
         if (state_->scriptsReady && state_->multiplayerReady)

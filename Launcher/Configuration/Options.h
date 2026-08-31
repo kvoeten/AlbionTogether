@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -28,11 +29,15 @@ struct Options
     unsigned short multiplayerPort = 38171;
     unsigned int automationTimeoutSeconds = 120;
     unsigned int dualInstanceHoldSeconds = 10;
+    std::uint32_t mapStressSeed = 0;
+    unsigned int mapStressTransitions = 12;
     bool transformationProbe = false;
     bool dualInstanceTest = false;
     bool multiplayerTest = false;
     bool multiplayerRosterTest = false;
     bool multiplayerTransitionTest = false;
+    bool multiplayerMapStressTest = false;
+    bool multiplayerSaveTest = false;
     bool multiplayerAuthorityTest = false;
     bool multiplayerCombatTest = false;
     bool multiplayerHeroWillTest = false;

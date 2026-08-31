@@ -41,6 +41,24 @@ namespace fable::multiplayer::replication
 {
     class LocalPlayerChannel;
 
+    struct LocalEquipmentTransition final
+    {
+        std::uint64_t actionId = 0;
+        protocol::SessionTimeMs startedAtSessionTimeMs =
+            protocol::SessionTimeUnset;
+        std::uint32_t animationId = 0;
+        std::uint16_t durationMs = 0;
+        std::uint16_t attachmentNotifyOffsetMs = 0;
+
+        [[nodiscard]] bool IsPresent() const noexcept
+        {
+            return actionId != 0 &&
+                startedAtSessionTimeMs != protocol::SessionTimeUnset &&
+                animationId != 0 && durationMs != 0 &&
+                attachmentNotifyOffsetMs <= durationMs;
+        }
+    };
+
     // Owns the selected-save Hero binding and its owner-authored replication
     // channel. It does not consume remote actors or own their presentation.
     class LocalHeroReplication final
@@ -64,6 +82,13 @@ namespace fable::multiplayer::replication
         void CaptureMovement(std::uint64_t now);
         void CaptureAppearance(std::uint64_t now);
         void CaptureEquipment(std::uint64_t now);
+        void MarkEquipmentTransition(
+            std::uint64_t actionId,
+            protocol::SessionTimeMs startedAtSessionTimeMs,
+            std::uint32_t animationId,
+            std::uint16_t durationMs,
+            std::uint16_t attachmentNotifyOffsetMs) noexcept;
+        [[nodiscard]] LocalEquipmentTransition EquipmentTransition() noexcept;
         [[nodiscard]] bool HasDepartedNativeWorld(
             const entities::LiveEntityRegistry& liveEntities) noexcept;
         [[nodiscard]] bool WorldIsCurrent() const;
@@ -120,6 +145,7 @@ namespace fable::multiplayer::replication
         std::atomic_bool appearanceDirty_{false};
         std::atomic_bool equipmentDirty_{false};
         std::atomic_uint64_t lastEquipmentMutationAt_{0};
+        LocalEquipmentTransition equipmentTransition_;
         std::mutex ownerStateMutex_;
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t actorId_ = 0;

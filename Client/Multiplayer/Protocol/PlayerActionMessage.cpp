@@ -1,5 +1,7 @@
 #include "PlayerActionMessage.h"
 
+#include "Multiplayer/Protocol/PacketEnvelope.h"
+
 #include <cmath>
 #include <cstring>
 #include <type_traits>
@@ -19,6 +21,10 @@ namespace
         std::uint32_t authorityEpoch = 0;
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
+        fable::multiplayer::protocol::SessionTimeMs startedAtSessionTimeMs =
+            fable::multiplayer::protocol::SessionTimeUnset;
+        std::uint32_t expectedDurationMs = 0;
+        std::uint32_t presentationRevision = 0;
         std::uint32_t abilityId = 0;
         std::int32_t requiredMeleeDefinitionIndex = -1;
         std::int32_t requiredRangedDefinitionIndex = -1;
@@ -37,7 +43,12 @@ namespace
 #pragma pack(pop)
 
     static_assert(std::is_trivially_copyable_v<WirePlayerActionMessage>);
-    static_assert(sizeof(WirePlayerActionMessage) == 440);
+    static_assert(sizeof(WirePlayerActionMessage) == 452);
+    static_assert(
+        sizeof(WirePlayerActionMessage) <=
+            fable::multiplayer::protocol::MaximumReliableMessageBytes);
+
+    constexpr std::uint32_t kMaximumPresentationDurationMs = 120'000;
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept
@@ -67,6 +78,13 @@ namespace
             message.kind == PlayerActionKind::RangedAimEnd;
         const bool expression =
             message.kind == PlayerActionKind::Expression;
+        const bool hasPresentationTiming =
+            message.startedAtSessionTimeMs != SessionTimeUnset ||
+            message.expectedDurationMs != 0 || message.presentationRevision != 0;
+        const bool sanePresentationTiming = !hasPresentationTiming ||
+            (message.startedAtSessionTimeMs != SessionTimeUnset &&
+                message.presentationRevision != 0 &&
+                message.expectedDurationMs <= kMaximumPresentationDurationMs);
         const bool saneExpressionTiming = expression
             ? message.expressionDurationTicks > 0 &&
                 message.expressionDurationTicks <= 1'000'000 &&
@@ -92,6 +110,7 @@ namespace
             saneFamily &&
             saneProgressionState &&
             saneExpressionTiming &&
+            sanePresentationTiming &&
             message.requiredWeapons.IsSane() &&
             message.requiredWeapons.Supports(message.weaponFamily) &&
             saneAttachment(
@@ -168,6 +187,9 @@ namespace fable::multiplayer::protocol
         wire.authorityEpoch = message.authorityEpoch;
         wire.actorGeneration = message.actorGeneration;
         wire.mapEpoch = message.mapEpoch;
+        wire.startedAtSessionTimeMs = message.startedAtSessionTimeMs;
+        wire.expectedDurationMs = message.expectedDurationMs;
+        wire.presentationRevision = message.presentationRevision;
         wire.abilityId = message.abilityId;
         wire.requiredMeleeDefinitionIndex =
             message.requiredWeapons.meleeDefinitionIndex;
@@ -226,6 +248,9 @@ namespace fable::multiplayer::protocol
         message.authorityEpoch = wire.authorityEpoch;
         message.actorGeneration = wire.actorGeneration;
         message.mapEpoch = wire.mapEpoch;
+        message.startedAtSessionTimeMs = wire.startedAtSessionTimeMs;
+        message.expectedDurationMs = wire.expectedDurationMs;
+        message.presentationRevision = wire.presentationRevision;
         message.abilityId = wire.abilityId;
         message.requiredWeapons.meleeDefinitionIndex =
             wire.requiredMeleeDefinitionIndex;

@@ -1,12 +1,8 @@
 #include "PlayerActionReplication.h"
-#include "PlayerActionSemantics.h"
 #include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
 #include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 
-#include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
-#include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
-#include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Combat/CombatActionLedger.h"
@@ -27,8 +23,6 @@
 
 namespace
 {
-    constexpr std::uint32_t HeroAttackAbilityId = 1101;
-
     fable::multiplayer::ReliableMessageSink* ResolvePlayerActionSink(
         fable::multiplayer::MultiplayerSessionContexts& contexts) noexcept
     {
@@ -75,20 +69,33 @@ namespace fable::multiplayer::replication
         combat_ = &combat;
         abilities_ = &abilities;
         diagnostics_ = diagnostics;
-        eventQueue_.SetAccepting(true);
-        if (!combat_->AddAbilitySink(
-                &PlayerActionReplication::CaptureAbility, this))
+        if (!presentation_.Initialize(
+                transport,
+                localHero,
+                remoteChannels,
+                remotePlayers,
+                presence,
+                combatants,
+                diagnostics,
+                localActorId))
         {
-            diagnostics_.Event(
-                "ClientFailed", "multiplayer-player-ability-observer");
             Shutdown();
             return;
         }
-        if (!abilities_->AddEventSink(
-                &PlayerActionReplication::CaptureHeroAbility, this))
+        localCapture_.Initialize(
+            role,
+            localActorId,
+            transport,
+            localHero,
+            combatants,
+            identities,
+            combat,
+            abilities,
+            diagnostics);
+        if (!localCapture_.IsInitialized())
         {
-            diagnostics_.Event(
-                "ClientFailed", "multiplayer-player-hero-ability-observer");
+            // Local capture reports registration failures through its own
+            // diagnostics and leaves no accepting ingress in that case.
             Shutdown();
             return;
         }
@@ -101,13 +108,10 @@ namespace fable::multiplayer::replication
     bool PlayerActionReplication::AttachActionObserver(
         game::creature::actions::CreatureActionLifecycleObserver& observer)
     {
-        if (!initialized_ || !observer.IsInstalled() ||
-            !observer.AddEventSink(
-                &PlayerActionReplication::CaptureAction, this))
+        if (!initialized_ || !localCapture_.AttachActionObserver(observer))
         {
             return false;
         }
-        actionObserver_ = &observer;
         diagnostics_.Event(
             "MultiplayerPlayerActionLifecycleAttached",
             "input requests are causally paired with Fable's accepted native Hero action");
@@ -117,20 +121,17 @@ namespace fable::multiplayer::replication
     bool PlayerActionReplication::AttachModeObserver(
         game::creature::locomotion::CreatureModeManagerObserver& observer)
     {
-        if (!initialized_ || !observer.IsInstalled() ||
-            !observer.AddModeSourceEventSink(
-                &PlayerActionReplication::CaptureModeSource, this))
+        if (!initialized_ || !localCapture_.AttachModeObserver(observer))
         {
             return false;
         }
-        modeObserver_ = &observer;
         diagnostics_.Event(
             "MultiplayerPlayerRangedModeAttached",
             "native Hero ranged aim source 25 publishes ordered cancel state");
         return true;
     }
 
-    bool PlayerActionReplication::ProcessPending()
+    bool PlayerActionReplication::CaptureLocalPending()
     {
         if (!initialized_ || transport_ == nullptr || localHero_ == nullptr ||
             remoteChannels_ == nullptr || remotePlayers_ == nullptr ||
@@ -138,471 +139,59 @@ namespace fable::multiplayer::replication
         {
             return false;
         }
-        if (!PublishPending())
+        return localCapture_.CapturePending();
+    }
+
+    bool PlayerActionReplication::PublishLocalPending()
+    {
+        if (!initialized_ || transport_ == nullptr || localHero_ == nullptr ||
+            remoteChannels_ == nullptr || remotePlayers_ == nullptr ||
+            combat_ == nullptr || abilities_ == nullptr)
         {
             return false;
         }
+        return ImportLocalCaptured() && PublishPending();
+    }
 
-        if (!PairAcceptedLocalActions())
+    bool PlayerActionReplication::ReplayRemotePending()
+    {
+        if (!initialized_ || remoteChannels_ == nullptr ||
+            remotePlayers_ == nullptr || localHero_ == nullptr)
         {
             return false;
         }
-        return PublishPending() && ReplayPending();
+        return presentation_.Process();
     }
 
-    bool PlayerActionReplication::CaptureLocal(
-        const game::creature::combat::CreatureAbilityEvent& event,
-        const game::creature::actions::CreatureActionLifecycleEvent*
-            resolvedAction)
+    bool PlayerActionReplication::ProcessPending()
     {
-        if (event.abilityId == 0 || event.sourceCreature == nullptr ||
-            event.sourceCreature != localHero_->NativeHero())
-        {
-            return true;
-        }
-        if (event.attackCommand &&
-            (resolvedAction == nullptr || !resolvedAction->accepted ||
-                resolvedAction->phase != game::creature::actions::
-                    CreatureActionLifecyclePhase::Submitted))
-        {
-            return true;
-        }
-        const PlayerState* const state = localHero_->CurrentState();
-        if (state == nullptr || state->actorId != localActorId_ ||
-            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
-            state->mapEpoch == 0 || state->mapName.empty())
-        {
-            return true;
-        }
-
-        protocol::PlayerActionMessage message;
-        message.phase = role_ == PeerRole::Host
-            ? protocol::PlayerActionPhase::Perform
-            : protocol::PlayerActionPhase::Intent;
-        message.kind = protocol::PlayerActionKind::AbilityRequest;
-        message.ownerActorId = localActorId_;
-        message.actionId = NextActionId();
-        message.authorityEpoch = state->authorityEpoch;
-        message.actorGeneration = state->actorGeneration;
-        message.mapEpoch = state->mapEpoch;
-        message.abilityId = event.abilityId;
-        message.charge = event.charge;
-        game::hero_pawn::equipment::HeroEquipmentState liveEquipment;
-        if (!game::hero_pawn::equipment::native::HeroWeaponComponent::Capture(
-                localHero_->NativeHero(), liveEquipment))
-        {
-            liveEquipment = state->heroEquipment;
-        }
-        if (liveEquipment.IsSane())
-        {
-            message.weaponFamily = liveEquipment.activeFamily;
-            message.requiredWeapons = liveEquipment.WeaponDefinitions();
-            message.requiredMeleeAttachmentSlot =
-                liveEquipment.meleeAttachmentSlot;
-            message.requiredRangedAttachmentSlot =
-                liveEquipment.rangedAttachmentSlot;
-        }
-        const bool rangedAttack = resolvedAction != nullptr &&
-            player_action_semantics::IsRangedFire(
-                resolvedAction->actionType);
-        if (rangedAttack &&
-            message.requiredWeapons.rangedDefinitionIndex > 0)
-        {
-            // FireMissileWeapon can be accepted in the same frame that the
-            // Hero's carrying component finishes switching families. Carry
-            // the action's semantic family so the remote Hero prepares the
-            // bow before replaying the native ability.
-            message.weaponFamily =
-                game::creature::equipment::CreatureWeaponFamily::Ranged;
-        }
-        else if (event.attackCommand &&
-            message.weaponFamily ==
-                game::creature::equipment::CreatureWeaponFamily::None &&
-            message.requiredWeapons.meleeDefinitionIndex > 0)
-        {
-            // ATTACK is observed before some Hero actions finish their native
-            // unsheathe. Carry the intended family in the ordered action so
-            // the remote AI proxy can prepare the same weapon first.
-            message.weaponFamily =
-                game::creature::equipment::CreatureWeaponFamily::Melee;
-        }
-        message.targetPlayerActorId = combatants_ != nullptr
-            ? combatants_->FindActor(event.targetCreature)
-            : 0;
-        message.targetThingUid = message.targetPlayerActorId == 0
-            ? (identities_ != nullptr
-                ? identities_->CanonicalizeLocalObservation(
-                    event.targetThingUid)
-                : event.targetThingUid)
-            : 0;
-        message.mapName = state->mapName;
-        message.semanticName = event.attackCommand
-            ? (rangedAttack ? "RangedAttackAbility" : "AttackAbility")
-            : "CreatureAbility";
-        if (resolvedAction != nullptr)
-        {
-            message.resolvedAnimationId = resolvedAction->animationId;
-            message.resolvedActionType = resolvedAction->actionType;
-        }
-        char detail[512] = {};
-        std::snprintf(
-            detail,
-            sizeof(detail),
-            "actor_id=%llu action_id=%llu ability_id=%u charge=%.3f weapon=%u melee=%d ranged=%d target_player=%llu target_uid=%016llX semantic=%s native_action=%s animation_id=%u map=%s phase=%s",
-            static_cast<unsigned long long>(message.ownerActorId),
-            static_cast<unsigned long long>(message.actionId),
-            message.abilityId,
-            message.charge,
-            static_cast<unsigned int>(message.weaponFamily),
-            message.requiredWeapons.meleeDefinitionIndex,
-            message.requiredWeapons.rangedDefinitionIndex,
-            static_cast<unsigned long long>(
-                message.targetPlayerActorId),
-            static_cast<unsigned long long>(message.targetThingUid),
-            message.semanticName.c_str(),
-            message.resolvedActionType.empty()
-                ? "<unresolved>"
-                : message.resolvedActionType.c_str(),
-            message.resolvedAnimationId,
-            message.mapName.c_str(),
-            message.phase == protocol::PlayerActionPhase::Perform
-                ? "perform"
-                : "intent");
-        diagnostics_.Event("MultiplayerLocalPlayerActionCaptured", detail);
-        return Queue(std::move(message));
+        return CaptureLocalPending() && PublishLocalPending() &&
+            ReplayRemotePending();
     }
 
-    bool PlayerActionReplication::CaptureLocalWeaponTransition(
-        const game::creature::actions::CreatureActionLifecycleEvent& action,
-        const game::hero_pawn::equipment::HeroEquipmentState& equipment)
+    bool PlayerActionReplication::EnsurePresentationTiming(
+        protocol::PlayerActionMessage& message,
+        const std::uint64_t observedAt,
+        const std::uint32_t durationMs)
     {
-        const PlayerState* const state = localHero_->CurrentState();
-        if (!action.accepted || action.animationId == 0 ||
-            action.creature == nullptr ||
-            action.creature != localHero_->NativeHero() ||
-            !equipment.IsSane() || state == nullptr ||
-            state->actorId != localActorId_ || state->authorityEpoch == 0 ||
-            state->actorGeneration == 0 || state->mapEpoch == 0 ||
-            state->mapName.empty())
-        {
-            return true;
-        }
-
-        protocol::PlayerActionMessage message;
-        message.phase = role_ == PeerRole::Host
-            ? protocol::PlayerActionPhase::Perform
-            : protocol::PlayerActionPhase::Intent;
-        message.kind = protocol::PlayerActionKind::WeaponTransition;
-        message.ownerActorId = localActorId_;
-        message.actionId = NextActionId();
-        message.authorityEpoch = state->authorityEpoch;
-        message.actorGeneration = state->actorGeneration;
-        message.mapEpoch = state->mapEpoch;
-        message.weaponFamily = equipment.activeFamily;
-        message.requiredWeapons = equipment.WeaponDefinitions();
-        message.requiredMeleeAttachmentSlot =
-            equipment.meleeAttachmentSlot;
-        message.requiredRangedAttachmentSlot =
-            equipment.rangedAttachmentSlot;
-        message.resolvedAnimationId = action.animationId;
-        message.mapName = state->mapName;
-        message.semanticName = "WeaponTransition";
-        message.resolvedActionType = action.actionType;
-
-        char detail[512] = {};
-        std::snprintf(
-            detail,
-            sizeof(detail),
-            "actor_id=%llu action_id=%llu family=%u melee=%d melee_slot=%u ranged=%d ranged_slot=%u native_action=%s animation_id=%u map=%s phase=%s",
-            static_cast<unsigned long long>(message.ownerActorId),
-            static_cast<unsigned long long>(message.actionId),
-            static_cast<unsigned int>(message.weaponFamily),
-            message.requiredWeapons.meleeDefinitionIndex,
-            message.requiredMeleeAttachmentSlot,
-            message.requiredWeapons.rangedDefinitionIndex,
-            message.requiredRangedAttachmentSlot,
-            message.resolvedActionType.c_str(),
-            message.resolvedAnimationId,
-            message.mapName.c_str(),
-            message.phase == protocol::PlayerActionPhase::Perform
-                ? "perform"
-                : "intent");
-        diagnostics_.Event(
-            "MultiplayerLocalWeaponTransitionCaptured", detail);
-        return Queue(std::move(message));
+        return transport_ != nullptr &&
+            presentation::RemotePlayerActionPresentation::EnsureTiming(
+                message, *transport_, observedAt, durationMs,
+                nextPresentationRevision_);
     }
 
-    bool PlayerActionReplication::CaptureLocalExpression(
-        const game::creature::actions::CreatureActionLifecycleEvent& action)
+    bool PlayerActionReplication::ImportLocalCaptured()
     {
-        void* const localHero = localHero_ != nullptr
-            ? localHero_->NativeHero()
-            : nullptr;
-        const PlayerState* const state = localHero_ != nullptr
-            ? localHero_->CurrentState()
-            : nullptr;
-        if (!action.accepted || action.creature == nullptr ||
-            action.creature != localHero || action.expressionName[0] == '\0' ||
-            action.actionType[0] == '\0' || state == nullptr ||
-            state->actorId != localActorId_ || state->authorityEpoch == 0 ||
-            state->actorGeneration == 0 || state->mapEpoch == 0 ||
-            state->mapName.empty())
+        while (const protocol::PlayerActionMessage* const message =
+                   localCapture_.PendingFront())
         {
-            return true;
+            if (!Queue(*message, 0))
+            {
+                return false;
+            }
+            localCapture_.PopPending();
         }
-
-        protocol::PlayerActionMessage message;
-        message.phase = role_ == PeerRole::Host
-            ? protocol::PlayerActionPhase::Perform
-            : protocol::PlayerActionPhase::Intent;
-        message.kind = protocol::PlayerActionKind::Expression;
-        message.ownerActorId = localActorId_;
-        message.actionId = NextActionId();
-        message.authorityEpoch = state->authorityEpoch;
-        message.actorGeneration = state->actorGeneration;
-        message.mapEpoch = state->mapEpoch;
-        message.targetPlayerActorId = combatants_ != nullptr
-            ? combatants_->FindActor(action.targetCreature)
-            : 0;
-        message.targetThingUid = message.targetPlayerActorId == 0
-            ? (identities_ != nullptr
-                ? identities_->CanonicalizeLocalObservation(
-                    action.targetThingUid)
-                : action.targetThingUid)
-            : 0;
-        message.mapName = state->mapName;
-        message.semanticName = action.expressionName;
-        message.resolvedActionType = action.actionType;
-        message.resolvedAnimationId = action.animationId;
-        message.expressionDurationTicks = action.expressionDurationTicks;
-        message.expressionTriggerTicks = action.expressionTriggerTicks;
-
-        char detail[448] = {};
-        std::snprintf(
-            detail,
-            sizeof(detail),
-            "actor_id=%llu action_id=%llu expression=%s target_player=%llu target_uid=%016llX native_action=%s animation_id=%u duration_ticks=%d trigger_ticks=%d map=%s phase=%s",
-            static_cast<unsigned long long>(message.ownerActorId),
-            static_cast<unsigned long long>(message.actionId),
-            message.semanticName.c_str(),
-            static_cast<unsigned long long>(message.targetPlayerActorId),
-            static_cast<unsigned long long>(message.targetThingUid),
-            message.resolvedActionType.c_str(),
-            message.resolvedAnimationId,
-            message.expressionDurationTicks,
-            message.expressionTriggerTicks,
-            message.mapName.c_str(),
-            message.phase == protocol::PlayerActionPhase::Perform
-                ? "perform"
-                : "intent");
-        diagnostics_.Event("MultiplayerLocalExpressionCaptured", detail);
-        return Queue(std::move(message));
-    }
-
-    bool PlayerActionReplication::CaptureLocalRangedAction(
-        const game::creature::actions::CreatureActionLifecycleEvent& action)
-    {
-        if (!action.accepted || action.creature == nullptr ||
-            action.creature != localHero_->NativeHero() ||
-            action.animationId == 0)
-        {
-            return true;
-        }
-        const PlayerState* const state = localHero_->CurrentState();
-        if (state == nullptr || state->actorId != localActorId_ ||
-            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
-            state->mapEpoch == 0 || state->mapName.empty())
-        {
-            return true;
-        }
-
-        game::hero_pawn::equipment::HeroEquipmentState equipment;
-        if (!game::hero_pawn::equipment::native::HeroWeaponComponent::Capture(
-                localHero_->NativeHero(), equipment))
-        {
-            equipment = state->heroEquipment;
-        }
-        if (!equipment.IsSane() ||
-            equipment.rangedDefinitionIndex <= 0)
-        {
-            diagnostics_.Event(
-                "MultiplayerLocalRangedShotSuppressed",
-                "accepted FireMissileWeapon had no readable ranged loadout");
-            return true;
-        }
-
-        protocol::PlayerActionMessage message;
-        message.phase = role_ == PeerRole::Host
-            ? protocol::PlayerActionPhase::Perform
-            : protocol::PlayerActionPhase::Intent;
-        const bool aimStart = player_action_semantics::IsRangedAimStart(
-            action.actionType);
-        message.kind = aimStart
-            ? protocol::PlayerActionKind::RangedAim
-            : protocol::PlayerActionKind::AbilityRequest;
-        message.ownerActorId = localActorId_;
-        message.actionId = NextActionId();
-        message.authorityEpoch = state->authorityEpoch;
-        message.actorGeneration = state->actorGeneration;
-        message.mapEpoch = state->mapEpoch;
-        message.abilityId = aimStart ? 0 : HeroAttackAbilityId;
-        message.weaponFamily =
-            game::creature::equipment::CreatureWeaponFamily::Ranged;
-        message.requiredWeapons = equipment.WeaponDefinitions();
-        message.requiredMeleeAttachmentSlot = equipment.meleeAttachmentSlot;
-        message.requiredRangedAttachmentSlot =
-            equipment.rangedAttachmentSlot;
-        message.targetPlayerActorId = combatants_ != nullptr
-            ? combatants_->FindActor(action.targetCreature)
-            : 0;
-        message.targetThingUid = message.targetPlayerActorId == 0
-            ? (identities_ != nullptr
-                ? identities_->CanonicalizeLocalObservation(
-                    action.targetThingUid)
-                : action.targetThingUid)
-            : 0;
-        message.mapName = state->mapName;
-        message.semanticName = aimStart
-            ? "RangedAimStart"
-            : "RangedAttackAbility";
-        message.resolvedAnimationId = action.animationId;
-        message.resolvedActionType = action.actionType;
-
-        char detail[448] = {};
-        std::snprintf(
-            detail,
-            sizeof(detail),
-            "actor_id=%llu action_id=%llu ranged=%d target_player=%llu target_uid=%016llX native_action=%s animation_id=%u map=%s phase=%s",
-            static_cast<unsigned long long>(message.ownerActorId),
-            static_cast<unsigned long long>(message.actionId),
-            message.requiredWeapons.rangedDefinitionIndex,
-            static_cast<unsigned long long>(message.targetPlayerActorId),
-            static_cast<unsigned long long>(message.targetThingUid),
-            message.resolvedActionType.c_str(),
-            message.resolvedAnimationId,
-            message.mapName.c_str(),
-            message.phase == protocol::PlayerActionPhase::Perform
-                ? "perform"
-                : "intent");
-        diagnostics_.Event(
-            aimStart
-                ? "MultiplayerLocalRangedAimCaptured"
-                : "MultiplayerLocalRangedShotCaptured",
-            detail);
-        return Queue(std::move(message));
-    }
-
-    bool PlayerActionReplication::CaptureLocalRangedAimEnd(
-        const game::creature::locomotion::CreatureModeSourceEvent& event)
-    {
-        if (event.owner == nullptr || event.owner != localHero_->NativeHero() ||
-            event.source != 25 || event.added || !event.changed)
-        {
-            return true;
-        }
-        const PlayerState* const state = localHero_->CurrentState();
-        if (state == nullptr || state->actorId != localActorId_ ||
-            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
-            state->mapEpoch == 0 || state->mapName.empty())
-        {
-            return true;
-        }
-
-        protocol::PlayerActionMessage message;
-        message.phase = role_ == PeerRole::Host
-            ? protocol::PlayerActionPhase::Perform
-            : protocol::PlayerActionPhase::Intent;
-        message.kind = protocol::PlayerActionKind::RangedAimEnd;
-        message.ownerActorId = localActorId_;
-        message.actionId = NextActionId();
-        message.authorityEpoch = state->authorityEpoch;
-        message.actorGeneration = state->actorGeneration;
-        message.mapEpoch = state->mapEpoch;
-        message.mapName = state->mapName;
-        message.semanticName = "RangedAimEnd";
-        diagnostics_.Event(
-            "MultiplayerLocalRangedAimEndCaptured",
-            "native Hero removed ranged movement source 25");
-        return Queue(std::move(message));
-    }
-
-    bool PlayerActionReplication::CaptureLocalHeroAbility(
-        const game::hero_pawn::abilities::HeroAbilityEvent& event)
-    {
-        if (event.sourceCreature == nullptr ||
-            event.sourceCreature != localHero_->NativeHero() ||
-            !game::hero_pawn::abilities::IsValid(event.ability) ||
-            !game::hero_pawn::abilities::IsValid(event.command))
-        {
-            return true;
-        }
-        const PlayerState* const state = localHero_->CurrentState();
-        if (state == nullptr || state->actorId != localActorId_ ||
-            state->authorityEpoch == 0 || state->actorGeneration == 0 ||
-            state->mapEpoch == 0 || state->mapName.empty())
-        {
-            return true;
-        }
-
-        protocol::PlayerActionMessage message;
-        message.phase = role_ == PeerRole::Host
-            ? protocol::PlayerActionPhase::Perform
-            : protocol::PlayerActionPhase::Intent;
-        message.kind = protocol::PlayerActionKind::HeroAbility;
-        message.ownerActorId = localActorId_;
-        message.actionId = NextActionId();
-        message.authorityEpoch = state->authorityEpoch;
-        message.actorGeneration = state->actorGeneration;
-        message.mapEpoch = state->mapEpoch;
-        message.abilityId = static_cast<std::uint32_t>(event.ability);
-        message.heroAbilityCommand = event.command;
-        message.heroAbilityProgressionState = event.progressionState;
-        message.targetPlayerActorId = combatants_ != nullptr
-            ? combatants_->FindActor(event.targetCreature)
-            : 0;
-        message.targetThingUid = message.targetPlayerActorId == 0
-            ? (identities_ != nullptr
-                ? identities_->CanonicalizeLocalObservation(
-                    event.targetThingUid)
-                : event.targetThingUid)
-            : 0;
-        message.mapName = state->mapName;
-        message.semanticName = "HeroAbility";
-
-        char detail[384] = {};
-        std::snprintf(
-            detail,
-            sizeof(detail),
-            "actor_id=%llu action_id=%llu ability_id=%u name=%s command=%u progression_state=%d target_player=%llu target_uid=%016llX map=%s phase=%s",
-            static_cast<unsigned long long>(message.ownerActorId),
-            static_cast<unsigned long long>(message.actionId),
-            message.abilityId,
-            game::hero_pawn::abilities::Name(event.ability),
-            static_cast<unsigned int>(message.heroAbilityCommand),
-            message.heroAbilityProgressionState,
-            static_cast<unsigned long long>(message.targetPlayerActorId),
-            static_cast<unsigned long long>(message.targetThingUid),
-            message.mapName.c_str(),
-            message.phase == protocol::PlayerActionPhase::Perform
-                ? "perform"
-                : "intent");
-        diagnostics_.Event("MultiplayerLocalHeroAbilityCaptured", detail);
-        const std::uint64_t actionId = message.actionId;
-        const bool queued = Queue(std::move(message));
-        if (queued)
-        {
-            char queuedDetail[160] = {};
-            std::snprintf(
-                queuedDetail,
-                sizeof(queuedDetail),
-                "actor_id=%llu action_id=%llu pending=%zu",
-                static_cast<unsigned long long>(localActorId_),
-                static_cast<unsigned long long>(actionId),
-                pendingMessages_.size());
-            diagnostics_.Event(
-                "MultiplayerLocalHeroAbilityQueued", queuedDetail);
-        }
-        return queued;
+        return true;
     }
 
     bool PlayerActionReplication::HandleReliableMessage(
@@ -693,6 +282,13 @@ namespace fable::multiplayer::replication
         std::uint64_t sourceActorId,
         const std::uint64_t sourceConnectionNonce)
     {
+        if (message.kind == protocol::PlayerActionKind::WeaponTransition)
+        {
+            diagnostics_.Event(
+                "MultiplayerPlayerActionDiscarded",
+                "legacy weapon transition intent ignored; equipment state is authoritative");
+            return true;
+        }
         const PlayerState* const owner = remoteChannels_->Find(sourceActorId);
         const RemotePlayerLifecycle* const lifecycle =
             remoteChannels_->FindLifecycle(sourceActorId);
@@ -711,8 +307,17 @@ namespace fable::multiplayer::replication
             return true;
         }
         message.phase = protocol::PlayerActionPhase::Perform;
-        if (!Queue(message, sourceConnectionNonce) || !QueueReplay(
-                std::move(message), sourceConnectionNonce))
+        if (!EnsurePresentationTiming(
+                message,
+                0,
+                presentation::RemotePlayerActionPresentation::DefaultDurationMs(
+                    message.kind)))
+        {
+            return false;
+        }
+        const protocol::PlayerActionMessage replayMessage = message;
+        if (!Queue(message, sourceConnectionNonce) ||
+            !presentation_.Offer(replayMessage, sourceConnectionNonce))
         {
             return false;
         }
@@ -723,6 +328,13 @@ namespace fable::multiplayer::replication
         protocol::PlayerActionMessage message,
         const std::uint64_t sourceConnectionNonce)
     {
+        if (message.kind == protocol::PlayerActionKind::WeaponTransition)
+        {
+            diagnostics_.Event(
+                "MultiplayerPlayerActionDiscarded",
+                "legacy weapon transition perform ignored; equipment state is authoritative");
+            return true;
+        }
         if (message.ownerActorId == localActorId_)
         {
             // A guest publishes Intent and receives the host-approved Perform
@@ -748,7 +360,13 @@ namespace fable::multiplayer::replication
                 "authoritative player action did not match its lifecycle channel");
             return true;
         }
-        return QueueReplay(std::move(message), sourceConnectionNonce);
+        if (!RecordCombatAction(
+                message,
+                "player action replay did not match the current actor lifecycle"))
+        {
+            return false;
+        }
+        return presentation_.Offer(std::move(message), sourceConnectionNonce);
     }
 
     bool PlayerActionReplication::RecordCombatAction(
@@ -819,47 +437,6 @@ namespace fable::multiplayer::replication
         }
         pendingMessages_.push_back({
             std::move(message), sourceConnectionNonce});
-        return true;
-    }
-
-    bool PlayerActionReplication::QueueReplay(
-        protocol::PlayerActionMessage message,
-        const std::uint64_t sourceConnectionNonce)
-    {
-        if (!RecordCombatAction(
-                message,
-                "player action replay did not match the current actor lifecycle"))
-        {
-            return false;
-        }
-        std::size_t actorReplays = 0;
-        for (const auto& pending : pendingReplays_)
-        {
-            if (pending.message.ownerActorId == message.ownerActorId)
-            {
-                ++actorReplays;
-            }
-        }
-        if (actorReplays >= PendingReplayCapacity / 4)
-        {
-            diagnostics_.Event(
-                "MultiplayerPlayerActionOverflow",
-                "bounded player native-action queue is full for actor lifecycle");
-            return false;
-        }
-        if (pendingReplays_.size() >= PendingReplayCapacity)
-        {
-            diagnostics_.Event(
-                "MultiplayerPlayerActionOverflow",
-                "bounded player native-action submission queue is full");
-            return false;
-        }
-        pendingReplays_.push_back({
-            std::move(message),
-            GetTickCount64(),
-            0,
-            0,
-            sourceConnectionNonce});
         return true;
     }
 
@@ -992,313 +569,6 @@ namespace fable::multiplayer::replication
         return true;
     }
 
-    bool PlayerActionReplication::PairAcceptedLocalActions()
-    {
-        PlayerActionEventQueue::Batch batch;
-        eventQueue_.Drain(batch);
-        auto& abilities = batch.abilities;
-        auto& actions = batch.actions;
-        auto& heroAbilities = batch.heroAbilities;
-        auto& modeSources = batch.modeSources;
-        while (!heroAbilities.empty())
-        {
-            if (!CaptureLocalHeroAbility(heroAbilities.front()))
-            {
-                return false;
-            }
-            heroAbilities.pop_front();
-        }
-        while (!abilities.empty())
-        {
-            unmatchedAbilities_.push_back(abilities.front());
-            abilities.pop_front();
-        }
-        while (!actions.empty())
-        {
-            if (player_action_semantics::IsExpression(
-                    actions.front().actionType))
-            {
-                if (!CaptureLocalExpression(actions.front()))
-                {
-                    return false;
-                }
-            }
-            else if (player_action_semantics::IsWeaponTransition(
-                    actions.front().actionType))
-            {
-                pendingWeaponTransitions_.push_back(actions.front());
-            }
-            else if (player_action_semantics::IsRangedAimStart(
-                    actions.front().actionType) ||
-                player_action_semantics::IsRangedFire(
-                    actions.front().actionType))
-            {
-                if (!CaptureLocalRangedAction(actions.front()))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                unmatchedActions_.push_back(actions.front());
-            }
-            actions.pop_front();
-        }
-        // Process mode exits after accepted actions from the same drain. A
-        // fire action therefore remains ordered before the native mode exit,
-        // while a cancelled draw publishes only the exit.
-        while (!modeSources.empty())
-        {
-            if (!CaptureLocalRangedAimEnd(modeSources.front()))
-            {
-                return false;
-            }
-            modeSources.pop_front();
-        }
-        while (unmatchedAbilities_.size() > PendingEventCapacity)
-        {
-            unmatchedAbilities_.pop_front();
-        }
-        while (unmatchedActions_.size() > PendingEventCapacity)
-        {
-            unmatchedActions_.pop_front();
-        }
-        while (pendingWeaponTransitions_.size() > PendingEventCapacity)
-        {
-            pendingWeaponTransitions_.pop_front();
-        }
-
-        const std::uint64_t now = GetTickCount64();
-        void* const localHero = localHero_ != nullptr
-            ? localHero_->NativeHero()
-            : nullptr;
-        for (auto transition = pendingWeaponTransitions_.begin();
-             transition != pendingWeaponTransitions_.end();)
-        {
-            if (transition->creature == nullptr ||
-                transition->creature != localHero || !transition->accepted)
-            {
-                transition = pendingWeaponTransitions_.erase(transition);
-                continue;
-            }
-            const std::uint64_t lastMutationAt = localHero_ != nullptr
-                ? localHero_->LastEquipmentMutationAt()
-                : 0;
-            const bool actionMutationObserved =
-                transition->observedAt != 0 &&
-                lastMutationAt >= transition->observedAt;
-            if (!actionMutationObserved ||
-                now < lastMutationAt +
-                    WeaponTransitionMutationSettleMilliseconds)
-            {
-                if (transition->observedAt != 0 &&
-                    now > transition->observedAt +
-                        WeaponTransitionCaptureWindowMilliseconds)
-                {
-                    char detail[320] = {};
-                    std::snprintf(
-                        detail,
-                        sizeof(detail),
-                        "native_action=%s animation_id=%u mutation_at=%llu reason=final-carry-state-not-observed",
-                        transition->actionType,
-                        transition->animationId,
-                        static_cast<unsigned long long>(lastMutationAt));
-                    diagnostics_.Event(
-                        "MultiplayerLocalWeaponTransitionSuppressed",
-                        detail);
-                    transition = pendingWeaponTransitions_.erase(transition);
-                    continue;
-                }
-                ++transition;
-                continue;
-            }
-            game::hero_pawn::equipment::HeroEquipmentState equipment;
-            const bool captured = game::hero_pawn::equipment::native::
-                HeroWeaponComponent::Capture(localHero, equipment);
-            const bool finalStateReady = captured && equipment.IsSane() &&
-                (player_action_semantics::IsUnsheathe(transition->actionType)
-                    ? equipment.activeFamily != game::creature::equipment::
-                          CreatureWeaponFamily::None
-                    : equipment.activeFamily == game::creature::equipment::
-                          CreatureWeaponFamily::None);
-            if (finalStateReady)
-            {
-                if (!CaptureLocalWeaponTransition(*transition, equipment))
-                {
-                    return false;
-                }
-                transition = pendingWeaponTransitions_.erase(transition);
-                continue;
-            }
-            if (transition->observedAt != 0 &&
-                now > transition->observedAt +
-                    WeaponTransitionCaptureWindowMilliseconds)
-            {
-                char detail[256] = {};
-                std::snprintf(
-                    detail,
-                    sizeof(detail),
-                    "native_action=%s animation_id=%u reason=final-carry-state-not-observed",
-                    transition->actionType,
-                    transition->animationId);
-                diagnostics_.Event(
-                    "MultiplayerLocalWeaponTransitionSuppressed", detail);
-                transition = pendingWeaponTransitions_.erase(transition);
-                continue;
-            }
-            ++transition;
-        }
-        for (auto ability = unmatchedAbilities_.begin();
-             ability != unmatchedAbilities_.end();)
-        {
-            if (ability->sourceCreature == nullptr ||
-                ability->sourceCreature != localHero)
-            {
-                ability = unmatchedAbilities_.erase(ability);
-                continue;
-            }
-            if (!ability->attackCommand)
-            {
-                if (!CaptureLocal(*ability))
-                {
-                    return false;
-                }
-                ability = unmatchedAbilities_.erase(ability);
-                continue;
-            }
-
-            auto best = unmatchedActions_.end();
-            std::uint64_t bestDistance =
-                ActionPairWindowMilliseconds + 1;
-            for (auto action = unmatchedActions_.begin();
-                 action != unmatchedActions_.end(); ++action)
-            {
-                if (action->creature != ability->sourceCreature ||
-                    action->threadId != ability->threadId)
-                {
-                    continue;
-                }
-                const std::uint64_t distance =
-                    action->observedAt >= ability->observedAt
-                        ? action->observedAt - ability->observedAt
-                        : ability->observedAt - action->observedAt;
-                if (distance <= ActionPairWindowMilliseconds &&
-                    distance < bestDistance)
-                {
-                    best = action;
-                    bestDistance = distance;
-                }
-            }
-            if (best != unmatchedActions_.end())
-            {
-                if (best->accepted)
-                {
-                    if (!CaptureLocal(*ability, &*best))
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    char detail[320] = {};
-                    std::snprintf(
-                        detail,
-                        sizeof(detail),
-                        "ability_id=%u native_action=%s reason=retail-action-rejected",
-                        ability->abilityId,
-                        best->actionType[0] != '\0'
-                            ? best->actionType
-                            : "<unknown>");
-                    diagnostics_.Event(
-                        "MultiplayerLocalPlayerActionSuppressed", detail);
-                }
-                unmatchedActions_.erase(best);
-                ability = unmatchedAbilities_.erase(ability);
-                continue;
-            }
-
-            if (ability->observedAt != 0 &&
-                now > ability->observedAt +
-                    ActionPairWindowMilliseconds)
-            {
-                diagnostics_.Event(
-                    "MultiplayerLocalPlayerActionSuppressed",
-                    "attack request had no accepted native Hero action");
-                ability = unmatchedAbilities_.erase(ability);
-                continue;
-            }
-            ++ability;
-        }
-
-        for (auto action = unmatchedActions_.begin();
-             action != unmatchedActions_.end();)
-        {
-            if (action->observedAt == 0 ||
-                now <= action->observedAt +
-                    ActionPairWindowMilliseconds)
-            {
-                ++action;
-                continue;
-            }
-            action = unmatchedActions_.erase(action);
-        }
-        return true;
-    }
-
-    std::uint64_t PlayerActionReplication::NextActionId() noexcept
-    {
-        ++nextActionId_;
-        if (nextActionId_ == 0)
-        {
-            ++nextActionId_;
-        }
-        return nextActionId_;
-    }
-
-    void PlayerActionReplication::CaptureAbility(
-        void* context,
-        const game::creature::combat::CreatureAbilityEvent& event)
-    {
-        if (context != nullptr)
-        {
-            static_cast<PlayerActionReplication*>(context)->eventQueue_.
-                Enqueue(event);
-        }
-    }
-
-    void PlayerActionReplication::CaptureAction(
-        void* context,
-        const game::creature::actions::CreatureActionLifecycleEvent& event)
-    {
-        if (context != nullptr)
-        {
-            static_cast<PlayerActionReplication*>(context)->eventQueue_.
-                Enqueue(event);
-        }
-    }
-
-    void PlayerActionReplication::CaptureModeSource(
-        void* context,
-        const game::creature::locomotion::CreatureModeSourceEvent& event)
-    {
-        if (context != nullptr)
-        {
-            static_cast<PlayerActionReplication*>(context)->eventQueue_.
-                Enqueue(event);
-        }
-    }
-
-    void PlayerActionReplication::CaptureHeroAbility(
-        void* context,
-        const game::hero_pawn::abilities::HeroAbilityEvent& event)
-    {
-        if (context != nullptr)
-        {
-            static_cast<PlayerActionReplication*>(context)->eventQueue_.
-                Enqueue(event);
-        }
-    }
-
     void PlayerActionReplication::InvalidateActor(
         const std::uint64_t actorId) noexcept
     {
@@ -1343,22 +613,7 @@ namespace fable::multiplayer::replication
                 ++pending;
             }
         }
-        for (auto replay = pendingReplays_.begin();
-             replay != pendingReplays_.end();)
-        {
-            if ((replay->message.ownerActorId == actorId &&
-                    !isCurrentOwner(
-                        replay->message,
-                        replay->sourceConnectionNonce)) ||
-                replay->message.targetPlayerActorId == actorId)
-            {
-                replay = pendingReplays_.erase(replay);
-            }
-            else
-            {
-                ++replay;
-            }
-        }
+        presentation_.InvalidateActor(actorId);
     }
 
     void PlayerActionReplication::InvalidateAllRemote() noexcept
@@ -1376,50 +631,14 @@ namespace fable::multiplayer::replication
                 ++pending;
             }
         }
-        for (auto replay = pendingReplays_.begin();
-             replay != pendingReplays_.end();)
-        {
-            if (replay->message.ownerActorId != localActorId_ ||
-                replay->message.targetPlayerActorId != 0)
-            {
-                replay = pendingReplays_.erase(replay);
-            }
-            else
-            {
-                ++replay;
-            }
-        }
+        presentation_.InvalidateAllRemote();
     }
 
     void PlayerActionReplication::Shutdown() noexcept
     {
-        eventQueue_.SetAccepting(false);
-        if (actionObserver_ != nullptr)
-        {
-            actionObserver_->RemoveEventSink(
-                &PlayerActionReplication::CaptureAction, this);
-        }
-        if (modeObserver_ != nullptr)
-        {
-            modeObserver_->RemoveModeSourceEventSink(
-                &PlayerActionReplication::CaptureModeSource, this);
-        }
-        if (combat_ != nullptr)
-        {
-            combat_->RemoveAbilitySink(
-                &PlayerActionReplication::CaptureAbility, this);
-        }
-        if (abilities_ != nullptr)
-        {
-            abilities_->RemoveEventSink(
-                &PlayerActionReplication::CaptureHeroAbility, this);
-        }
-        eventQueue_.Clear();
-        unmatchedAbilities_.clear();
-        unmatchedActions_.clear();
-        pendingWeaponTransitions_.clear();
+        localCapture_.Shutdown();
         pendingMessages_.clear();
-        pendingReplays_.clear();
+        presentation_.Shutdown();
         transport_ = nullptr;
         localHero_ = nullptr;
         remoteChannels_ = nullptr;
@@ -1430,12 +649,10 @@ namespace fable::multiplayer::replication
         combatLedger_ = nullptr;
         combat_ = nullptr;
         abilities_ = nullptr;
-        actionObserver_ = nullptr;
-        modeObserver_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
         localActorId_ = 0;
-        nextActionId_ = 0;
+        nextPresentationRevision_ = 0;
         publishBackpressured_ = false;
         initialized_ = false;
     }

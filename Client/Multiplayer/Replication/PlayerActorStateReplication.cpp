@@ -1,9 +1,11 @@
 #include "PlayerActorStateReplication.h"
 
 #include "Multiplayer/Runtime/MultiplayerSessionContexts.h"
+#include "Multiplayer/Protocol/EquipmentTransitionTiming.h"
 #include "Multiplayer/Protocol/PacketEnvelope.h"
 #include "Multiplayer/Protocol/PlayerActorStateCodec.h"
 #include "Multiplayer/Replication/LocalHeroReplication.h"
+#include "Multiplayer/Replication/PlayerActorLifecycleReducer.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 #include "Multiplayer/Transport/ReliableSinkDescriptorRegistry.h"
 #include "Multiplayer/Transport/UdpPeer.h"
@@ -16,13 +18,6 @@
 
 namespace
 {
-    bool IsNewer(const std::uint32_t candidate, const std::uint32_t current)
-        noexcept
-    {
-        return current == 0 ||
-            static_cast<std::int32_t>(candidate - current) > 0;
-    }
-
     bool IsSaneLocal(const fable::multiplayer::PlayerState& state) noexcept
     {
         return state.actorId != 0 && state.authorityEpoch != 0 &&
@@ -32,6 +27,39 @@ namespace
             state.heroBoneScales.IsSane() &&
             state.heroAppearanceModifiers.IsSane() &&
             state.heroEquipment.IsSane();
+    }
+
+    void PrepareComponentDeltaForWire(
+        fable::multiplayer::protocol::PlayerActorStateMessage& message)
+        noexcept
+    {
+        message.constructionSnapshotTimeMs =
+            fable::multiplayer::protocol::SessionTimeUnset;
+        if (!message.EquipmentChanged())
+        {
+            fable::multiplayer::replication::PlayerActorLifecycleReducer::
+                ClearTransitionTiming(message);
+        }
+    }
+
+    bool TransitionIsCurrent(
+        const fable::multiplayer::protocol::PlayerActorStateMessage& message,
+        const fable::multiplayer::protocol::SessionTimeMs now) noexcept
+    {
+        return fable::multiplayer::protocol::equipment_transition_timing::
+                HasValidMetadata(
+                    message.heroEquipment.transitionActionId,
+                    message.transitionStartedAtSessionTimeMs,
+                    message.transitionAnimationId,
+                    message.transitionDurationMs,
+                    message.attachmentNotifyOffsetMs) &&
+            fable::multiplayer::protocol::equipment_transition_timing::
+                Evaluate(
+                    now,
+                    message.transitionStartedAtSessionTimeMs,
+                    message.transitionDurationMs) ==
+                fable::multiplayer::protocol::equipment_transition_timing::
+                    Phase::Active;
     }
 }
 
@@ -148,6 +176,7 @@ namespace fable::multiplayer::replication
                     protocol::PlayerActorStateMessage retire = iterator->second;
                     retire.operation = protocol::PlayerActorStateOperation::Retire;
                     retire.componentFlags = 0;
+                    PlayerActorLifecycleReducer::ClearStructuralTiming(retire);
                     retire.structuralRevision = NextRevision();
                     const std::uint64_t actorId = iterator->first;
                     if (!QueueAuthoritative(retire))
@@ -178,6 +207,17 @@ namespace fable::multiplayer::replication
                     protocol::PlayerActorStateMessage baseline = lifecycle;
                     baseline.operation = protocol::PlayerActorStateOperation::Construct;
                     baseline.componentFlags = protocol::player_actor_state_flag::All;
+                    const protocol::SessionTimeMs sessionNow =
+                        protocol::ToSessionTime(
+                            transport_->SessionTimeMilliseconds());
+                    baseline.constructionSnapshotTimeMs = sessionNow;
+                    baseline.componentPatchEffectiveTimeMs =
+                        protocol::SessionTimeUnset;
+                    if (!TransitionIsCurrent(baseline, sessionNow))
+                    {
+                        PlayerActorLifecycleReducer::ClearTransitionTiming(
+                            baseline);
+                    }
                     if (!publicationQueue_.Append(baseline))
                     {
                         diagnostics_.Event(
@@ -288,6 +328,7 @@ namespace fable::multiplayer::replication
             protocol::PlayerActorStateMessage retire = current->second;
             retire.operation = protocol::PlayerActorStateOperation::Retire;
             retire.componentFlags = 0;
+            PlayerActorLifecycleReducer::ClearStructuralTiming(retire);
             protocol::PlayerActorStateMessage construct = MakeLocalMessage(
                 state, protocol::PlayerActorStateOperation::Construct);
             construct.mapEpoch = localMapEpoch_;
@@ -356,6 +397,10 @@ namespace fable::multiplayer::replication
                     EquipmentPresent;
             }
         }
+        else
+        {
+            PlayerActorLifecycleReducer::ClearTransitionTiming(delta);
+        }
         if (role_ == PeerRole::Host)
         {
             return AcceptHostLocal(std::move(delta));
@@ -370,7 +415,7 @@ namespace fable::multiplayer::replication
         // authoritative revision replaces this optimistic structural revision
         // when it arrives.
         protocol::PlayerActorStateMessage optimistic =
-            MergeDelta(current->second, queued);
+            PlayerActorLifecycleReducer::MergeDelta(current->second, queued);
         // The guest intent revision is not comparable to the host's global
         // structural stream. Keep the last acknowledged revision while using
         // the merged value only as a duplicate-submission watermark.
@@ -396,6 +441,23 @@ namespace fable::multiplayer::replication
         const auto existing = lifecycles_.find(message.actorId);
         if (message.operation == protocol::PlayerActorStateOperation::Construct)
         {
+            if (existing != lifecycles_.end() &&
+                PlayerActorLifecycleReducer::IsOlderIncarnation(
+                    existing->second, message))
+            {
+                diagnostics_.Event(
+                    "MultiplayerPlayerActorStateRejected",
+                    "guest actor construct was older than the current incarnation");
+                return true;
+            }
+            if (existing == lifecycles_.end() &&
+                lifecycles_.size() >= MaxTrackedActors)
+            {
+                diagnostics_.Event(
+                    "MultiplayerPlayerActorStateRejected",
+                    "bounded actor lifecycle admission limit was reached");
+                return true;
+            }
             if ((message.componentFlags &
                     (protocol::player_actor_state_flag::AppearancePresent |
                      protocol::player_actor_state_flag::EquipmentPresent)) !=
@@ -424,6 +486,7 @@ namespace fable::multiplayer::replication
                 protocol::PlayerActorStateMessage retire = existing->second;
                 retire.operation = protocol::PlayerActorStateOperation::Retire;
                 retire.componentFlags = 0;
+                PlayerActorLifecycleReducer::ClearStructuralTiming(retire);
                 retire.structuralRevision = NextRevision();
                 if (!QueueAuthoritative(retire))
                 {
@@ -437,8 +500,20 @@ namespace fable::multiplayer::replication
             lifecycleConnectionNonces_[message.actorId] =
                 sourceConnectionNonce;
             message.structuralRevision = NextRevision();
-            lifecycles_[message.actorId] = message;
-            return QueueAuthoritative(message);
+            protocol::PlayerActorStateMessage accepted;
+            if (PlayerActorLifecycleReducer::Reduce(
+                    nullptr, message, accepted) !=
+                PlayerActorLifecycleReduction::Applied)
+            {
+                return true;
+            }
+            if (!QueueAuthoritative(accepted))
+            {
+                lifecycleConnectionNonces_.erase(message.actorId);
+                return false;
+            }
+            lifecycles_[message.actorId] = accepted;
+            return true;
         }
         if (existing == lifecycles_.end() ||
             existing->second.authorityEpoch != message.authorityEpoch ||
@@ -448,50 +523,43 @@ namespace fable::multiplayer::replication
         {
             return true;
         }
+        // Guest intent revisions are local to that owner and cannot be
+        // compared with the host's authoritative structural stream. Reliable
+        // actor-stream order has already admitted this mutation, so assign its
+        // canonical host revision before reducing it.
+        message.structuralRevision = NextRevision();
+        protocol::PlayerActorStateMessage reduced;
+        const auto reduction = PlayerActorLifecycleReducer::Reduce(
+            &existing->second, message, reduced);
+        if (reduction != PlayerActorLifecycleReduction::Applied)
+        {
+            return true;
+        }
         if (message.operation == protocol::PlayerActorStateOperation::
                 MapTransition)
         {
-            if (message.mapId == 0 || message.mapName.empty() ||
-                !IsNewer(message.mapEpoch, existing->second.mapEpoch))
+            if (!QueueAuthoritative(reduced))
             {
-                return true;
+                return false;
             }
-            protocol::PlayerActorStateMessage transition = existing->second;
-            transition.operation = message.operation;
-            transition.componentFlags = 0;
-            transition.mapEpoch = message.mapEpoch;
-            transition.mapId = message.mapId;
-            transition.mapName = message.mapName;
-            transition.initialPosition = message.initialPosition;
-            transition.initialFacing = message.initialFacing;
-            transition.structuralRevision = NextRevision();
-            lifecycles_[message.actorId] = transition;
-            return QueueAuthoritative(transition);
+            lifecycles_[message.actorId] = reduced;
+            return true;
         }
         if (message.operation == protocol::PlayerActorStateOperation::
                 ComponentDelta)
         {
-            if (message.mapEpoch != existing->second.mapEpoch ||
-                message.mapId != existing->second.mapId ||
-                message.mapName != existing->second.mapName ||
-                (message.componentFlags &
-                    (protocol::player_actor_state_flag::AppearanceChanged |
-                     protocol::player_actor_state_flag::EquipmentChanged)) == 0)
+            protocol::PlayerActorStateMessage outgoing = reduced;
+            PrepareComponentDeltaForWire(outgoing);
+            if (!QueueAuthoritative(outgoing))
             {
-                return true;
+                return false;
             }
-            message = MergeDelta(existing->second, message);
-            message.structuralRevision = NextRevision();
-            lifecycles_[message.actorId] = message;
-            return QueueAuthoritative(message);
+            lifecycles_[message.actorId] = reduced;
+            return true;
         }
         if (message.operation == protocol::PlayerActorStateOperation::Retire)
         {
-            message = existing->second;
-            message.operation = protocol::PlayerActorStateOperation::Retire;
-            message.componentFlags = 0;
-            message.structuralRevision = NextRevision();
-            if (!QueueAuthoritative(message))
+            if (!QueueAuthoritative(reduced))
             {
                 return false;
             }
@@ -510,6 +578,14 @@ namespace fable::multiplayer::replication
         const auto existing = lifecycles_.find(localActorId_);
         if (message.operation == protocol::PlayerActorStateOperation::Construct)
         {
+            if (existing == lifecycles_.end() &&
+                lifecycles_.size() >= MaxTrackedActors)
+            {
+                diagnostics_.Event(
+                    "MultiplayerPlayerActorStateRejected",
+                    "bounded actor lifecycle admission limit was reached");
+                return true;
+            }
             if (existing != lifecycles_.end())
             {
                 localActiveAcknowledged_ = true;
@@ -521,11 +597,14 @@ namespace fable::multiplayer::replication
             localActorGeneration_ = message.actorGeneration;
             lastLocalGeneration_ = localActorGeneration_;
             message.structuralRevision = NextRevision();
-            lifecycles_[localActorId_] = message;
-            lifecycleConnectionNonces_[localActorId_] =
-                transport_ != nullptr ? transport_->ConnectionNonce() : 0;
-            localActiveAcknowledged_ = true;
-            localRetired_ = false;
+            protocol::PlayerActorStateMessage accepted;
+            if (PlayerActorLifecycleReducer::Reduce(
+                    nullptr, message, accepted) !=
+                PlayerActorLifecycleReduction::Applied)
+            {
+                return true;
+            }
+            message = std::move(accepted);
         }
         else
         {
@@ -535,43 +614,49 @@ namespace fable::multiplayer::replication
             }
             message.authorityEpoch = existing->second.authorityEpoch;
             message.actorGeneration = existing->second.actorGeneration;
-            if (message.operation == protocol::PlayerActorStateOperation::
-                    ComponentDelta)
-            {
-                message = MergeDelta(existing->second, message);
-            }
-            else if (message.operation == protocol::PlayerActorStateOperation::
-                         MapTransition)
-            {
-                if (message.mapId == 0 || message.mapName.empty() ||
-                    !IsNewer(message.mapEpoch, existing->second.mapEpoch))
-                {
-                    return true;
-                }
-                protocol::PlayerActorStateMessage transition = existing->second;
-                transition.operation = message.operation;
-                transition.componentFlags = 0;
-                transition.mapEpoch = message.mapEpoch;
-                transition.mapId = message.mapId;
-                transition.mapName = message.mapName;
-                transition.initialPosition = message.initialPosition;
-                transition.initialFacing = message.initialFacing;
-                message = std::move(transition);
-            }
+            // Local intent revisions share neither the host's revision domain
+            // nor its lifetime. Canonicalize into the authoritative stream
+            // before applying the same reducer used for remote owners.
             message.structuralRevision = NextRevision();
-            if (message.operation == protocol::PlayerActorStateOperation::Retire)
+            protocol::PlayerActorStateMessage reduced;
+            const auto reduction = PlayerActorLifecycleReducer::Reduce(
+                &existing->second, message, reduced);
+            if (reduction != PlayerActorLifecycleReduction::Applied)
             {
-                lifecycles_.erase(existing);
-                lifecycleConnectionNonces_.erase(localActorId_);
-                localActiveAcknowledged_ = false;
-                localRetired_ = true;
+                return true;
             }
-            else
-            {
-                lifecycles_[localActorId_] = message;
-            }
+            message = std::move(reduced);
         }
-        return QueueAuthoritative(message);
+        protocol::PlayerActorStateMessage outgoing = message;
+        if (outgoing.operation ==
+            protocol::PlayerActorStateOperation::ComponentDelta)
+        {
+            PrepareComponentDeltaForWire(outgoing);
+        }
+        if (!QueueAuthoritative(outgoing))
+        {
+            return false;
+        }
+        if (message.operation == protocol::PlayerActorStateOperation::Retire)
+        {
+            lifecycles_.erase(localActorId_);
+            lifecycleConnectionNonces_.erase(localActorId_);
+            localActiveAcknowledged_ = false;
+            localRetired_ = true;
+        }
+        else
+        {
+            lifecycles_[localActorId_] = message;
+            if (message.operation ==
+                    protocol::PlayerActorStateOperation::Construct)
+            {
+                lifecycleConnectionNonces_[localActorId_] =
+                    transport_ != nullptr ? transport_->ConnectionNonce() : 0;
+            }
+            localActiveAcknowledged_ = true;
+            localRetired_ = false;
+        }
+        return true;
     }
 
     bool PlayerActorStateReplication::AcceptAuthoritative(
@@ -579,48 +664,43 @@ namespace fable::multiplayer::replication
         const std::uint64_t sourceConnectionNonce)
     {
         const auto existing = lifecycles_.find(message.actorId);
-        if (existing != lifecycles_.end() &&
-            !IsNewer(message.structuralRevision,
-                existing->second.structuralRevision))
+        if (existing == lifecycles_.end() &&
+            message.operation == protocol::PlayerActorStateOperation::Construct &&
+            lifecycles_.size() >= MaxTrackedActors)
         {
             return true;
+        }
+        protocol::PlayerActorStateMessage next;
+        const auto reduction = PlayerActorLifecycleReducer::Reduce(
+            existing != lifecycles_.end() ? &existing->second : nullptr,
+            message,
+            next);
+        if (reduction != PlayerActorLifecycleReduction::Applied)
+        {
+            return true;
+        }
+        if (remoteChannels_ != nullptr && message.actorId != localActorId_)
+        {
+            const protocol::SessionTimeMs sessionNow = transport_ != nullptr
+                ? protocol::ToSessionTime(
+                    transport_->SessionTimeMilliseconds())
+                : protocol::SessionTimeUnset;
+            if (!remoteChannels_->ApplyActorState(
+                    message,
+                    GetTickCount64(),
+                    sourceConnectionNonce,
+                    sessionNow))
+            {
+                return true;
+            }
         }
         if (message.operation == protocol::PlayerActorStateOperation::Retire)
         {
             lifecycles_.erase(message.actorId);
         }
-        else if (message.operation == protocol::PlayerActorStateOperation::
-                     ComponentDelta && existing != lifecycles_.end())
-        {
-            lifecycles_[message.actorId] = MergeDelta(existing->second, message);
-        }
-        else if (message.operation == protocol::PlayerActorStateOperation::
-                     MapTransition && existing != lifecycles_.end())
-        {
-            if (message.mapId == 0 || message.mapName.empty() ||
-                !IsNewer(message.mapEpoch, existing->second.mapEpoch))
-            {
-                return true;
-            }
-            protocol::PlayerActorStateMessage transition = existing->second;
-            transition.operation = message.operation;
-            transition.componentFlags = 0;
-            transition.mapEpoch = message.mapEpoch;
-            transition.mapId = message.mapId;
-            transition.mapName = message.mapName;
-            transition.initialPosition = message.initialPosition;
-            transition.initialFacing = message.initialFacing;
-            transition.structuralRevision = message.structuralRevision;
-            lifecycles_[message.actorId] = std::move(transition);
-        }
-        else if (message.operation == protocol::PlayerActorStateOperation::
-                     MapTransition)
-        {
-            return true;
-        }
         else
         {
-            lifecycles_[message.actorId] = message;
+            lifecycles_[message.actorId] = std::move(next);
         }
         if (message.actorId == localActorId_ && message.role == role_ &&
             message.operation != protocol::PlayerActorStateOperation::Retire)
@@ -641,11 +721,6 @@ namespace fable::multiplayer::replication
             localConstructSent_ = false;
             localRetired_ = true;
         }
-        if (remoteChannels_ != nullptr && message.actorId != localActorId_)
-        {
-            remoteChannels_->ApplyActorState(
-                message, GetTickCount64(), sourceConnectionNonce);
-        }
         return true;
     }
 
@@ -656,12 +731,20 @@ namespace fable::multiplayer::replication
         {
             const auto source = lifecycleConnectionNonces_.find(
                 message.actorId);
-            remoteChannels_->ApplyActorState(
-                message,
-                GetTickCount64(),
-                source != lifecycleConnectionNonces_.end()
-                    ? source->second
-                    : 0);
+            const protocol::SessionTimeMs sessionNow = transport_ != nullptr
+                ? protocol::ToSessionTime(
+                    transport_->SessionTimeMilliseconds())
+                : protocol::SessionTimeUnset;
+            if (!remoteChannels_->ApplyActorState(
+                    message,
+                    GetTickCount64(),
+                    source != lifecycleConnectionNonces_.end()
+                        ? source->second
+                        : 0,
+                    sessionNow))
+            {
+                return false;
+            }
         }
         return Publish(message);
     }
@@ -670,7 +753,8 @@ namespace fable::multiplayer::replication
         protocol::PlayerActorStateMessage message)
     {
         if (!publicationQueue_.Enqueue(
-                std::move(message), &PlayerActorStateReplication::MergeDelta))
+                std::move(message),
+                &PlayerActorLifecycleReducer::CoalesceDelta))
         {
             return false;
         }
@@ -709,53 +793,49 @@ namespace fable::multiplayer::replication
         message.heroBoneScales = state.heroBoneScales;
         message.heroAppearanceModifiers = state.heroAppearanceModifiers;
         message.heroEquipment = state.heroEquipment;
+        const protocol::SessionTimeMs sessionNow = transport_ != nullptr
+            ? protocol::ToSessionTime(
+                transport_->SessionTimeMilliseconds())
+            : protocol::SessionTimeUnset;
         if (operation == protocol::PlayerActorStateOperation::Construct)
         {
+            message.constructionSnapshotTimeMs = sessionNow;
             message.componentFlags = protocol::player_actor_state_flag::
                 AppearanceChanged |
                 protocol::player_actor_state_flag::EquipmentChanged |
                 protocol::player_actor_state_flag::AppearancePresent |
                 protocol::player_actor_state_flag::EquipmentPresent;
         }
+        else if (operation ==
+            protocol::PlayerActorStateOperation::ComponentDelta)
+        {
+            message.componentPatchEffectiveTimeMs = sessionNow;
+        }
+        if ((operation == protocol::PlayerActorStateOperation::Construct ||
+                operation ==
+                    protocol::PlayerActorStateOperation::ComponentDelta) &&
+            localHero_ != nullptr)
+        {
+            const LocalEquipmentTransition transition =
+                localHero_->EquipmentTransition();
+            if (transition.IsPresent() &&
+                state.heroEquipment.transitionActionId ==
+                    transition.actionId &&
+                protocol::equipment_transition_timing::Evaluate(
+                    sessionNow,
+                    transition.startedAtSessionTimeMs,
+                    transition.durationMs) ==
+                    protocol::equipment_transition_timing::Phase::Active)
+            {
+                message.transitionStartedAtSessionTimeMs =
+                    transition.startedAtSessionTimeMs;
+                message.transitionAnimationId = transition.animationId;
+                message.transitionDurationMs = transition.durationMs;
+                message.attachmentNotifyOffsetMs =
+                    transition.attachmentNotifyOffsetMs;
+            }
+        }
         return message;
-    }
-
-    protocol::PlayerActorStateMessage PlayerActorStateReplication::MergeDelta(
-        const protocol::PlayerActorStateMessage& current,
-        const protocol::PlayerActorStateMessage& delta)
-    {
-        protocol::PlayerActorStateMessage merged = current;
-        merged.operation = delta.operation;
-        merged.componentFlags = delta.componentFlags;
-        if ((delta.componentFlags & protocol::player_actor_state_flag::
-                AppearanceChanged) != 0)
-        {
-            merged.appearanceDefinition = delta.appearanceDefinition;
-            if ((delta.componentFlags & protocol::player_actor_state_flag::
-                    AppearancePresent) != 0)
-            {
-                merged.heroMorph = delta.heroMorph;
-                merged.heroClothing = delta.heroClothing;
-                merged.heroBoneScales = delta.heroBoneScales;
-                merged.heroAppearanceModifiers = delta.heroAppearanceModifiers;
-            }
-            else
-            {
-                merged.heroMorph = {};
-                merged.heroClothing = {};
-                merged.heroBoneScales = {};
-                merged.heroAppearanceModifiers = {};
-            }
-        }
-        if ((delta.componentFlags & protocol::player_actor_state_flag::
-                EquipmentChanged) != 0)
-        {
-            merged.heroEquipment = (delta.componentFlags &
-                protocol::player_actor_state_flag::EquipmentPresent) != 0
-                ? delta.heroEquipment
-                : game::hero_pawn::equipment::HeroEquipmentState{};
-        }
-        return merged;
     }
 
     std::uint32_t PlayerActorStateReplication::NextGeneration() noexcept
@@ -861,6 +941,7 @@ namespace fable::multiplayer::replication
         protocol::PlayerActorStateMessage message = current->second;
         message.operation = protocol::PlayerActorStateOperation::Retire;
         message.componentFlags = 0;
+        PlayerActorLifecycleReducer::ClearStructuralTiming(message);
         retiredGeneration_ = current->second.actorGeneration;
         retiredMapEpoch_ = current->second.mapEpoch;
         if (role_ == PeerRole::Host)

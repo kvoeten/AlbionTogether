@@ -36,6 +36,15 @@ namespace
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t structuralRevision = 0;
+        fable::multiplayer::protocol::SessionTimeMs constructionSnapshotTimeMs =
+            fable::multiplayer::protocol::SessionTimeUnset;
+        fable::multiplayer::protocol::SessionTimeMs componentPatchEffectiveTimeMs =
+            fable::multiplayer::protocol::SessionTimeUnset;
+        fable::multiplayer::protocol::SessionTimeMs transitionStartedAtSessionTimeMs =
+            fable::multiplayer::protocol::SessionTimeUnset;
+        std::uint32_t transitionAnimationId = 0;
+        std::uint16_t transitionDurationMs = 0;
+        std::uint16_t attachmentNotifyOffsetMs = 0;
         std::uint16_t mapId = 0;
         float initialPosition[3] = {};
         float initialFacing = 0.0f;
@@ -53,6 +62,7 @@ namespace
         std::int32_t rangedWeaponDefinitionIndex = 0;
         std::uint32_t meleeWeaponAttachmentSlot = 0;
         std::uint32_t rangedWeaponAttachmentSlot = 0;
+        std::uint64_t equipmentTransitionActionId = 0;
         std::uint8_t activeWeaponFamily = 0;
         std::uint8_t heroBoneScalePresenceMask[
             (fable::game::hero_pawn::appearance::HeroBoneScaleState::
@@ -67,7 +77,7 @@ namespace
     static_assert(sizeof(WireHeroBoneScale) == 6);
     static_assert(
         std::is_trivially_copyable_v<WirePlayerActorStateMessage>);
-    static_assert(sizeof(WirePlayerActorStateMessage) == 1'160);
+    static_assert(sizeof(WirePlayerActorStateMessage) == 1'188);
     static_assert(
         sizeof(WirePlayerActorStateMessage) <=
             fable::multiplayer::protocol::MaximumReliableMessageBytes,
@@ -239,6 +249,22 @@ namespace
         return true;
     }
 
+    bool IsSaneTransitionFields(
+        const fable::multiplayer::protocol::SessionTimeMs startedAt,
+        const std::uint32_t animationId,
+        const std::uint16_t durationMs,
+        const std::uint16_t notifyOffsetMs) noexcept
+    {
+        const bool noTransition =
+            startedAt == fable::multiplayer::protocol::SessionTimeUnset &&
+            animationId == 0 && durationMs == 0 && notifyOffsetMs == 0;
+        const bool activeTransition =
+            startedAt != fable::multiplayer::protocol::SessionTimeUnset &&
+            animationId != 0 && animationId <= 0xFFFF && durationMs != 0 &&
+            durationMs <= 60'000 && notifyOffsetMs <= durationMs;
+        return noTransition || activeTransition;
+    }
+
     bool IsSaneEquipment(const WirePlayerActorStateMessage& wire) noexcept
     {
         const bool changed = (wire.componentFlags & fable::multiplayer::protocol::
@@ -269,7 +295,16 @@ namespace
         {
             return definition == -1 ? slot == 0 : slot < 1'000'000;
         };
+        const bool activeTransition =
+            wire.transitionStartedAtSessionTimeMs !=
+                fable::multiplayer::protocol::SessionTimeUnset;
         return saneFamily && availableFamily &&
+            (!activeTransition || wire.equipmentTransitionActionId != 0) &&
+            IsSaneTransitionFields(
+                wire.transitionStartedAtSessionTimeMs,
+                wire.transitionAnimationId,
+                wire.transitionDurationMs,
+                wire.attachmentNotifyOffsetMs) &&
             saneDefinition(wire.meleeWeaponDefinitionIndex) &&
             saneDefinition(wire.rangedWeaponDefinitionIndex) &&
             saneAttachment(
@@ -342,6 +377,38 @@ namespace
         }
         if ((!appearanceChanged && appearancePresent) ||
             (!equipmentChanged && equipmentPresent))
+        {
+            return false;
+        }
+        if (!IsSaneTransitionFields(
+                wire.transitionStartedAtSessionTimeMs,
+                wire.transitionAnimationId,
+                wire.transitionDurationMs,
+                wire.attachmentNotifyOffsetMs) ||
+            ((operation != PlayerActorStateOperation::Construct &&
+                operation != PlayerActorStateOperation::ComponentDelta) ||
+                (operation == PlayerActorStateOperation::ComponentDelta &&
+                    !equipmentChanged)) &&
+                (wire.transitionStartedAtSessionTimeMs !=
+                    fable::multiplayer::protocol::SessionTimeUnset ||
+                    wire.transitionAnimationId != 0 ||
+                    wire.transitionDurationMs != 0 ||
+                    wire.attachmentNotifyOffsetMs != 0))
+        {
+            return false;
+        }
+        if ((operation == PlayerActorStateOperation::Construct &&
+                wire.componentPatchEffectiveTimeMs !=
+                    fable::multiplayer::protocol::SessionTimeUnset) ||
+            (operation == PlayerActorStateOperation::ComponentDelta &&
+                wire.constructionSnapshotTimeMs !=
+                    fable::multiplayer::protocol::SessionTimeUnset) ||
+            (operation != PlayerActorStateOperation::Construct &&
+                operation != PlayerActorStateOperation::ComponentDelta &&
+                (wire.constructionSnapshotTimeMs !=
+                        fable::multiplayer::protocol::SessionTimeUnset ||
+                    wire.componentPatchEffectiveTimeMs !=
+                        fable::multiplayer::protocol::SessionTimeUnset)))
         {
             return false;
         }
@@ -418,6 +485,35 @@ namespace fable::multiplayer::protocol
         {
             return false;
         }
+        if (!IsSaneTransitionFields(
+                message.transitionStartedAtSessionTimeMs,
+                message.transitionAnimationId,
+                message.transitionDurationMs,
+                message.attachmentNotifyOffsetMs) ||
+            (message.transitionStartedAtSessionTimeMs != SessionTimeUnset &&
+                message.heroEquipment.transitionActionId == 0) ||
+            ((message.operation != PlayerActorStateOperation::Construct &&
+                message.operation != PlayerActorStateOperation::ComponentDelta) ||
+                (message.operation == PlayerActorStateOperation::ComponentDelta &&
+                    !equipmentChanged)) &&
+                (message.transitionStartedAtSessionTimeMs != SessionTimeUnset ||
+                    message.transitionAnimationId != 0 ||
+                    message.transitionDurationMs != 0 ||
+                    message.attachmentNotifyOffsetMs != 0))
+        {
+            return false;
+        }
+        if ((message.operation == PlayerActorStateOperation::Construct &&
+                message.componentPatchEffectiveTimeMs != SessionTimeUnset) ||
+            (message.operation == PlayerActorStateOperation::ComponentDelta &&
+                message.constructionSnapshotTimeMs != SessionTimeUnset) ||
+            (message.operation != PlayerActorStateOperation::Construct &&
+                message.operation != PlayerActorStateOperation::ComponentDelta &&
+                (message.constructionSnapshotTimeMs != SessionTimeUnset ||
+                    message.componentPatchEffectiveTimeMs != SessionTimeUnset)))
+        {
+            return false;
+        }
         std::array<const fable::game::hero_pawn::appearance::HeroBoneScale*,
             HeroBoneScaleState::MaximumEntries> bonesByIndex = {};
         if (appearancePresent)
@@ -455,6 +551,14 @@ namespace fable::multiplayer::protocol
         wire.actorGeneration = message.actorGeneration;
         wire.mapEpoch = message.mapEpoch;
         wire.structuralRevision = message.structuralRevision;
+        wire.constructionSnapshotTimeMs = message.constructionSnapshotTimeMs;
+        wire.componentPatchEffectiveTimeMs =
+            message.componentPatchEffectiveTimeMs;
+        wire.transitionStartedAtSessionTimeMs =
+            message.transitionStartedAtSessionTimeMs;
+        wire.transitionAnimationId = message.transitionAnimationId;
+        wire.transitionDurationMs = message.transitionDurationMs;
+        wire.attachmentNotifyOffsetMs = message.attachmentNotifyOffsetMs;
         wire.mapId = message.mapId;
         wire.initialPosition[0] = message.initialPosition.x;
         wire.initialPosition[1] = message.initialPosition.y;
@@ -517,6 +621,8 @@ namespace fable::multiplayer::protocol
                 message.heroEquipment.meleeAttachmentSlot;
             wire.rangedWeaponAttachmentSlot =
                 message.heroEquipment.rangedAttachmentSlot;
+            wire.equipmentTransitionActionId =
+                message.heroEquipment.transitionActionId;
             wire.activeWeaponFamily = static_cast<std::uint8_t>(
                 message.heroEquipment.activeFamily);
         }
@@ -550,6 +656,14 @@ namespace fable::multiplayer::protocol
         message.actorGeneration = wire.actorGeneration;
         message.mapEpoch = wire.mapEpoch;
         message.structuralRevision = wire.structuralRevision;
+        message.constructionSnapshotTimeMs = wire.constructionSnapshotTimeMs;
+        message.componentPatchEffectiveTimeMs =
+            wire.componentPatchEffectiveTimeMs;
+        message.transitionStartedAtSessionTimeMs =
+            wire.transitionStartedAtSessionTimeMs;
+        message.transitionAnimationId = wire.transitionAnimationId;
+        message.transitionDurationMs = wire.transitionDurationMs;
+        message.attachmentNotifyOffsetMs = wire.attachmentNotifyOffsetMs;
         message.role = static_cast<PeerRole>(wire.role);
         message.mapId = wire.mapId;
         message.initialPosition = {
@@ -619,6 +733,8 @@ namespace fable::multiplayer::protocol
                 wire.meleeWeaponAttachmentSlot;
             message.heroEquipment.rangedAttachmentSlot =
                 wire.rangedWeaponAttachmentSlot;
+            message.heroEquipment.transitionActionId =
+                wire.equipmentTransitionActionId;
             message.heroEquipment.activeFamily = static_cast<
                 game::creature::equipment::CreatureWeaponFamily>(
                     wire.activeWeaponFamily);

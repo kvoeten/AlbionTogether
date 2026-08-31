@@ -13,6 +13,7 @@
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/NPC/NpcService.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Protocol/EquipmentTransitionTiming.h"
 
 #include <Windows.h>
 
@@ -55,7 +56,8 @@ namespace fable::game::hero_pawn::remote
         presentationFactory_ = &presentationFactory;
         movement_.Initialize(locomotion, diagnostics);
         appearance_.Initialize(diagnostics);
-        equipment_.Initialize(entities, orientationHook, diagnostics);
+        equipment_.Initialize(
+            entities, animation, orientationHook, diagnostics);
         combat_.Initialize(entities, combat, equipment_, diagnostics);
         abilities_.Initialize(entities, abilities, diagnostics);
         expressions_.Initialize(entities, animation, diagnostics);
@@ -108,7 +110,8 @@ namespace fable::game::hero_pawn::remote
         std::uint32_t meleeAttachmentSlot,
         std::uint32_t rangedAttachmentSlot,
         const std::string& resolvedActionType,
-        std::uint32_t resolvedAnimationId)
+        std::uint32_t resolvedAnimationId,
+        std::uint64_t actionId)
     {
         game::hero_pawn::equipment::HeroEquipmentState equipment;
         equipment.valid = true;
@@ -119,6 +122,7 @@ namespace fable::game::hero_pawn::remote
         equipment.meleeAttachmentSlot = meleeAttachmentSlot;
         equipment.rangedAttachmentSlot = rangedAttachmentSlot;
         equipment.activeFamily = weaponFamily;
+        equipment.transitionActionId = actionId;
         if (!initialized_ || !IsLifecycleActive() || avatarSuspended_)
         {
             return false;
@@ -129,7 +133,13 @@ namespace fable::game::hero_pawn::remote
             (void)combat_.EndRangedAim();
         }
         return equipment_.PerformTransition(
-            equipment, resolvedActionType, resolvedAnimationId);
+            equipment, resolvedActionType, resolvedAnimationId, actionId);
+    }
+
+    bool RemoteHeroActor::IsWeaponTransitionPending() const noexcept
+    {
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
+            equipment_.IsTransitionPending();
     }
 
     bool RemoteHeroActor::PerformHeroAbility(
@@ -181,7 +191,12 @@ namespace fable::game::hero_pawn::remote
         sample.facing = state.facing;
         sample.angularVelocity = state.angularVelocity;
         sample.moving = state.moving;
-        sample.receivedAt = receivedAt;
+        // The transport projects the owner-authored session timestamp onto
+        // this receiver's monotonic clock. Fall back to arrival time during
+        // the brief pre-synchronization window.
+        sample.receivedAt = state.movementSampleAt != 0
+            ? state.movementSampleAt
+            : receivedAt;
         return sample;
     }
 
@@ -244,28 +259,34 @@ namespace fable::game::hero_pawn::remote
         {
             return;
         }
+        if (state.mapName.empty() || state.mapName != localMap)
+        {
+            // A remote peer commonly crosses the boundary a few frames before
+            // this process. Preserve its exact native presentation while the
+            // peers are split; a map incarnation change is not a new player.
+            actorId_ = state.actorId;
+            actorGeneration_ = snapshot.lifecycle.actorGeneration;
+            mapEpoch_ = snapshot.lifecycle.mapEpoch;
+            Suspend(state, localMap);
+            return;
+        }
+        const bool canReuseSuspendedPresentation =
+            avatarSuspended_ && avatar_ != nullptr && avatar_->IsValid() &&
+            actorId_ == state.actorId && playerId_ == state.playerId &&
+            appearanceDefinition_ == state.appearanceDefinition;
         if (actorId_ != 0 && !MatchesLifecycle(
                 snapshot.lifecycle.actorGeneration,
-                snapshot.lifecycle.mapEpoch))
+                snapshot.lifecycle.mapEpoch) &&
+            !canReuseSuspendedPresentation)
         {
             Retire();
         }
         actorId_ = state.actorId;
         actorGeneration_ = snapshot.lifecycle.actorGeneration;
         mapEpoch_ = snapshot.lifecycle.mapEpoch;
-        if (lifecyclePhase_ == RemoteHeroLifecyclePhase::Constructing &&
-            avatar_ != nullptr && avatar_->IsValid())
-        {
-            lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
-        }
         // The channel has already accepted a complete reliable construction
         // baseline. Native appearance and inventory application may continue
         // asynchronously, but they are independent of transform playback.
-        if (state.mapName.empty() || state.mapName != localMap)
-        {
-            Suspend(state, localMap);
-            return;
-        }
         if (avatarSuspended_ &&
             !Resume(state, localMap, localHero, receivedAt))
         {
@@ -280,8 +301,23 @@ namespace fable::game::hero_pawn::remote
             playerId_ != state.playerId ||
             appearanceDefinition_ != state.appearanceDefinition)
         {
-            if (!Spawn(state, localMap, localHero, receivedAt))
+            if (!Spawn(state))
             {
+                return;
+            }
+        }
+        if (lifecyclePhase_ == RemoteHeroLifecyclePhase::Constructing)
+        {
+            const RemoteHeroActivationResult activation =
+                ActivateSpawnedPresentation(
+                    state, localMap, localHero, receivedAt);
+            if (activation == RemoteHeroActivationResult::Pending)
+            {
+                return;
+            }
+            if (activation == RemoteHeroActivationResult::Failed)
+            {
+                Retire();
                 return;
             }
         }
@@ -326,6 +362,27 @@ namespace fable::game::hero_pawn::remote
         // must continue reconciling while that work is pending.
         if (snapshot.lifecycle.equipmentPresent)
         {
+            const auto& transition = snapshot.equipmentTransition;
+            if (equipmentBaselineApplied_ && transition.IsPresent() &&
+                multiplayer::protocol::equipment_transition_timing::EvaluateLocal(
+                    now,
+                    transition.startedAtLocalMs,
+                    transition.durationMs) ==
+                    multiplayer::protocol::equipment_transition_timing::Phase::Active)
+            {
+                const std::uint64_t elapsed64 =
+                    now - transition.startedAtLocalMs;
+                if (elapsed64 < transition.durationMs)
+                {
+                    (void)equipment_.PerformTransition(
+                        state.heroEquipment,
+                        transition.animationId,
+                        transition.actionId,
+                        static_cast<std::uint32_t>(elapsed64),
+                        transition.durationMs,
+                        transition.attachmentNotifyOffsetMs);
+                }
+            }
             equipment_.Reconcile(state.heroEquipment, now);
         }
         // The current Hero path requires both reliable component presence bits
@@ -344,8 +401,13 @@ namespace fable::game::hero_pawn::remote
             lifecyclePhase_ = RemoteHeroLifecyclePhase::BaselineApplied;
             lifecyclePhase_ = RemoteHeroLifecyclePhase::Active;
         }
-        else
+        else if (lifecyclePhase_ != RemoteHeroLifecyclePhase::Active)
         {
+            // Native presentation readiness is an activation gate, not a
+            // continuously recomputed actor lifecycle. A draw/stow action
+            // temporarily marks equipment busy; once the complete baseline
+            // has activated this actor, that must not make later real-time
+            // actions look like stale pre-construction traffic.
             lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
             return;
         }
@@ -372,11 +434,7 @@ namespace fable::game::hero_pawn::remote
         }
     }
 
-    bool RemoteHeroActor::Spawn(
-        const PlayerState& state,
-        const std::string& localMap,
-        game::Entity* localHero,
-        std::uint64_t receivedAt)
+    bool RemoteHeroActor::Spawn(const PlayerState& state)
     {
         Retire();
         nextSpawnAttemptAt_ = GetTickCount64() + 5'000;
@@ -394,8 +452,15 @@ namespace fable::game::hero_pawn::remote
             "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER");
         definitionHook_->Cancel(definitionArmToken_);
         definitionArmToken_ = 0;
-        if (avatar_ == nullptr || !avatar_->IsValid() ||
-            avatar_->GetDefinitionName() != state.appearanceDefinition)
+        if (avatar_ == nullptr || !avatar_->IsValid())
+        {
+            diagnostics_.Event(
+                "MultiplayerRemoteAvatarSpawnDeferred",
+                "native destination construction is still settling; retrying the same actor baseline");
+            Retire();
+            return false;
+        }
+        if (avatar_->GetDefinitionName() != state.appearanceDefinition)
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-avatar-spawn");
@@ -408,24 +473,6 @@ namespace fable::game::hero_pawn::remote
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-native-type");
-            Retire();
-            return false;
-        }
-        // Complete the promoted Hero's native component graph before binding
-        // or staging any appearance resources. Adding an inventory component
-        // can rebuild the Hero graphic; doing so afterward invalidates the
-        // staged morph target and creates a presentation respawn loop.
-        if (!equipment_.Bind(*avatar_, nativeAvatar_, actorId_))
-        {
-            diagnostics_.Event(
-                "ClientFailed", "multiplayer-remote-hero-equipment-bind");
-            Retire();
-            return false;
-        }
-        if (!abilities_.Bind(nativeAvatar_, actorId_))
-        {
-            diagnostics_.Event(
-                "ClientFailed", "multiplayer-remote-hero-ability-bind");
             Retire();
             return false;
         }
@@ -480,12 +527,55 @@ namespace fable::game::hero_pawn::remote
             Retire();
             return false;
         }
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::Constructing;
+        nextSpawnAttemptAt_ = 0;
+
+        char detail[384] = {};
+        std::snprintf(
+            detail, sizeof(detail),
+            "player=%s actor_id=%llu authority_epoch=%u definition=%s exact=true map=%s state=awaiting-native-presentation",
+            playerId_.c_str(),
+            static_cast<unsigned long long>(state.actorId),
+            state.authorityEpoch, appearanceDefinition_.c_str(),
+            state.mapName.c_str());
+        diagnostics_.Event("MultiplayerRemoteDefinitionCreated", detail);
+        return true;
+    }
+
+    RemoteHeroActivationResult
+        RemoteHeroActor::ActivateSpawnedPresentation(
+            const PlayerState& state,
+            const std::string& localMap,
+            game::Entity* localHero,
+            std::uint64_t receivedAt)
+    {
+        game::hero_pawn::appearance::native::HeroMorphResolutionState
+            presentation;
+        if (!game::hero_pawn::appearance::native::HeroMorphComponent::
+                InspectResolution(nativeAvatar_, presentation))
+        {
+            return RemoteHeroActivationResult::Pending;
+        }
+        // Hero-only components are part of the private runtime definition, so
+        // these binds validate an already-complete graph. They must not add
+        // components while Fable is still constructing the skeletal pawn.
+        if (!equipment_.Bind(*avatar_, nativeAvatar_, actorId_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-hero-equipment-bind");
+            return RemoteHeroActivationResult::Failed;
+        }
+        if (!abilities_.Bind(nativeAvatar_, actorId_))
+        {
+            diagnostics_.Event(
+                "ClientFailed", "multiplayer-remote-hero-ability-bind");
+            return RemoteHeroActivationResult::Failed;
+        }
         if (!combat_.Bind(*avatar_, nativeAvatar_, actorId_))
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-health-authority-fence");
-            Retire();
-            return false;
+            return RemoteHeroActivationResult::Failed;
         }
         nativeCompanionHero_ = localHero != nullptr && localHero->IsValid()
             ? entities_->ResolveNative(localHero->NativeHandle())
@@ -511,8 +601,7 @@ namespace fable::game::hero_pawn::remote
                 companion.heroRegionFollower);
             diagnostics_.Event(
                 "MultiplayerRemoteCompanionRegistrationFailed", detail);
-            Retire();
-            return false;
+            return RemoteHeroActivationResult::Failed;
         }
         companionRegistered_ = true;
         char companionDetail[320] = {};
@@ -535,8 +624,7 @@ namespace fable::game::hero_pawn::remote
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-avatar-control");
-            Retire();
-            return false;
+            return RemoteHeroActivationResult::Failed;
         }
         movement_.Bind(
             *avatar_, nativeAvatar_, MovementSample(state, receivedAt),
@@ -546,8 +634,7 @@ namespace fable::game::hero_pawn::remote
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-movement-routing");
-            Retire();
-            return false;
+            return RemoteHeroActivationResult::Failed;
         }
 
         char detail[384] = {};
@@ -558,7 +645,6 @@ namespace fable::game::hero_pawn::remote
             static_cast<unsigned long long>(state.actorId),
             state.authorityEpoch, appearanceDefinition_.c_str(),
             state.mapName.c_str());
-        diagnostics_.Event("MultiplayerRemoteDefinitionCreated", detail);
         diagnostics_.Event("MultiplayerRemoteAvatarReady", detail);
         diagnostics_.Event(
             "MultiplayerPresentationChannelOpened",
@@ -567,12 +653,10 @@ namespace fable::game::hero_pawn::remote
         {
             diagnostics_.Event(
                 "ClientFailed", "multiplayer-remote-combatant-binding");
-            Retire();
-            return false;
+            return RemoteHeroActivationResult::Failed;
         }
         lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
-        nextSpawnAttemptAt_ = 0;
-        return true;
+        return RemoteHeroActivationResult::Ready;
     }
 
     bool RemoteHeroActor::ReadMovement(
@@ -702,7 +786,7 @@ namespace fable::game::hero_pawn::remote
 
     void RemoteHeroActor::BeginWorldTransition() noexcept
     {
-        Retire(true);
+        DetachForWorldTransition();
     }
 
     void RemoteHeroActor::DriveMovement()
@@ -735,65 +819,85 @@ namespace fable::game::hero_pawn::remote
 
     void RemoteHeroActor::CompleteWorldTransition() noexcept
     {
-        // Anything already quarantined has survived a complete world
-        // generation. Retire it before retaining this transition's actor.
-        ReapQuarantinedAvatars();
-        if (deferred_.control != nullptr)
+        if (avatar_ == nullptr)
         {
-            deferred_.control->Release();
-            deferred_.control = nullptr;
+            return;
         }
-        if (deferred_.avatar != nullptr && deferred_.avatar->IsValid())
+        void* const reboundNative = avatar_->IsValid() && entities_ != nullptr
+            ? entities_->ResolveNative(avatar_->NativeHandle())
+            : nullptr;
+        if (reboundNative == nullptr || reboundNative != nativeAvatar_ ||
+            !game::creature::native::CreatureFrameFunctions::ValidateCreature(
+                entities_->GameModule(), reboundNative))
         {
-            char detail[256] = {};
-            std::snprintf(
-                detail,
-                sizeof(detail),
-                "player=%s native=%p state=hidden-quarantined destination=respawn",
-                playerId_.empty() ? "<remote>" : playerId_.c_str(),
-                deferred_.nativeAvatar);
             diagnostics_.Event(
-                "MultiplayerRemoteWorldPresentationQuarantined",
-                detail);
-            quarantinedAvatars_.push_back(deferred_.avatar);
+                "MultiplayerRemoteWorldPresentationExpired",
+                "the persistent remote Hero did not survive native world teardown; a fresh destination presentation will be created");
+            Retire();
+            return;
         }
-        else if (deferred_.avatar != nullptr)
-        {
-            deferred_.avatar->Release();
-        }
-        deferred_.avatar = nullptr;
-        deferred_.nativeAvatar = nullptr;
         nativeCompanionHero_ = nullptr;
         companionRegistered_ = false;
-        playerId_.clear();
-        appearanceDefinition_.clear();
         presentationStateReported_ = false;
         separationReported_ = false;
-        avatarSuspended_ = false;
         nextSpawnAttemptAt_ = 0;
-        lifecyclePhase_ = RemoteHeroLifecyclePhase::Constructing;
-        appearanceBaselineApplied_ = false;
-        equipmentBaselineApplied_ = false;
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::BaselineApplied;
+        diagnostics_.Event(
+            "MultiplayerRemoteWorldPresentationPreserved",
+            "the same hidden remote Hero Thing survived world teardown and is ready for destination rebinding");
     }
 
-    void RemoteHeroActor::ReapQuarantinedAvatars() noexcept
+    void RemoteHeroActor::DetachForWorldTransition() noexcept
     {
-        for (game::Entity* avatar : quarantinedAvatars_)
+        if (avatar_ == nullptr)
         {
-            if (avatar == nullptr)
-            {
-                continue;
-            }
-            if (avatar->IsValid())
-            {
-                avatar->RequestDestroy(false);
-            }
-            avatar->Release();
+            return;
         }
-        quarantinedAvatars_.clear();
+        if (combatants_ != nullptr && nativeAvatar_ != nullptr)
+        {
+            combatants_->Unbind(actorId_, nativeAvatar_);
+        }
+        if (companionRegistered_ && entities_ != nullptr &&
+            nativeAvatar_ != nullptr && nativeCompanionHero_ != nullptr)
+        {
+            const bool detached =
+                game::creature::companion::native::CompanionFunctions::
+                    UnregisterFromHero(
+                        entities_->GameModule(),
+                        nativeAvatar_,
+                        nativeCompanionHero_);
+            diagnostics_.Event(
+                detached
+                    ? "MultiplayerRemoteCompanionUnregistered"
+                    : "MultiplayerRemoteCompanionUnregisterFailed",
+                "reason=world-transition");
+        }
+        companionRegistered_ = false;
+        nativeCompanionHero_ = nullptr;
+        movement_.Detach();
+        if (look_ != nullptr)
+        {
+            look_->StopRouting(avatar_, false);
+        }
+        if (control_ != nullptr)
+        {
+            control_->ClearAllActions(true);
+            control_->ReleaseControl();
+            control_->Release();
+            control_ = nullptr;
+        }
+        if (avatar_->IsValid())
+        {
+            avatar_->SetAttackable(false);
+            avatar_->SetDamageable(false);
+            avatar_->SetCollidable(false);
+            avatar_->SetDrawable(false);
+        }
+        avatarSuspended_ = true;
+        lifecyclePhase_ = RemoteHeroLifecyclePhase::BaselineApplied;
     }
 
-    void RemoteHeroActor::Retire(bool worldUnloading) noexcept
+    void RemoteHeroActor::Retire() noexcept
     {
         abilities_.Unbind();
         combat_.Unbind();
@@ -826,16 +930,14 @@ namespace fable::game::hero_pawn::remote
                 detached
                     ? "MultiplayerRemoteCompanionUnregistered"
                     : "MultiplayerRemoteCompanionUnregisterFailed",
-                worldUnloading
-                    ? "reason=world-transition"
-                    : "reason=presentation-retired");
+                "reason=presentation-retired");
         }
         companionRegistered_ = false;
         nativeCompanionHero_ = nullptr;
         movement_.Detach();
         if (look_ != nullptr && avatar_ != nullptr)
         {
-            look_->StopRouting(avatar_, !worldUnloading);
+            look_->StopRouting(avatar_, true);
         }
         if (control_ != nullptr)
         {
@@ -847,13 +949,6 @@ namespace fable::game::hero_pawn::remote
             avatar_->SetCollidable(false);
             avatar_->SetDrawable(false);
         }
-        if (worldUnloading && (avatar_ != nullptr || control_ != nullptr))
-        {
-            deferred_ = {avatar_, nativeAvatar_, control_};
-            avatar_ = nullptr;
-            nativeAvatar_ = nullptr;
-            control_ = nullptr;
-        }
         if (control_ != nullptr)
         {
             control_->Release();
@@ -861,7 +956,7 @@ namespace fable::game::hero_pawn::remote
         }
         if (avatar_ != nullptr)
         {
-            if (!worldUnloading && avatar_->IsValid())
+            if (avatar_->IsValid())
             {
                 avatar_->RequestDestroy(false);
             }
@@ -872,21 +967,16 @@ namespace fable::game::hero_pawn::remote
         lifecyclePhase_ = RemoteHeroLifecyclePhase::Constructing;
         appearanceBaselineApplied_ = false;
         equipmentBaselineApplied_ = false;
-        if (!worldUnloading)
-        {
-            playerId_.clear();
-            appearanceDefinition_.clear();
-            presentationStateReported_ = false;
-            avatarSuspended_ = false;
-            separationReported_ = false;
-        }
+        playerId_.clear();
+        appearanceDefinition_.clear();
+        presentationStateReported_ = false;
+        avatarSuspended_ = false;
+        separationReported_ = false;
     }
 
     void RemoteHeroActor::Shutdown() noexcept
     {
         Retire();
-        CompleteWorldTransition();
-        ReapQuarantinedAvatars();
         movement_.Detach();
         abilities_.Shutdown();
         expressions_.Shutdown();

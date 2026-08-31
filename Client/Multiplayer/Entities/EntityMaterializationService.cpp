@@ -2,6 +2,7 @@
 
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
+#include "Game/NPC/Simulation/DummyVillager/DummyVillagerService.h"
 #include "Game/NPC/Village/VillageMembershipService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
@@ -25,6 +26,7 @@ namespace fable::multiplayer::entities
         game::EntityService& entities,
         EntityPresenceReplication& presence,
         EntityNetworkIdentityRegistry& identities,
+        game::npc::simulation::DummyVillagerService& dummyVillagers,
         game::npc::village::VillageMembershipService& villages,
         const core::Diagnostics& diagnostics)
     {
@@ -34,6 +36,7 @@ namespace fable::multiplayer::entities
         entities_ = &entities;
         presence_ = &presence;
         identities_ = &identities;
+        dummyVillagers_ = &dummyVillagers;
         villages_ = &villages;
         diagnostics_ = diagnostics;
         initialized_ = localActorId != 0;
@@ -53,7 +56,8 @@ namespace fable::multiplayer::entities
         std::uint16_t localMapId)
     {
         if (!initialized_ || entities_ == nullptr || presence_ == nullptr ||
-            identities_ == nullptr || localMap.empty() || localMapId == 0)
+            identities_ == nullptr || dummyVillagers_ == nullptr ||
+            localMap.empty() || localMapId == 0)
         {
             return false;
         }
@@ -129,7 +133,12 @@ namespace fable::multiplayer::entities
                 pending_.erase(record.thingUid);
                 continue;
             }
-            if (!EnsurePresent(record, liveEntities, localMap, now))
+            if (!EnsurePresent(
+                    record,
+                    directory,
+                    liveEntities,
+                    localMap,
+                    now))
             {
                 return false;
             }
@@ -142,7 +151,6 @@ namespace fable::multiplayer::entities
             liveEntities,
             localMap,
             localMapId,
-            canonicalRosterCurrent,
             now);
         SetRosterReady(
             localMap,
@@ -187,6 +195,7 @@ namespace fable::multiplayer::entities
 
     bool EntityMaterializationService::EnsurePresent(
         const WorldEntityRecord& record,
+        const WorldEntityDirectory& directory,
         const LiveEntityRegistry& liveEntities,
         const std::string& localMap,
         std::uint64_t now)
@@ -256,6 +265,20 @@ namespace fable::multiplayer::entities
             attempt.generation = record.generation;
             attempt.firstObservedAt = now;
         }
+        if (AdoptBySimulationIdentity(record, liveEntities, localMap))
+        {
+            pending_.erase(record.thingUid);
+            return true;
+        }
+        if (AdoptByScriptIdentity(
+                record,
+                directory,
+                liveEntities,
+                localMap))
+        {
+            pending_.erase(record.thingUid);
+            return true;
+        }
         std::string definitionName;
         if (!ResolveDefinitionName(record, definitionName))
         {
@@ -263,11 +286,6 @@ namespace fable::multiplayer::entities
                 "MultiplayerEntityMaterializationDeferred",
                 record,
                 "definition-name-unavailable");
-            return true;
-        }
-        if (AdoptByScriptName(record, definitionName, localMap))
-        {
-            pending_.erase(record.thingUid);
             return true;
         }
         if (!record.awaitingMaterialization)
@@ -312,36 +330,103 @@ namespace fable::multiplayer::entities
         return true;
     }
 
-    bool EntityMaterializationService::AdoptByScriptName(
+    bool EntityMaterializationService::AdoptByScriptIdentity(
         const WorldEntityRecord& record,
-        const std::string& definitionName,
+        const WorldEntityDirectory& directory,
+        const LiveEntityRegistry& liveEntities,
         const std::string& localMap)
     {
-        if (record.scriptName.empty())
+        if (presence_ == nullptr || record.scriptName.empty() ||
+            (!record.mapName.empty() && record.mapName != localMap))
         {
             return false;
         }
-        game::Entity* const candidate = entities_->FindByScriptName(
-            record.scriptName);
-        if (candidate == nullptr)
+
+        // Script identity is a fallback, never a search heuristic. Both the
+        // canonical world and this process must have exactly one matching
+        // script-name/definition pair before an alias is installed.
+        const WorldEntityRecord* const canonical =
+            directory.FindUniqueByScriptIdentity(
+                record.scriptName.c_str(), record.definitionIndex);
+        if (canonical == nullptr || canonical->thingUid != record.thingUid)
         {
             return false;
         }
-        const bool matches = candidate->IsValid() &&
-            candidate->GetCurrentMapName() == localMap &&
-            candidate->GetDefinitionName() == definitionName;
-        const std::uint64_t localUid = matches ? candidate->GetUid() : 0;
-        const bool adopted = matches && localUid != 0 &&
+
+        std::uint64_t localUid = 0;
+        for (const LiveEntityRecord& candidate : liveEntities.Snapshot())
+        {
+            if (candidate.thing == nullptr || candidate.thingUid == 0 ||
+                candidate.definitionIndex != record.definitionIndex ||
+                candidate.scriptName != record.scriptName ||
+                (candidate.mapId != 0 && record.mapId != 0 &&
+                    candidate.mapId != record.mapId))
+            {
+                continue;
+            }
+            if (localUid != 0 && localUid != candidate.thingUid)
+            {
+                return false;
+            }
+            localUid = candidate.thingUid;
+        }
+        const bool adopted = localUid != 0 &&
             presence_->BindNetworkIdentity(record.thingUid, localUid);
-        candidate->Release();
         if (adopted)
         {
             Report(
                 "MultiplayerEntityMaterialized",
                 record,
-                "adopted-retail-script-name");
+                "adopted-retail-script-identity");
         }
         return adopted;
+    }
+
+    bool EntityMaterializationService::AdoptBySimulationIdentity(
+        const WorldEntityRecord& record,
+        const LiveEntityRegistry& liveEntities,
+        const std::string& localMap)
+    {
+        if (dummyVillagers_ == nullptr || presence_ == nullptr ||
+            record.thingUid == 0 ||
+            (!record.mapName.empty() && record.mapName != localMap))
+        {
+            return false;
+        }
+        std::uint64_t localUid = 0;
+        for (const LiveEntityRecord& candidate : liveEntities.Snapshot())
+        {
+            if (candidate.thing == nullptr || !candidate.creature ||
+                candidate.thingUid == 0 ||
+                candidate.definitionIndex != record.definitionIndex ||
+                (candidate.mapId != 0 && record.mapId != 0 &&
+                    candidate.mapId != record.mapId))
+            {
+                continue;
+            }
+            game::npc::simulation::DummyVillagerState lowSimulation;
+            if (!dummyVillagers_->Read(candidate.thing, lowSimulation) ||
+                !lowSimulation.componentPresent ||
+                lowSimulation.creatureUid != record.thingUid)
+            {
+                continue;
+            }
+            if (localUid != 0 && localUid != candidate.thingUid)
+            {
+                return false;
+            }
+            localUid = candidate.thingUid;
+        }
+        if (localUid == 0 ||
+            !presence_->BindNetworkIdentity(record.thingUid, localUid))
+        {
+            return false;
+        }
+        Report(
+            "MultiplayerEntityMaterialized",
+            record,
+            "adopted-retail-low-sim-creature-uid");
+        return true;
     }
 
     bool EntityMaterializationService::Spawn(
@@ -504,7 +589,6 @@ namespace fable::multiplayer::entities
         const LiveEntityRegistry& liveEntities,
         const std::string& localMap,
         std::uint16_t localMapId,
-        bool removeAbsentLocalEntities,
         std::uint64_t now)
     {
         struct ScriptIdentityCandidate final
@@ -513,8 +597,6 @@ namespace fable::multiplayer::entities
             bool ambiguous = false;
         };
 
-        std::unordered_multimap<std::string, std::uint16_t>
-            adoptableScriptIdentities;
         std::unordered_map<
             std::string,
             std::unordered_map<std::uint16_t, ScriptIdentityCandidate>>
@@ -535,13 +617,6 @@ namespace fable::multiplayer::entities
                     candidate.ambiguous = true;
                 }
             }
-            if (ShouldExist(record, localMap, localMapId) &&
-                !record.scriptName.empty())
-            {
-                adoptableScriptIdentities.emplace(
-                    record.scriptName,
-                    record.definitionIndex);
-            }
         }
         const std::vector<LiveEntityRecord> live = liveEntities.Snapshot();
         for (const LiveEntityRecord& local : live)
@@ -551,17 +626,59 @@ namespace fable::multiplayer::entities
             {
                 continue;
             }
+            if (localMapId != 0 && local.mapId != 0 &&
+                local.mapId != localMapId)
+            {
+                // The native mapwho can expose persistent quest actors from a
+                // neighbouring or low-simulation map while the destination
+                // finishes loading. They are outside this roster's authority
+                // domain and must never be destroyed as destination extras.
+                removalAttempts_.erase(local.thingUid);
+                continue;
+            }
             const WorldEntityRecord* const world = directory.Find(
                 local.thingUid);
             if (world == nullptr)
             {
-                // Native Thing UIDs are process-local for reconstructed or
-                // save-derived actors. Before treating an unknown local Thing
-                // as a new map-owner spawn, adopt a unique persistent script
-                // identity from the host directory. This also covers an NPC
-                // that the host has already moved to another map: after the
-                // alias is installed, the next pass removes this stale local
-                // incarnation against the canonical location.
+                // CTCDummyVillager persists the exact high-simulation
+                // CreatureUID at +0x38. Prefer that durable native bridge over
+                // every descriptive fallback when the host directory knows
+                // the referenced incarnation.
+                game::npc::simulation::DummyVillagerState lowSimulation;
+                if (dummyVillagers_ != nullptr &&
+                    dummyVillagers_->Read(local.thing, lowSimulation) &&
+                    lowSimulation.componentPresent &&
+                    lowSimulation.creatureUid != 0)
+                {
+                    const WorldEntityRecord* const durable = directory.Find(
+                        lowSimulation.creatureUid);
+                    if (durable != nullptr && durable->available &&
+                        durable->definitionIndex == local.definitionIndex &&
+                        BelongsToMap(*durable, localMap, localMapId) &&
+                        presence_->BindNetworkIdentity(
+                            durable->thingUid, local.thingUid))
+                    {
+                        removalAttempts_.erase(local.thingUid);
+                        char detail[256] = {};
+                        std::snprintf(
+                            detail,
+                            sizeof(detail),
+                            "canonical_uid=%016llX local_uid=%016llX source=CTCDummyVillager.CreatureUID",
+                            static_cast<unsigned long long>(
+                                durable->thingUid),
+                            static_cast<unsigned long long>(local.thingUid));
+                        diagnostics_.Event(
+                            "MultiplayerEntityIdentityAdopted",
+                            detail);
+                        continue;
+                    }
+                }
+
+                // A reconstructed or save-derived Thing can initially have a
+                // process-local UID. Bind it only when the host has one exact,
+                // unambiguous persistent script identity for the definition.
+                // Once bound, the authoritative record can explicitly move,
+                // replace, or retire the actor on a later pass.
                 if (!local.scriptName.empty())
                 {
                     const auto scripts = canonicalScriptIdentities.find(
@@ -600,70 +717,35 @@ namespace fable::multiplayer::entities
                     }
                 }
 
-                bool awaitingAlias = false;
-                const auto aliases = adoptableScriptIdentities.equal_range(
-                    local.scriptName);
-                for (auto alias = aliases.first; alias != aliases.second;
-                     ++alias)
-                {
-                    if (alias->second == local.definitionIndex)
-                    {
-                        awaitingAlias = true;
-                        break;
-                    }
-                }
-                if (!removeAbsentLocalEntities)
-                {
-                    removalAttempts_.erase(local.thingUid);
-                    continue;
-                }
-                if (awaitingAlias)
-                {
-                    removalAttempts_.erase(local.thingUid);
-                    continue;
-                }
-                std::uint64_t& lastAttempt =
-                    removalAttempts_[local.thingUid];
-                if (lastAttempt != 0 &&
-                    now - lastAttempt < RetryMilliseconds)
-                {
-                    continue;
-                }
-                lastAttempt = now;
-                if (entities_->RequestDestroyNative(local.thing, false))
-                {
-                    char detail[256] = {};
-                    std::snprintf(
-                        detail,
-                        sizeof(detail),
-                        "thing_uid=%016llX map=%s reason=absent-from-complete-canonical-roster",
-                        static_cast<unsigned long long>(local.thingUid),
-                        localMap.c_str());
-                    diagnostics_.Event(
-                        "MultiplayerEntityDematerializationRequested",
-                        detail);
-                }
+                // A roster is a positive description of authoritative
+                // entities, not a deletion list. Retail low-simulation actors
+                // and transient quest actors may be omitted. Only an explicit
+                // authoritative record is allowed to destroy a retail Thing;
+                // presentations created by this service are handled through
+                // owned_ in ReconcileOwnedPresentations.
+                removalAttempts_.erase(local.thingUid);
                 continue;
             }
-            bool identityMismatch = false;
-            if (ShouldExist(*world, localMap, localMapId))
+            const bool belongsToLocalMap = BelongsToMap(
+                *world, localMap, localMapId);
+            const bool definitionMatches =
+                local.definitionIndex == world->definitionIndex;
+            const bool scriptMatches = world->scriptName.empty() ||
+                local.scriptName == world->scriptName;
+            const bool identityMatches = definitionMatches && scriptMatches;
+            if (world->available && belongsToLocalMap && identityMatches)
             {
-                const bool definitionMatches =
-                    local.definitionIndex == world->definitionIndex;
-                const bool scriptMatches = world->scriptName.empty() ||
-                    local.scriptName == world->scriptName;
-                if (definitionMatches && scriptMatches)
-                {
-                    removalAttempts_.erase(local.thingUid);
-                    continue;
-                }
-                identityMismatch = true;
-            }
-            if (!identityMismatch && world->available && world->live &&
-                BelongsToMap(*world, localMap, localMapId))
-            {
+                // `live` describes the canonical high-simulation state, not
+                // identity or existence. During an authority handoff the old
+                // owner can publish a persistent NPC as dormant immediately
+                // before the successor loads that exact saved Thing. Keep the
+                // matching local presentation; the new owner will promote the
+                // same UID to high-sim without destructive churn.
+                removalAttempts_.erase(local.thingUid);
                 continue;
             }
+            const bool identityMismatch = world->available &&
+                belongsToLocalMap && !identityMatches;
             std::uint64_t& lastAttempt = removalAttempts_[local.thingUid];
             if (lastAttempt != 0 && now - lastAttempt < RetryMilliseconds)
             {
@@ -707,21 +789,10 @@ namespace fable::multiplayer::entities
             }
         }
 
-        for (const LiveEntityRecord& live : liveEntities.Snapshot())
-        {
-            if (!live.creature || !LiveEntityRegistry::IsReplicable(live) ||
-                live.mapId == 0 || live.mapId != localMapId)
-            {
-                continue;
-            }
-            const WorldEntityRecord* const expected = directory.Find(
-                live.thingUid);
-            if (expected == nullptr ||
-                !ShouldExist(*expected, localMap, localMapId))
-            {
-                return false;
-            }
-        }
+        // Extra retail Things do not make an authoritative roster incomplete.
+        // Low-simulation and quest actors may be intentionally absent from the
+        // high-simulation roster. Their removal requires an explicit directory
+        // record; absence is never interpreted as a tombstone.
         return true;
     }
 
@@ -819,6 +890,7 @@ namespace fable::multiplayer::entities
         entities_ = nullptr;
         presence_ = nullptr;
         identities_ = nullptr;
+        dummyVillagers_ = nullptr;
         villages_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;

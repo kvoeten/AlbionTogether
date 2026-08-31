@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/Math/Vector3.h"
+#include "Multiplayer/Protocol/SessionTime.h"
 
 #include <cstdint>
 
@@ -16,6 +17,7 @@ namespace fable::multiplayer::protocol
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t sequence = 0;
+        SessionTimeMs sessionTimeMs = SessionTimeUnset;
         std::uint16_t mapId = 0;
         bool moving = false;
         game::Vector3 position = {};

@@ -37,6 +37,15 @@ namespace fable::game::world::travel::native
             0x0240ADF0;
         static constexpr std::uintptr_t NameEntryTableSlotRva = 0x031071E8;
         static constexpr std::uintptr_t NameEntryCountRva = 0x031071EC;
+        static constexpr std::uintptr_t RegionTravelStateSlotRva =
+            0x0322F1B0;
+        static constexpr std::size_t RegionTravelManagerOffset = 0x30;
+        static constexpr std::size_t RegionTravelHeroContainerOffset = 0x3C;
+        static constexpr std::size_t RegionTravelRequestStateOffset = 0x110;
+        static constexpr std::uintptr_t SelectPlayerCreatureRva =
+            0x018FD7D0;
+        static constexpr std::uintptr_t ResolveIntelligentThingRva =
+            0x018E3AD0;
         static constexpr std::size_t RegionExitDisplacedBytes = 8;
         static constexpr std::size_t PrepareMapChangeDisplacedBytes = 7;
 
@@ -46,6 +55,16 @@ namespace fable::game::world::travel::native
         static bool ResolveConnectedThing(
             HMODULE gameModule,
             ResolveConnectedThingPointer& function) noexcept;
+        static bool ReadRegionExitHeroReady(
+            HMODULE gameModule,
+            bool& ready) noexcept;
+        static bool ReadRegionExitHeroState(
+            HMODULE gameModule,
+            bool& ready,
+            std::uint16_t& mapId) noexcept;
+        static bool ReadRegionTravelRequestState(
+            HMODULE gameModule,
+            std::uint32_t& state) noexcept;
         static bool ResolvePrepareMapChange(
             HMODULE gameModule,
             std::uint8_t*& address) noexcept;

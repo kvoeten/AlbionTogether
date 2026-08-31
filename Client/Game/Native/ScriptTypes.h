@@ -23,6 +23,11 @@ namespace fable::game::native
         void* stringData = nullptr;
     };
 
+    struct WideString
+    {
+        void* stringData = nullptr;
+    };
+
     struct GameScriptInterface
     {
         void** vtable = nullptr;
@@ -37,5 +42,6 @@ namespace fable::game::native
     };
 
     static_assert(sizeof(ScriptThing) == 12, "Unexpected Fable CScriptThing layout.");
+    static_assert(sizeof(WideString) == 4, "Unexpected Fable CWideString layout.");
     static_assert(sizeof(ScriptControlHandle) == 16, "Unexpected Fable scripted-control handle layout.");
 }

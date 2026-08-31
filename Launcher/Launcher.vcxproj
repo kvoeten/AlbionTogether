@@ -61,6 +61,8 @@
     <ClCompile Include="Multiplayer\Scenarios\BasicScenario.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\RosterScenario.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\TransitionScenario.cpp" />
+    <ClCompile Include="Multiplayer\Scenarios\MapStressScenario.cpp" />
+    <ClCompile Include="Multiplayer\Scenarios\SaveScenario.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\AuthorityScenario.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\CombatScenario.cpp" />
     <ClCompile Include="Multiplayer\Scenarios\RunMultiplayerTest.cpp" />

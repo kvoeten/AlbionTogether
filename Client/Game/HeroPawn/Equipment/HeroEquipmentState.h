@@ -53,6 +53,10 @@ namespace fable::game::hero_pawn::equipment
         std::uint32_t rangedAttachmentSlot = 0;
         game::creature::equipment::CreatureWeaponFamily activeFamily =
             game::creature::equipment::CreatureWeaponFamily::None;
+        // Reliable action that produced this carry state. Zero is reserved for
+        // construction baselines and equipment changes with no visible
+        // draw/stow transition.
+        std::uint64_t transitionActionId = 0;
 
         [[nodiscard]] bool IsSane() const noexcept
         {
@@ -96,7 +100,8 @@ namespace fable::game::hero_pawn::equipment
                 rangedDefinitionIndex == other.rangedDefinitionIndex &&
                 meleeAttachmentSlot == other.meleeAttachmentSlot &&
                 rangedAttachmentSlot == other.rangedAttachmentSlot &&
-                activeFamily == other.activeFamily;
+                activeFamily == other.activeFamily &&
+                transitionActionId == other.transitionActionId;
         }
 
         [[nodiscard]] HeroWeaponDefinitions WeaponDefinitions() const

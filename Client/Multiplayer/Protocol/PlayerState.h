@@ -5,6 +5,7 @@
 #include "Game/HeroPawn/Appearance/HeroMorphState.h"
 #include "Game/HeroPawn/Equipment/HeroEquipmentState.h"
 #include "Game/Math/Vector3.h"
+#include "Multiplayer/Protocol/SessionTime.h"
 
 #include <cstdint>
 #include <string>
@@ -36,6 +37,13 @@ namespace fable::multiplayer
         std::uint32_t authorityEpoch = 0;
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
+        // The owner capture instant on the shared session timeline. The
+        // transport also materializes it as a receiver-local monotonic tick
+        // so presentation can interpolate source cadence rather than packet
+        // arrival jitter.
+        protocol::SessionTimeMs movementSampleTimeMs =
+            protocol::SessionTimeUnset;
+        std::uint64_t movementSampleAt = 0;
         std::uint64_t actorId = 0;
         PeerRole role = PeerRole::Guest;
         bool moving = false;

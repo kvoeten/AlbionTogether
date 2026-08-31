@@ -25,6 +25,8 @@ using fable::launcher::kLogPathEnvironment;
 using fable::launcher::kLogFilesEnabledEnvironment;
 using fable::launcher::kMultiplayerAddressEnvironment;
 using fable::launcher::kMultiplayerAppearanceEnvironment;
+using fable::launcher::kMapStressSeedEnvironment;
+using fable::launcher::kMapStressTransitionsEnvironment;
 using fable::launcher::kMultiplayerPlayerIdEnvironment;
 using fable::launcher::kMultiplayerPortEnvironment;
 using fable::launcher::kMultiplayerRoleEnvironment;
@@ -303,6 +305,12 @@ class ChildEnvironment final
                  spec.multiplayerRole.empty() ? L"" : std::to_wstring(spec.multiplayerPort));
         Override(kMultiplayerPlayerIdEnvironment, spec.multiplayerPlayerId);
         Override(kMultiplayerAppearanceEnvironment, spec.multiplayerAppearance);
+        Override(kMapStressSeedEnvironment,
+            spec.mapStressSeed == 0 ? L"" :
+                std::to_wstring(spec.mapStressSeed));
+        Override(kMapStressTransitionsEnvironment,
+            spec.mapStressTransitions == 0 ? L"" :
+                std::to_wstring(spec.mapStressTransitions));
         BuildBlock();
     }
 

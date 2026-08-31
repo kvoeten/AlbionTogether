@@ -21,8 +21,10 @@ namespace fable::multiplayer::entities
 
 namespace fable::multiplayer::persistence
 {
-    // Applies the host's current persistent entity directory at native Thing
-    // load/save boundaries. Guests never project Hero-owned save state here.
+    // Applies the host-authoritative persistent entity directory at native
+    // Thing load/save boundaries on every peer. Fable continues to serialize
+    // each process's own Hero, so a host or guest save combines one player's
+    // character with the same canonical multiplayer world state.
     class HostWorldStateProjection final
     {
     public:
@@ -74,6 +76,7 @@ namespace fable::multiplayer::persistence
         static bool ResolveMapOverride(
             void* context,
             std::uint64_t thingUid,
+            std::uint64_t simulationCreatureUid,
             std::uint16_t definitionIndex,
             const char* scriptName,
             std::uint16_t& mapId) noexcept;
@@ -87,5 +90,8 @@ namespace fable::multiplayer::persistence
         // callback consumes only this immutable publication and never reads
         // or mutates the session-owned lifecycle/identity registries.
         std::shared_ptr<const ProjectionSnapshot> publishedSnapshot_;
+        std::uint64_t lastWorldRevision_ = 0;
+        std::uint64_t lastIdentityRevision_ = 0;
+        bool projectionPublished_ = false;
     };
 }

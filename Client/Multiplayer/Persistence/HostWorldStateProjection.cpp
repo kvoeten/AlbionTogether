@@ -30,15 +30,14 @@ namespace fable::multiplayer::persistence
         game::entity::persistence::ThingSaveProjectionHook& hook)
     {
         hook_ = &hook;
-        if (role_ == PeerRole::Host)
-        {
-            hook_->SetMapOverrideSink(
-                &HostWorldStateProjection::ResolveMapOverride,
-                this);
-            diagnostics_.Event(
-                "MultiplayerHostWorldSaveProjectionReady",
-                "accepted persistent NPC map state will flow through CThing load and save serialization");
-        }
+        hook_->SetMapOverrideSink(
+            &HostWorldStateProjection::ResolveMapOverride,
+            this);
+        diagnostics_.Event(
+            "MultiplayerWorldSaveProjectionReady",
+            role_ == PeerRole::Host
+                ? "host-authoritative persistent NPC map state will be projected into the host's native save"
+                : "host-authoritative persistent NPC map state will be projected into the guest's native save while its local Hero remains player-owned");
         return hook_->IsInstalled();
     }
 
@@ -53,9 +52,19 @@ namespace fable::multiplayer::persistence
 
     void HostWorldStateProjection::Refresh()
     {
+        const std::uint64_t worldRevision = lifecycle_ != nullptr
+            ? lifecycle_->Directory().LatestWorldRevision()
+            : 0;
+        const std::uint64_t identityRevision = identities_ != nullptr
+            ? identities_->Revision()
+            : 0;
+        if (projectionPublished_ && worldRevision == lastWorldRevision_ &&
+            identityRevision == lastIdentityRevision_)
+        {
+            return;
+        }
         auto snapshot = std::make_shared<ProjectionSnapshot>();
-        if (role_ == PeerRole::Host && lifecycle_ != nullptr &&
-            identities_ != nullptr)
+        if (lifecycle_ != nullptr && identities_ != nullptr)
         {
             const std::vector<entities::WorldEntityRecord> records =
                 lifecycle_->Directory().Snapshot();
@@ -102,6 +111,9 @@ namespace fable::multiplayer::persistence
             &publishedSnapshot_,
             std::move(published),
             std::memory_order_release);
+        lastWorldRevision_ = worldRevision;
+        lastIdentityRevision_ = identityRevision;
+        projectionPublished_ = true;
     }
 
     void HostWorldStateProjection::Shutdown() noexcept
@@ -121,11 +133,15 @@ namespace fable::multiplayer::persistence
         identities_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
+        lastWorldRevision_ = 0;
+        lastIdentityRevision_ = 0;
+        projectionPublished_ = false;
     }
 
     bool HostWorldStateProjection::ResolveMapOverride(
         void* context,
         std::uint64_t thingUid,
+        std::uint64_t simulationCreatureUid,
         std::uint16_t definitionIndex,
         const char* scriptName,
         std::uint16_t& mapId) noexcept
@@ -150,6 +166,14 @@ namespace fable::multiplayer::persistence
             if (uid != snapshot->byUid.end())
             {
                 mapId = uid->second;
+                return true;
+            }
+            const auto simulationUid = snapshot->byUid.find(
+                simulationCreatureUid);
+            if (simulationCreatureUid != 0 &&
+                simulationUid != snapshot->byUid.end())
+            {
+                mapId = simulationUid->second;
                 return true;
             }
             if (scriptName != nullptr && scriptName[0] != '\0')

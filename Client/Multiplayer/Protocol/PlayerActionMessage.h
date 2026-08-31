@@ -2,6 +2,7 @@
 
 #include "Game/HeroPawn/Equipment/HeroEquipmentState.h"
 #include "Game/HeroPawn/Abilities/HeroAbility.h"
+#include "Multiplayer/Protocol/SessionTime.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -46,6 +47,9 @@ namespace fable::multiplayer::protocol
         std::uint32_t authorityEpoch = 0;
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
+        SessionTimeMs startedAtSessionTimeMs = SessionTimeUnset;
+        std::uint32_t expectedDurationMs = 0;
+        std::uint32_t presentationRevision = 0;
         std::uint32_t abilityId = 0;
         game::hero_pawn::abilities::HeroAbilityCommand heroAbilityCommand =
             game::hero_pawn::abilities::HeroAbilityCommand::None;

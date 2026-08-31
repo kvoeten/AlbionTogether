@@ -21,6 +21,8 @@ namespace fable::game::creature::equipment::native
         std::uint32_t rangedAttachmentSlot = 0;
         std::uint32_t meleeStowedSlot = 0;
         std::uint32_t rangedStowedSlot = 0;
+        std::int32_t meleeWeaponType = -1;
+        std::int32_t rangedWeaponType = -1;
         std::uint32_t functionSignatureMask = 0;
         bool functionsResolved = false;
         bool meleePresent = false;

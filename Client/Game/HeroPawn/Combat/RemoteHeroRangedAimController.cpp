@@ -24,22 +24,24 @@ namespace fable::game::hero_pawn::combat
         modeManager_ = ResolveModeManager();
     }
 
-    bool RemoteHeroRangedAimController::Begin() noexcept
+    bool RemoteHeroRangedAimController::TrackNativeBegin() noexcept
     {
         if (active_)
         {
             return true;
         }
+        if (nativeHero_ == nullptr)
+        {
+            return false;
+        }
         if (modeManager_ == nullptr)
         {
             modeManager_ = ResolveModeManager();
         }
-        if (modeManager_ == nullptr ||
-            !creature::locomotion::CreatureModeManagerObserver::
-                AddReplicatedSource(modeManager_, RangedAimModeSource))
-        {
-            return false;
-        }
+
+        // HeroLoadRangedWeapon has already installed source 25 through the
+        // retail action stack. Record ownership only; adding the source here
+        // would duplicate it and make a single ordered aim-end insufficient.
         active_ = true;
         char detail[160] = {};
         std::snprintf(
@@ -51,7 +53,7 @@ namespace fable::game::hero_pawn::combat
             modeManager_,
             RangedAimModeSource);
         diagnostics_.Event("MultiplayerRemoteRangedAimModeEntered", detail);
-        return true;
+        return modeManager_ != nullptr;
     }
 
     bool RemoteHeroRangedAimController::End() noexcept
@@ -59,6 +61,14 @@ namespace fable::game::hero_pawn::combat
         if (!active_)
         {
             return true;
+        }
+        if (modeManager_ == nullptr)
+        {
+            modeManager_ = ResolveModeManager();
+        }
+        if (modeManager_ == nullptr)
+        {
+            return false;
         }
         const bool removed =
             creature::locomotion::CreatureModeManagerObserver::

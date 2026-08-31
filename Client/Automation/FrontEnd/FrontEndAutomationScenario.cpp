@@ -1108,6 +1108,11 @@ using namespace fable::automation::character_snapshot;
         DriveSaveListObservation();
         ObserveSaveListReadiness();
         DriveFixtureLoad();
+        if (GameplayContext().runtime.ProcessAutomationGameThreadIdle())
+        {
+            // Retail quest activation owns the resulting Guild transition.
+            return;
+        }
         if (GameplayContext().runtime.ProcessMultiplayerPresentation())
         {
             // SCRIPT_NAME_HERO is reconstructed for the destination map. The

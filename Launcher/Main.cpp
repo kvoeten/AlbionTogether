@@ -10,6 +10,8 @@
 #include "UI/LauncherWindow.h"
 
 #include <filesystem>
+#include <algorithm>
+#include <cstdint>
 #include <cwchar>
 #include <iostream>
 #include <iterator>
@@ -39,6 +41,17 @@ namespace
     bool IsArgument(const wchar_t* value, const wchar_t* expected)
     {
         return value != nullptr && _wcsicmp(value, expected) == 0;
+    }
+
+    std::uint32_t StableStressSeed(const std::wstring& runId) noexcept
+    {
+        std::uint32_t hash = 2166136261u;
+        for (const wchar_t character : runId)
+        {
+            hash ^= static_cast<std::uint32_t>(character);
+            hash *= 16777619u;
+        }
+        return hash != 0 ? hash : 1;
     }
 
     int RunFirewallRepair(int argc, wchar_t** argv)
@@ -153,6 +166,14 @@ int wmain(int argc, wchar_t** argv)
         {
             scenario = MultiplayerScenario::Transition;
         }
+        else if (options.multiplayerMapStressTest)
+        {
+            scenario = MultiplayerScenario::MapStress;
+        }
+        else if (options.multiplayerSaveTest)
+        {
+            scenario = MultiplayerScenario::Save;
+        }
         else if (options.multiplayerRosterTest)
         {
             scenario = MultiplayerScenario::Roster;
@@ -165,6 +186,15 @@ int wmain(int argc, wchar_t** argv)
         context.sessionId = plan.runId;
         context.port = options.multiplayerPort;
         context.timeoutSeconds = options.automationTimeoutSeconds;
+        if (scenario == MultiplayerScenario::MapStress)
+        {
+            context.timeoutSeconds = (std::max)(
+                context.timeoutSeconds, 600u);
+            context.mapStressSeed = options.mapStressSeed != 0
+                ? options.mapStressSeed
+                : StableStressSeed(plan.runId);
+            context.mapStressTransitions = options.mapStressTransitions;
+        }
         context.scenario = scenario;
         context.gameArguments = options.gameArguments;
         return RunMultiplayerTest(context);

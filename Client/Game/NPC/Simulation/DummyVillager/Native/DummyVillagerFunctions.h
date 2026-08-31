@@ -31,11 +31,12 @@ namespace fable::game::npc::simulation::native
         static constexpr std::size_t SerializeDisplacedBytes = 7;
 
         static constexpr std::size_t OwnerThingOffset = 0x04;
+        static constexpr std::size_t CreatureUidOffset = 0x38;
         static constexpr std::size_t RecreationDayOffset = 0x40;
         static constexpr std::size_t RecreationFrameOffset = 0x44;
         static constexpr std::size_t RespawnableOffset = 0x48;
         static constexpr std::size_t GuardOffset = 0x49;
-        static constexpr std::size_t ThingUidOffset = 0x14;
+        static constexpr std::size_t OwnerThingUidOffset = 0x14;
 
         static bool ResolveMaterialize(
             HMODULE gameModule,

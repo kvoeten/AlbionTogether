@@ -2,6 +2,7 @@
 
 #include "Multiplayer/Protocol/PlayerActorStateMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
+#include "Multiplayer/Replication/PlayerActorLifecycleLimits.h"
 #include "Multiplayer/Replication/PlayerActorStatePublicationQueue.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
 
@@ -68,6 +69,8 @@ namespace fable::multiplayer::replication
         void Shutdown() noexcept;
 
     private:
+        static constexpr std::size_t MaxTrackedActors =
+            player_actor_lifecycle::MaxTrackedActors;
         bool Publish(protocol::PlayerActorStateMessage message);
         bool PublishPending();
         bool AcceptHost(
@@ -85,9 +88,6 @@ namespace fable::multiplayer::replication
         [[nodiscard]] protocol::PlayerActorStateMessage MakeLocalMessage(
             const PlayerState& state,
             protocol::PlayerActorStateOperation operation);
-        [[nodiscard]] static protocol::PlayerActorStateMessage MergeDelta(
-            const protocol::PlayerActorStateMessage& current,
-            const protocol::PlayerActorStateMessage& delta);
         [[nodiscard]] std::uint32_t NextGeneration() noexcept;
         [[nodiscard]] std::uint32_t NextRevision() noexcept;
         [[nodiscard]] static bool SameAppearance(

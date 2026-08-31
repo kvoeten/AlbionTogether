@@ -12,6 +12,7 @@
 #include "Multiplayer/Transport/PeerSessionRegistry.h"
 #include "Multiplayer/Transport/ReliableStream.h"
 #include "Multiplayer/Transport/ReliableStreamTransport.h"
+#include "Multiplayer/Transport/SessionClock.h"
 
 #include <algorithm>
 #include <array>
@@ -35,12 +36,19 @@ using fable::multiplayer::transport_codec::EncodeReliablePacket;
 using fable::multiplayer::transport_codec::EncodeUnreliablePacket;
 using fable::multiplayer::transport_codec::IsReliablePacketType;
 using fable::multiplayer::transport_codec::IsUnreliablePacketType;
+using fable::multiplayer::DecodeSessionClock;
+using fable::multiplayer::EncodeSessionClockProbe;
+using fable::multiplayer::EncodeSessionClockResponse;
+using fable::multiplayer::SessionClockRecord;
+using fable::multiplayer::SessionClockRecordKind;
+using fable::multiplayer::SessionClockSynchronizer;
 
 namespace
 {
     constexpr ULONGLONG kMinimumSendIntervalMilliseconds = 50;
     constexpr ULONGLONG kKeepAliveIntervalMilliseconds = 1'000;
     constexpr ULONGLONG kPeerHelloIntervalMilliseconds = 250;
+    constexpr ULONGLONG kSessionClockProbeIntervalMilliseconds = 250;
     constexpr ULONGLONG kPeerLeaseMilliseconds = 10'000;
     constexpr ULONGLONG kReliableResendMilliseconds = 100;
 }
@@ -113,9 +121,11 @@ namespace fable::multiplayer
         std::deque<ReliableStreamId> reliableBroadcastOrder;
         std::size_t reliableBroadcastCount = 0;
         std::uint64_t localActorId = 0;
-        std::uint64_t localConnectionNonce = 0;
+        std::atomic_uint64_t localConnectionNonce{0};
+        SessionClockSynchronizer sessionClock;
         ULONGLONG lastSentAt = 0;
         ULONGLONG lastPeerHelloSentAt = 0;
+        ULONGLONG lastSessionClockProbeAt = 0;
         std::atomic_bool started{false};
         std::atomic_bool stopping{false};
         std::atomic_bool failed{false};
@@ -157,6 +167,8 @@ namespace fable::multiplayer
             current.authorityEpoch = update.authorityEpoch;
             current.actorGeneration = update.actorGeneration;
             current.mapEpoch = update.mapEpoch;
+            current.movementSampleTimeMs = update.movementSampleTimeMs;
+            current.movementSampleAt = update.movementSampleAt;
             current.role = update.role;
             current.mapId = update.mapId;
             current.position = update.position;
@@ -166,6 +178,29 @@ namespace fable::multiplayer
             current.moving = update.moving;
             current.sequence = update.sequence;
             current.changedProperties = player_property::Movement;
+        }
+
+        std::uint64_t MaterializeMovementSampleAt(
+            const protocol::SessionTimeMs sample,
+            const std::uint64_t receiveNow) noexcept
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            if (!protocol::IsSessionTimeSet(sample) ||
+                (role != PeerRole::Host &&
+                    !sessionClock.IsSynchronized()))
+            {
+                return receiveNow;
+            }
+            const protocol::SessionTimeMs current = protocol::ToSessionTime(
+                sessionClock.SessionTimeMilliseconds(receiveNow));
+            constexpr std::uint32_t kMaximumMovementAgeMilliseconds = 5'000;
+            if (!protocol::IsSessionTimeWithin(
+                    current, sample, kMaximumMovementAgeMilliseconds))
+            {
+                return receiveNow;
+            }
+            const std::uint32_t age = static_cast<std::uint32_t>(current - sample);
+            return receiveNow >= age ? receiveNow - age : receiveNow;
         }
 
 
@@ -265,6 +300,91 @@ namespace fable::multiplayer
                 diagnostics.Event(
                     "MultiplayerPeerDiscoverySent",
                     "guest endpoint announced before native world readiness");
+            }
+            return true;
+        }
+
+        bool SendSessionClockProbeIfNeeded(const ULONGLONG now)
+        {
+            if (role != PeerRole::Guest)
+            {
+                return true;
+            }
+            SessionClockSynchronizer::Probe probe;
+            std::array<std::uint8_t, SessionClockRecordBytes> payload = {};
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                if (!sessions.HasGuestSession() ||
+                    sessions.HasPendingGuestConfirmation() ||
+                    now - lastSessionClockProbeAt <
+                        kSessionClockProbeIntervalMilliseconds ||
+                    !sessionClock.BeginProbe(now, probe))
+                {
+                    return true;
+                }
+                lastSessionClockProbeAt = now;
+            }
+            if (!EncodeSessionClockProbe(
+                    probe.sequence, probe.guestSend, payload))
+            {
+                Fail("Multiplayer: session clock probe could not be encoded.");
+                return false;
+            }
+            return SendPeerHello(peer, payload.data(), payload.size());
+        }
+
+        bool HandleSessionClock(
+            const SessionClockRecord& record,
+            const sockaddr_in& sender,
+            const std::uint64_t sourceActorId,
+            const std::uint64_t connectionNonce,
+            const ULONGLONG localReceiveNow)
+        {
+            if (role == PeerRole::Host)
+            {
+                if (record.kind != SessionClockRecordKind::Probe)
+                {
+                    return true;
+                }
+                bool valid = false;
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    valid = sessions.Find(sender) != nullptr &&
+                        sessions.ValidatePeer(
+                            sender,
+                            sourceActorId,
+                            connectionNonce,
+                            true);
+                }
+                if (!valid)
+                {
+                    return true;
+                }
+                SessionClockRecord response = record;
+                response.kind = SessionClockRecordKind::Response;
+                response.hostReceive = localReceiveNow;
+                response.hostSend = GetTickCount64();
+                std::array<std::uint8_t, SessionClockRecordBytes> payload = {};
+                if (!EncodeSessionClockResponse(response, payload))
+                {
+                    return false;
+                }
+                return SendPeerHello(sender, payload.data(), payload.size());
+            }
+            if (record.kind != SessionClockRecordKind::Response)
+            {
+                return true;
+            }
+            std::lock_guard<std::mutex> lock(stateMutex);
+            if (!sessions.IsHostEndpoint(sender) ||
+                (sessions.RemoteNonce() != 0 &&
+                    sessions.RemoteNonce() != connectionNonce))
+            {
+                return true;
+            }
+            if (sessionClock.AcceptResponse(record, localReceiveNow))
+            {
+                sessions.TouchGuest();
             }
             return true;
         }
@@ -430,8 +550,10 @@ namespace fable::multiplayer
                 std::memcpy(
                     message.payload.data(), packet.payload, packet.payloadSize);
                 receiveResult = receiver->AcceptIncoming(std::move(message));
-                acknowledge = receiveResult == ReliableReceiveResult::Accepted ||
-                    receiveResult == ReliableReceiveResult::Duplicate;
+                acknowledge =
+                    (receiveResult == ReliableReceiveResult::Accepted ||
+                        receiveResult == ReliableReceiveResult::Duplicate) &&
+                    receiver->ShouldAcknowledgeLastIncoming();
             }
             return !acknowledge ||
                 (SendAcknowledgement(
@@ -752,12 +874,31 @@ namespace fable::multiplayer
                 }
                 if (packet.envelope.type == protocol::PacketType::PeerHello)
                 {
+                    SessionClockRecord clockRecord;
+                    const bool isClockRecord =
+                        packet.payloadSize == SessionClockRecordBytes &&
+                        DecodeSessionClock(
+                            packet.payload, packet.payloadSize, clockRecord);
                     if (packet.envelope.flags != 0 ||
                         packet.envelope.sequence != 0 ||
                         (packet.payloadSize != 0 &&
                             packet.payloadSize !=
-                                PeerSessionRegistry::ChallengeBytes))
+                                PeerSessionRegistry::ChallengeBytes &&
+                            !isClockRecord))
                     {
+                        continue;
+                    }
+                    if (isClockRecord)
+                    {
+                        if (!HandleSessionClock(
+                                clockRecord,
+                                sender,
+                                packet.envelope.sourceActorId,
+                                packet.envelope.connectionNonce,
+                                GetTickCount64()))
+                        {
+                            return false;
+                        }
                         continue;
                     }
                     if (role == PeerRole::Host)
@@ -881,6 +1022,8 @@ namespace fable::multiplayer
                                 reliable.Clear();
                                 actors.clear();
                                 movement.Clear();
+                                sessionClock.Reset();
+                                lastSessionClockProbeAt = 0;
                             }
                             peerSetRevision.store(
                                 sessions.Revision(),
@@ -1025,10 +1168,14 @@ namespace fable::multiplayer
                 }
 
                 PlayerState update;
+                const std::uint64_t movementReceiveNow = GetTickCount64();
                 update.actorId = playerMovement.actorId;
                 update.authorityEpoch = playerMovement.authorityEpoch;
                 update.actorGeneration = playerMovement.actorGeneration;
                 update.mapEpoch = playerMovement.mapEpoch;
+                update.movementSampleTimeMs = playerMovement.sessionTimeMs;
+                update.movementSampleAt = MaterializeMovementSampleAt(
+                    playerMovement.sessionTimeMs, movementReceiveNow);
                 update.sequence = playerMovement.sequence;
                 update.mapId = playerMovement.mapId;
                 update.role = role == PeerRole::Host
@@ -1136,6 +1283,8 @@ namespace fable::multiplayer
                     reliable.Clear();
                     actors.clear();
                     movement.Clear();
+                    sessionClock.Reset();
+                    lastSessionClockProbeAt = 0;
                     lastPeerHelloSentAt = 0;
                     peerSetRevision.store(
                         sessions.Revision(),
@@ -1155,6 +1304,10 @@ namespace fable::multiplayer
             {
                 return false;
             }
+            if (!SendSessionClockProbeIfNeeded(now))
+            {
+                return false;
+            }
             PlayerState state;
             bool shouldSend = false;
             bool hasOutboundState = false;
@@ -1171,6 +1324,18 @@ namespace fable::multiplayer
                     if (shouldSend)
                     {
                         state = outbound;
+                        if (role == PeerRole::Guest &&
+                            !sessionClock.IsSynchronized())
+                        {
+                            // A guest's local monotonic clock is not yet on
+                            // the host timeline. Keep the wire timestamp
+                            // explicitly unset and persist that fallback so
+                            // a later sync cannot reinterpret this sample.
+                            state.movementSampleTimeMs =
+                                protocol::SessionTimeUnset;
+                            outbound.movementSampleTimeMs =
+                                protocol::SessionTimeUnset;
+                        }
                         // A keepalive reuses the latest transform snapshot.
                         // Dirty tracking remains local bookkeeping; every
                         // player datagram on the wire is a Movement message.
@@ -1609,6 +1774,14 @@ namespace fable::multiplayer
                 ? implementation.outbound.changedProperties
                 : 0;
             implementation.outbound = localUpdate;
+            if (implementation.role == PeerRole::Guest &&
+                !implementation.sessionClock.IsSynchronized())
+            {
+                // Do not place a guest-local timestamp into the outbound
+                // queue before the host clock estimate is ready.
+                implementation.outbound.movementSampleTimeMs =
+                    protocol::SessionTimeUnset;
+            }
             implementation.outbound.changedProperties =
                 pending | player_property::Movement;
             implementation.hasOutbound = true;
@@ -1832,8 +2005,14 @@ namespace fable::multiplayer
 
     bool UdpPeer::HasPeer() const noexcept
     {
-        return IsStarted() &&
-            implementation_->peerKnown.load(std::memory_order_acquire);
+        if (!IsStarted())
+        {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(implementation_->stateMutex);
+        return implementation_->role == PeerRole::Host
+            ? implementation_->sessions.HasPeers()
+            : implementation_->sessions.HasGuestSession();
     }
 
     bool UdpPeer::HasFailed() const noexcept
@@ -1851,7 +2030,7 @@ namespace fable::multiplayer
         std::lock_guard<std::mutex> lock(implementation_->stateMutex);
         return implementation_->role == PeerRole::Host
             ? implementation_->sessions.Peers().size()
-            : (implementation_->peerKnown.load(std::memory_order_acquire)
+            : (implementation_->sessions.HasGuestSession()
                 ? 1u
                 : 0u);
     }
@@ -1866,8 +2045,37 @@ namespace fable::multiplayer
     std::uint64_t UdpPeer::ConnectionNonce() const noexcept
     {
         return implementation_ != nullptr
-            ? implementation_->localConnectionNonce
+            ? implementation_->localConnectionNonce.load(
+                std::memory_order_acquire)
             : 0;
+    }
+
+    bool UdpPeer::HasSynchronizedSessionClock() const noexcept
+    {
+        if (!IsStarted() || implementation_ == nullptr)
+        {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(implementation_->stateMutex);
+        return implementation_->role == PeerRole::Host ||
+            implementation_->sessionClock.IsSynchronized();
+    }
+
+    std::uint64_t UdpPeer::SessionTimeMilliseconds() const noexcept
+    {
+        return LocalToSessionTimeMilliseconds(GetTickCount64());
+    }
+
+    std::uint64_t UdpPeer::LocalToSessionTimeMilliseconds(
+        const std::uint64_t localTick) const noexcept
+    {
+        if (implementation_ == nullptr)
+        {
+            return localTick;
+        }
+        std::lock_guard<std::mutex> lock(implementation_->stateMutex);
+        return implementation_->sessionClock
+            .LocalToSessionTimeMilliseconds(localTick);
     }
 
     std::vector<std::uint64_t> UdpPeer::ConnectedActorIds() const

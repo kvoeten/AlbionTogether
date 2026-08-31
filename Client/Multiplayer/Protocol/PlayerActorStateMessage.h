@@ -6,6 +6,7 @@
 #include "Game/HeroPawn/Equipment/HeroEquipmentState.h"
 #include "Game/Math/Vector3.h"
 #include "Multiplayer/Protocol/PlayerState.h"
+#include "Multiplayer/Protocol/SessionTime.h"
 
 #include <cstdint>
 #include <string>
@@ -45,6 +46,12 @@ namespace fable::multiplayer::protocol
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t structuralRevision = 0;
+        SessionTimeMs constructionSnapshotTimeMs = SessionTimeUnset;
+        SessionTimeMs componentPatchEffectiveTimeMs = SessionTimeUnset;
+        SessionTimeMs transitionStartedAtSessionTimeMs = SessionTimeUnset;
+        std::uint32_t transitionAnimationId = 0;
+        std::uint16_t transitionDurationMs = 0;
+        std::uint16_t attachmentNotifyOffsetMs = 0;
         PeerRole role = PeerRole::Guest;
         std::uint16_t mapId = 0;
         game::Vector3 initialPosition = {};

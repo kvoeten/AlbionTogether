@@ -27,6 +27,7 @@ namespace fable::automation::runtime
             ::fable::multiplayer::MultiplayerSession& multiplayer,
             const ::fable::core::Diagnostics& diagnostics) noexcept;
         void Tick(float deltaSeconds, bool remotePresentationReady) noexcept;
+        bool ProcessGameThreadIdle() noexcept;
         void Shutdown() noexcept;
 
         [[nodiscard]] bool HeroWillFocusedAcceptance() const noexcept

@@ -29,12 +29,14 @@ namespace fable::multiplayer::replication
             std::uint16_t mapId,
             const game::Vector3& position,
             float facing,
-            std::uint64_t capturedAtMilliseconds);
+            std::uint64_t capturedAtMilliseconds,
+            protocol::SessionTimeMs capturedAtSessionTime);
         bool CaptureMovement(
             const std::string& mapName,
             const game::Vector3& position,
             float facing,
-            std::uint64_t capturedAtMilliseconds);
+            std::uint64_t capturedAtMilliseconds,
+            protocol::SessionTimeMs capturedAtSessionTime);
         bool CaptureAppearance(
             const std::string& appearanceDefinition,
             const game::hero_pawn::appearance::HeroMorphState& heroMorph,

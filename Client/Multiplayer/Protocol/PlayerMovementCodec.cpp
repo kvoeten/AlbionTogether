@@ -16,6 +16,8 @@ namespace
         std::uint32_t actorGeneration = 0;
         std::uint32_t mapEpoch = 0;
         std::uint32_t sequence = 0;
+        fable::multiplayer::protocol::SessionTimeMs sessionTimeMs =
+            fable::multiplayer::protocol::SessionTimeUnset;
         std::uint16_t mapId = 0;
         std::uint8_t moving = 0;
         std::uint8_t reserved = 0;
@@ -27,7 +29,7 @@ namespace
 #pragma pack(pop)
 
     static_assert(std::is_trivially_copyable_v<WirePlayerMovementMessage>);
-    static_assert(sizeof(WirePlayerMovementMessage) == 60);
+    static_assert(sizeof(WirePlayerMovementMessage) == 64);
     static_assert(
         sizeof(WirePlayerMovementMessage) <=
             fable::multiplayer::protocol::MaximumDatagramBytes -
@@ -73,6 +75,7 @@ namespace fable::multiplayer::protocol
         wire.actorGeneration = message.actorGeneration;
         wire.mapEpoch = message.mapEpoch;
         wire.sequence = message.sequence;
+        wire.sessionTimeMs = message.sessionTimeMs;
         wire.mapId = message.mapId;
         wire.moving = message.moving ? 1 : 0;
         wire.position[0] = message.position.x;
@@ -117,6 +120,7 @@ namespace fable::multiplayer::protocol
         message.actorGeneration = wire.actorGeneration;
         message.mapEpoch = wire.mapEpoch;
         message.sequence = wire.sequence;
+        message.sessionTimeMs = wire.sessionTimeMs;
         message.mapId = wire.mapId;
         message.moving = wire.moving != 0;
         message.position = {

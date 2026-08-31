@@ -1,4 +1,5 @@
 #include "CreatureWeaponFunctions.h"
+#include "CreatureWeaponNativeSupport.h"
 
 #include "Core/Hooking/CodePatch.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
@@ -8,13 +9,16 @@
 #include <cstdint>
 #include <cstring>
 
-namespace
+namespace fable::game::creature::equipment::native::detail
 {
     constexpr std::uintptr_t kContainsWeaponRva = 0x01954250;
     constexpr std::uintptr_t kFindWeaponRva = 0x019542D0;
     constexpr std::uintptr_t kSheatheWeaponsRva = 0x01B408B0;
     constexpr std::uintptr_t kEquipWeaponRva = 0x01B409E0;
     constexpr std::uintptr_t kResolvePointerRva = 0x012E6EA0;
+    constexpr std::uintptr_t kInitializePointerRva = 0x012E6E90;
+    constexpr std::uintptr_t kAssignPointerRva = 0x012E6EE0;
+    constexpr std::uintptr_t kDestroyPointerRva = 0x012E6F60;
     constexpr std::uintptr_t kGetDefinitionRva = 0x016F0930;
     constexpr std::uintptr_t kResolveWeaponPropertiesRva = 0x016F2CB0;
     constexpr std::uintptr_t kAttachWeaponRva = 0x01956650;
@@ -44,6 +48,7 @@ namespace
     constexpr std::size_t kCarryingEntriesEndOffset = 0x10;
     constexpr std::size_t kCarryingEntrySize = 12;
     constexpr std::size_t kCarryingEntryThingOffset = 4;
+    constexpr std::size_t kWeaponTypeOffset = 0x20;
     constexpr std::size_t kStowedSlotOffset = 0x30;
     constexpr std::size_t kThingDefinitionIndexOffset = 0x98;
 
@@ -60,6 +65,12 @@ namespace
         0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
         0x50, 0x51, 0x53, 0x55, 0x56, 0x57};
     constexpr std::array<std::uint8_t, 6> kResolvePointerSignature = {
+        0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x04};
+    constexpr std::array<std::uint8_t, 4> kInitializePointerSignature = {
+        0x8B, 0xC1, 0xC7, 0x00};
+    constexpr std::array<std::uint8_t, 6> kAssignPointerSignature = {
+        0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x04};
+    constexpr std::array<std::uint8_t, 6> kDestroyPointerSignature = {
         0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x04};
     constexpr std::array<std::uint8_t, 15> kGetDefinitionSignature = {
         0x51, 0x8B, 0x49, 0x7C, 0x8B, 0x44, 0x24, 0x08,
@@ -123,50 +134,7 @@ namespace
     }
 #endif
 
-    using ContainsWeapon = bool(__thiscall*)(
-        void* carryingComponent,
-        std::int32_t definitionIndex);
-    using FindWeapon = void* (__thiscall*)(
-        void* carryingComponent,
-        std::int32_t definitionIndex);
-    using SheatheWeapons = void(__thiscall*)(void* creature);
-    using EquipWeapon = void(__thiscall*)(
-        void* creature,
-        std::int32_t definitionIndex,
-        bool primary);
-    using ResolvePointer = void* (__thiscall*)(void* pointer);
-    using GetDefinition = void(__thiscall*)(void* weapon, void** definition);
-    using ResolveWeaponProperties = bool(__thiscall*)(
-        void* definition,
-        void** properties);
-    using AttachWeapon = void(__thiscall*)(
-        void* carryingComponent,
-        void* weapon,
-        std::uint32_t slot,
-        bool refresh);
-    using RemoveWeapon = std::uintptr_t(__thiscall*)(
-        void* carryingComponent,
-        void* weapon);
     using RequestDestroy = void(__thiscall*)(void* thing, bool immediate);
-    using ResolveAttachmentSlot = bool(__thiscall*)(
-        void* registry,
-        std::uint32_t slot,
-        void** definition);
-
-    struct Functions final
-    {
-        ContainsWeapon contains = nullptr;
-        FindWeapon find = nullptr;
-        SheatheWeapons sheathe = nullptr;
-        EquipWeapon equip = nullptr;
-        ResolvePointer resolvePointer = nullptr;
-        GetDefinition getDefinition = nullptr;
-        ResolveWeaponProperties resolveProperties = nullptr;
-        AttachWeapon attach = nullptr;
-        RemoveWeapon remove = nullptr;
-        void** attachmentSlotRegistry = nullptr;
-        ResolveAttachmentSlot resolveAttachmentSlot = nullptr;
-    };
 
     template <std::size_t Size>
     bool BytesMatch(
@@ -289,7 +257,7 @@ namespace
     bool ResolveFunctions(
         HMODULE gameModule,
         Functions& functions,
-        std::uint32_t* signatureMask = nullptr) noexcept
+        std::uint32_t* signatureMask) noexcept
     {
         functions = {};
         if (signatureMask != nullptr)
@@ -312,6 +280,12 @@ namespace
             base + kEquipWeaponRva);
         auto* const resolvePointer = reinterpret_cast<std::uint8_t*>(
             base + kResolvePointerRva);
+        auto* const initializePointer = reinterpret_cast<std::uint8_t*>(
+            base + kInitializePointerRva);
+        auto* const assignPointer = reinterpret_cast<std::uint8_t*>(
+            base + kAssignPointerRva);
+        auto* const destroyPointer = reinterpret_cast<std::uint8_t*>(
+            base + kDestroyPointerRva);
         auto* const getDefinition = reinterpret_cast<std::uint8_t*>(
             base + kGetDefinitionRva);
         auto* const resolveProperties = reinterpret_cast<std::uint8_t*>(
@@ -336,6 +310,12 @@ namespace
             kEquipBodySignature);
         const bool resolvePointerReady = BytesMatch(
             resolvePointer, kResolvePointerSignature);
+        const bool initializePointerReady = BytesMatch(
+            initializePointer, kInitializePointerSignature);
+        const bool assignPointerReady = BytesMatch(
+            assignPointer, kAssignPointerSignature);
+        const bool destroyPointerReady = BytesMatch(
+            destroyPointer, kDestroyPointerSignature);
         const bool getDefinitionReady = BytesMatch(
             getDefinition, kGetDefinitionSignature);
         const bool resolvePropertiesReady = ValidateSehFunction(
@@ -373,12 +353,19 @@ namespace
             (attachReady ? 128u : 0u) |
             (removeReady ? 256u : 0u) |
             (resolveAttachmentSlotReady ? 512u : 0u) |
-            (attachmentReferenceGuardReady ? 1024u : 0u);
+            (attachmentReferenceGuardReady ? 1024u : 0u) |
+            (initializePointerReady ? 2048u : 0u) |
+            (assignPointerReady ? 4096u : 0u) |
+            (destroyPointerReady ? 8192u : 0u);
         if (signatureMask != nullptr)
         {
             *signatureMask = mask;
         }
-        if (mask != 0x7FFu)
+        // The visible CTCCarrying path predates the hidden weapon cache and
+        // must remain available even if one optional intelligent-pointer
+        // lifecycle signature drifts. Cache callers validate the additional
+        // three functions explicitly below.
+        if ((mask & CoreFunctionMask) != CoreFunctionMask)
         {
             return false;
         }
@@ -389,6 +376,15 @@ namespace
         functions.equip = reinterpret_cast<EquipWeapon>(equip);
         functions.resolvePointer = reinterpret_cast<ResolvePointer>(
             resolvePointer);
+        functions.initializePointer = initializePointerReady
+            ? reinterpret_cast<InitializePointer>(initializePointer)
+            : nullptr;
+        functions.assignPointer = assignPointerReady
+            ? reinterpret_cast<AssignPointer>(assignPointer)
+            : nullptr;
+        functions.destroyPointer = destroyPointerReady
+            ? reinterpret_cast<DestroyPointer>(destroyPointer)
+            : nullptr;
         functions.getDefinition = reinterpret_cast<GetDefinition>(
             getDefinition);
         functions.resolveProperties =
@@ -521,12 +517,14 @@ namespace
         return available;
     }
 
-    bool ReadStowedSlot(
+    bool ReadWeaponProperties(
         const Functions& functions,
         void* weapon,
-        std::uint32_t& slot) noexcept
+        std::uint32_t& stowedSlot,
+        std::int32_t& weaponType) noexcept
     {
-        slot = 0;
+        stowedSlot = 0;
+        weaponType = -1;
         if (weapon == nullptr)
         {
             return false;
@@ -542,16 +540,25 @@ namespace
                 properties != nullptr;
             if (resolved)
             {
-                slot = *reinterpret_cast<const std::uint32_t*>(
+                const std::int32_t candidateType =
+                    *reinterpret_cast<const std::int32_t*>(
+                        static_cast<const std::uint8_t*>(properties) +
+                            kWeaponTypeOffset);
+                if (candidateType >= 0 && candidateType <= 7)
+                {
+                    weaponType = candidateType;
+                }
+                stowedSlot = *reinterpret_cast<const std::uint32_t*>(
                     static_cast<const std::uint8_t*>(properties) +
                         kStowedSlotOffset);
-                resolved = slot > 0 && slot < 1'000'000;
+                resolved = stowedSlot > 0 && stowedSlot < 1'000'000;
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             resolved = false;
-            slot = 0;
+            stowedSlot = 0;
+            weaponType = -1;
         }
         ReleaseReference(properties);
         ReleaseReference(definition);
@@ -606,6 +613,8 @@ namespace
 
 namespace fable::game::creature::equipment::native
 {
+    using namespace detail;
+
     bool CreatureWeaponFunctions::PruneUnexpectedWeapons(
         void* creature,
         std::int32_t allowedMeleeDefinitionIndex,
@@ -614,6 +623,8 @@ namespace fable::game::creature::equipment::native
         std::uint32_t allowedRangedAttachmentSlot,
         std::size_t& removedCount) noexcept
     {
+        (void)allowedMeleeAttachmentSlot;
+        (void)allowedRangedAttachmentSlot;
         removedCount = 0;
         if (creature == nullptr ||
             !IsSaneDefinition(allowedMeleeDefinitionIndex) ||
@@ -675,11 +686,13 @@ namespace fable::game::creature::equipment::native
                     entry + kCarryingEntryThingOffset);
                 std::int32_t definitionIndex = -1;
                 ReadThingDefinition(thing, definitionIndex);
+                // Slot-zero replicated weapons are intentionally retained in
+                // the actor cache and may be briefly attached while the cache
+                // is first populated. They are authoritative definitions even
+                // when their final presentation is hidden.
                 const bool allowedMelee =
-                    allowedMeleeAttachmentSlot != 0 &&
                     definitionIndex == allowedMeleeDefinitionIndex;
                 const bool allowedRanged =
-                    allowedRangedAttachmentSlot != 0 &&
                     definitionIndex == allowedRangedDefinitionIndex;
                 if (thing == nullptr || definitionIndex <= 0 ||
                     allowedMelee || allowedRanged)
@@ -829,12 +842,14 @@ namespace fable::game::creature::equipment::native
                 inspection.meleeWeapon, inspection.meleeGraphic);
             ReadWeaponPresentation(
                 inspection.rangedWeapon, inspection.rangedGraphic);
-            ReadStowedSlot(
+            ReadWeaponProperties(
                 functions, inspection.meleeWeapon,
-                inspection.meleeStowedSlot);
-            ReadStowedSlot(
+                inspection.meleeStowedSlot,
+                inspection.meleeWeaponType);
+            ReadWeaponProperties(
                 functions, inspection.rangedWeapon,
-                inspection.rangedStowedSlot);
+                inspection.rangedStowedSlot,
+                inspection.rangedWeaponType);
             ReadAttachmentSlot(
                 functions, inspection.carryingComponent,
                 inspection.meleeWeapon, inspection.meleeAttachmentSlot);

@@ -208,8 +208,16 @@ namespace fable::game::world::travel
         {
             return;
         }
-        observer->ObserveRegionExit(component);
+
+        bool heroReady = false;
+        const bool readinessReadable =
+            native::WorldTravelFunctions::ReadRegionExitHeroReady(
+                observer->gameModule_, heroReady);
         observer->originalRegionExitTrigger_(component);
+        if (readinessReadable && heroReady)
+        {
+            observer->ObserveRegionExit(component);
+        }
     }
 
     void __fastcall WorldTravelObserver::PrepareMapChangeObserved(

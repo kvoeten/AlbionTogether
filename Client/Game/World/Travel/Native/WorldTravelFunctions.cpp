@@ -101,6 +101,111 @@ namespace fable::game::world::travel::native
         return true;
     }
 
+    bool WorldTravelFunctions::ReadRegionExitHeroReady(
+        HMODULE gameModule,
+        bool& ready) noexcept
+    {
+        std::uint16_t mapId = 0;
+        return ReadRegionExitHeroState(gameModule, ready, mapId);
+    }
+
+    bool WorldTravelFunctions::ReadRegionExitHeroState(
+        HMODULE gameModule,
+        bool& ready,
+        std::uint16_t& mapId) noexcept
+    {
+        ready = false;
+        mapId = 0;
+        if (gameModule == nullptr)
+        {
+            return false;
+        }
+        bool readable = false;
+        __try
+        {
+            const auto base = reinterpret_cast<std::uintptr_t>(gameModule);
+            void* const state = *reinterpret_cast<void**>(
+                base + RegionTravelStateSlotRva);
+            void* const container = state == nullptr
+                ? nullptr
+                : *reinterpret_cast<void**>(
+                    static_cast<std::uint8_t*>(state) +
+                    RegionTravelHeroContainerOffset);
+            const auto* const selectBytes = reinterpret_cast<const std::uint8_t*>(
+                base + SelectPlayerCreatureRva);
+            const auto* const resolveBytes = reinterpret_cast<const std::uint8_t*>(
+                base + ResolveIntelligentThingRva);
+            if (container != nullptr &&
+                selectBytes[0] == 0x8B && selectBytes[1] == 0x41 &&
+                selectBytes[2] == 0x10 &&
+                resolveBytes[0] == 0x83 && resolveBytes[1] == 0xC1 &&
+                resolveBytes[2] == 0x2C)
+            {
+                using SelectPlayerCreature = void* (__thiscall*)(void*);
+                using ResolveIntelligentThing = void* (__thiscall*)(void*);
+                void* const selected = reinterpret_cast<SelectPlayerCreature>(
+                    base + SelectPlayerCreatureRva)(container);
+                void* const hero = selected == nullptr
+                    ? nullptr
+                    : reinterpret_cast<ResolveIntelligentThing>(
+                        base + ResolveIntelligentThingRva)(selected);
+                if (hero != nullptr)
+                {
+                    void** const vtable = *reinterpret_cast<void***>(hero);
+                    using IsUnavailable = bool(__thiscall*)(void*);
+                    mapId = *reinterpret_cast<const std::uint16_t*>(
+                        static_cast<const std::uint8_t*>(hero) + 0x9A);
+                    ready = vtable != nullptr &&
+                        !reinterpret_cast<IsUnavailable>(vtable[4])(hero);
+                }
+                readable = true;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            ready = false;
+            mapId = 0;
+            readable = false;
+        }
+        return readable;
+    }
+
+    bool WorldTravelFunctions::ReadRegionTravelRequestState(
+        HMODULE gameModule,
+        std::uint32_t& state) noexcept
+    {
+        state = 0;
+        if (gameModule == nullptr)
+        {
+            return false;
+        }
+        bool readable = false;
+        __try
+        {
+            const auto base = reinterpret_cast<std::uintptr_t>(gameModule);
+            void* const world = *reinterpret_cast<void**>(
+                base + RegionTravelStateSlotRva);
+            void* const manager = world == nullptr
+                ? nullptr
+                : *reinterpret_cast<void**>(
+                    static_cast<std::uint8_t*>(world) +
+                    RegionTravelManagerOffset);
+            if (manager != nullptr)
+            {
+                state = *reinterpret_cast<const std::uint32_t*>(
+                    static_cast<const std::uint8_t*>(manager) +
+                    RegionTravelRequestStateOffset);
+                readable = true;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            state = 0;
+            readable = false;
+        }
+        return readable;
+    }
+
     bool WorldTravelFunctions::ResolvePrepareMapChange(
         HMODULE gameModule,
         std::uint8_t*& address) noexcept

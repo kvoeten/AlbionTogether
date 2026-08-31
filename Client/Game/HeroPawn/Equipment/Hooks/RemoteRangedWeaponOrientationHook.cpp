@@ -114,6 +114,7 @@ namespace fable::game::hero_pawn::equipment::hooks
             registration.token.store(0, std::memory_order_release);
             registration.carrying.store(nullptr, std::memory_order_relaxed);
             registration.weapon.store(nullptr, std::memory_order_relaxed);
+            registration.weaponType.store(-1, std::memory_order_relaxed);
             registration.actorId.store(0, std::memory_order_relaxed);
             registration.correctionReported.store(
                 false, std::memory_order_relaxed);
@@ -146,6 +147,7 @@ namespace fable::game::hero_pawn::equipment::hooks
             registration.carrying.store(
                 carryingComponent, std::memory_order_relaxed);
             registration.weapon.store(nullptr, std::memory_order_relaxed);
+            registration.weaponType.store(-1, std::memory_order_relaxed);
             registration.actorId.store(actorId, std::memory_order_relaxed);
             registration.correctionReported.store(
                 false, std::memory_order_relaxed);
@@ -157,7 +159,8 @@ namespace fable::game::hero_pawn::equipment::hooks
 
     bool RemoteRangedWeaponOrientationHook::SetActiveWeapon(
         RegistrationToken token,
-        void* rangedWeapon) noexcept
+        void* rangedWeapon,
+        std::int32_t weaponType) noexcept
     {
         if (token == 0 || token == ReservedToken)
         {
@@ -176,8 +179,32 @@ namespace fable::game::hero_pawn::equipment::hooks
             }
             registration.weapon.store(
                 rangedWeapon, std::memory_order_relaxed);
+            registration.weaponType.store(
+                weaponType, std::memory_order_relaxed);
             registration.correctionReported.store(
                 false, std::memory_order_relaxed);
+            if (rangedWeapon != nullptr)
+            {
+                char detail[224] = {};
+                const char* const policy = weaponType == 4
+                    ? "native-crossbow-basis"
+                    : weaponType == 3
+                        ? "reverse-bow-forward"
+                        : "reverse-unknown-ranged-forward";
+                std::snprintf(
+                    detail,
+                    sizeof(detail),
+                    "actor_id=%llu carrying=%p weapon=%p weapon_type=%d policy=%s",
+                    static_cast<unsigned long long>(
+                        registration.actorId.load(
+                            std::memory_order_relaxed)),
+                    registration.carrying.load(std::memory_order_relaxed),
+                    rangedWeapon,
+                    weaponType,
+                    policy);
+                diagnostics_.Event(
+                    "MultiplayerRemoteRangedOrientationSelected", detail);
+            }
             registration.token.store(token, std::memory_order_release);
             return true;
         }
@@ -204,6 +231,7 @@ namespace fable::game::hero_pawn::equipment::hooks
             }
             registration.carrying.store(nullptr, std::memory_order_relaxed);
             registration.weapon.store(nullptr, std::memory_order_relaxed);
+            registration.weaponType.store(-1, std::memory_order_relaxed);
             registration.actorId.store(0, std::memory_order_relaxed);
             registration.correctionReported.store(
                 false, std::memory_order_relaxed);
@@ -246,6 +274,22 @@ namespace fable::game::hero_pawn::equipment::hooks
         Registration* const registration =
             hook->FindAttachmentMatch(attachment);
         if (registration == nullptr)
+        {
+            return resolved;
+        }
+        // Longbows/shortbows use the opposite forward basis on the promoted
+        // remote Hero. Crossbows already resolve with the native hand basis;
+        // flipping them points the stock toward the target and the bolt back
+        // through the player. Unknown types keep the established bow fallback.
+        constexpr std::int32_t BowWeaponType = 3;
+        constexpr std::int32_t CrossbowWeaponType = 4;
+        const std::int32_t weaponType = registration->weaponType.load(
+            std::memory_order_relaxed);
+        if (weaponType == CrossbowWeaponType)
+        {
+            return resolved;
+        }
+        if (weaponType != BowWeaponType && weaponType != -1)
         {
             return resolved;
         }
@@ -346,15 +390,16 @@ namespace fable::game::hero_pawn::equipment::hooks
         {
             return;
         }
-        char detail[160] = {};
+        char detail[192] = {};
         std::snprintf(
             detail,
             sizeof(detail),
-            "actor_id=%llu carrying=%p weapon=%p correction=yaw-180 stage=final-attachment",
+            "actor_id=%llu carrying=%p weapon=%p weapon_type=%d correction=yaw-180 stage=final-attachment",
             static_cast<unsigned long long>(registration.actorId.load(
                 std::memory_order_relaxed)),
             registration.carrying.load(std::memory_order_relaxed),
-            registration.weapon.load(std::memory_order_relaxed));
+            registration.weapon.load(std::memory_order_relaxed),
+            registration.weaponType.load(std::memory_order_relaxed));
         diagnostics_.Event("MultiplayerRemoteRangedOrientationCorrected", detail);
     }
 

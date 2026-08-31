@@ -120,6 +120,14 @@ namespace
         {
             options.multiplayerTransitionTest = true;
         }
+        else if (argument == L"--multiplayer-map-stress-test")
+        {
+            options.multiplayerMapStressTest = true;
+        }
+        else if (argument == L"--multiplayer-save-test")
+        {
+            options.multiplayerSaveTest = true;
+        }
         else if (argument == L"--multiplayer-authority-test")
         {
             options.multiplayerAuthorityTest = true;
@@ -248,23 +256,37 @@ namespace
         std::wstring& error)
     {
         if (argument != L"--port" && argument != L"--hold" &&
-            argument != L"--timeout")
+            argument != L"--timeout" &&
+            argument != L"--map-stress-seed" &&
+            argument != L"--map-stress-transitions")
         {
             return ParseResult::NotHandled;
         }
         const unsigned long minimum = argument == L"--port" ? 1 :
-            argument == L"--hold" ? 5 : 10;
+            argument == L"--hold" ? 5 :
+            argument == L"--map-stress-seed" ? 1 :
+            argument == L"--map-stress-transitions" ? 3 : 10;
         const unsigned long maximum = argument == L"--port" ? 65'535 :
-            argument == L"--hold" ? 300 : 600;
+            argument == L"--hold" ? 300 :
+            argument == L"--map-stress-seed" ? 0xFFFFFFFFul :
+            argument == L"--map-stress-transitions" ? 60 : 600;
         const wchar_t* missing = argument == L"--port"
             ? L"Missing UDP port after --port"
             : argument == L"--hold"
                 ? L"Missing seconds after --hold"
+                : argument == L"--map-stress-seed"
+                    ? L"Missing integer after --map-stress-seed"
+                    : argument == L"--map-stress-transitions"
+                        ? L"Missing count after --map-stress-transitions"
                 : L"Missing seconds after --timeout";
         const wchar_t* rangeError = argument == L"--port"
             ? L"--port must be between 1 and 65535"
             : argument == L"--hold"
                 ? L"--hold must be between 5 and 300 seconds"
+                : argument == L"--map-stress-seed"
+                    ? L"--map-stress-seed must be between 1 and 4294967295"
+                    : argument == L"--map-stress-transitions"
+                        ? L"--map-stress-transitions must be between 3 and 60"
                 : L"--timeout must be between 10 and 600 seconds";
         unsigned long value = 0;
         if (!ReadNumber(index, argc, argv, missing, minimum, maximum,
@@ -276,6 +298,10 @@ namespace
             static_cast<unsigned short>(value);
         else if (argument == L"--hold") options.dualInstanceHoldSeconds =
             static_cast<unsigned int>(value);
+        else if (argument == L"--map-stress-seed") options.mapStressSeed =
+            static_cast<std::uint32_t>(value);
+        else if (argument == L"--map-stress-transitions")
+            options.mapStressTransitions = static_cast<unsigned int>(value);
         else options.automationTimeoutSeconds = static_cast<unsigned int>(value);
         return ParseResult::Handled;
     }
@@ -353,6 +379,8 @@ namespace
             (options.multiplayerTest ? 1 : 0) +
             (options.multiplayerRosterTest ? 1 : 0) +
             (options.multiplayerTransitionTest ? 1 : 0) +
+            (options.multiplayerMapStressTest ? 1 : 0) +
+            (options.multiplayerSaveTest ? 1 : 0) +
             (options.multiplayerAuthorityTest ? 1 : 0) +
             (options.multiplayerCombatTest ? 1 : 0) +
             (options.multiplayerHeroWillTest ? 1 : 0) +
@@ -424,6 +452,8 @@ namespace
             options.multiplayerTest ||
             options.multiplayerRosterTest ||
             options.multiplayerTransitionTest ||
+            options.multiplayerMapStressTest ||
+            options.multiplayerSaveTest ||
             options.multiplayerAuthorityTest ||
             options.multiplayerCombatTest ||
             options.multiplayerHeroWillTest ||
@@ -499,6 +529,12 @@ namespace
             error = L"--player-id and --appearance require --host or --join";
             return false;
         }
+        if (!options.multiplayerMapStressTest &&
+            (options.mapStressSeed != 0 || options.mapStressTransitions != 12))
+        {
+            error = L"--map-stress-seed and --map-stress-transitions require --multiplayer-map-stress-test";
+            return false;
+        }
         ApplyMultiplayerDefaults(options);
         return ValidateFixtureConstraints(options, error);
     }
@@ -564,6 +600,10 @@ void PrintUsage()
         << L"  --multiplayer-test  Load two adult-town peers and prove remote locomotion\n"
         << L"  --multiplayer-roster-test  Load a host and two guests and prove guest-to-guest relay\n"
         << L"  --multiplayer-transition-test  Transition both peers and prove destination replication\n"
+        << L"  --multiplayer-map-stress-test  Repeatedly split, reunite, and jointly roam two peers through random connected maps\n"
+        << L"  --multiplayer-save-test  Save both players into the host world, restart, and prove both saves reload together\n"
+        << L"  --map-stress-seed <n>  Replay a map-stress route with a known seed\n"
+        << L"  --map-stress-transitions <n>  Map requests per peer from 3 to 60 (default: 12)\n"
         << L"  --multiplayer-authority-test  Move only the host away and prove guest NPC ownership handoff\n"
         << L"  --multiplayer-combat-test  Attack from the guest and prove per-NPC authority handoff\n"
         << L"  --multiplayer-hero-will-test  Run only the Chamber Hero Will capture/replay sequence\n"

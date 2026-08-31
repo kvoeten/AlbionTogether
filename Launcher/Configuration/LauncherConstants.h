@@ -5,7 +5,7 @@
 namespace fable::launcher {
 inline constexpr wchar_t kGameExecutableName[] = L"Fable Anniversary.exe";
 inline constexpr wchar_t kClientDllName[] = L"AlbionTogether.Client.dll";
-inline constexpr wchar_t kLauncherVersion[] = L"v0.1.0-alpha.12";
+inline constexpr wchar_t kLauncherVersion[] = L"v0.1.0-alpha.13";
 inline constexpr wchar_t kDiscordUrl[] = L"https://discord.gg/5JSKmjKd85";
 inline constexpr wchar_t kClientModeEnvironment[] =
     L"ALBIONTOGETHER_CLIENT_MODE";
@@ -37,6 +37,10 @@ inline constexpr wchar_t kMultiplayerPlayerIdEnvironment[] =
     L"ALBIONTOGETHER_MULTIPLAYER_PLAYER_ID";
 inline constexpr wchar_t kMultiplayerAppearanceEnvironment[] =
     L"ALBIONTOGETHER_MULTIPLAYER_APPEARANCE";
+inline constexpr wchar_t kMapStressSeedEnvironment[] =
+    L"ALBIONTOGETHER_MAP_STRESS_SEED";
+inline constexpr wchar_t kMapStressTransitionsEnvironment[] =
+    L"ALBIONTOGETHER_MAP_STRESS_TRANSITIONS";
 inline constexpr wchar_t kManualPlaytestEnvironment[] =
     L"ALBIONTOGETHER_MANUAL_PLAYTEST";
 inline constexpr wchar_t kHeroWillPillarOnlyEnvironment[] =

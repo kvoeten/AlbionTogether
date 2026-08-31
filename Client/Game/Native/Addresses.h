@@ -13,6 +13,7 @@ namespace fable::game::native
         inline constexpr std::uintptr_t GameScriptInterfaceVtable = 0x02AE35C4;
         inline constexpr std::uintptr_t CharStringConstructor = 0x012B7800;
         inline constexpr std::uintptr_t CharStringDestructor = 0x012B75D0;
+        inline constexpr std::uintptr_t WideStringDestructor = 0x0134EFD0;
         inline constexpr std::uintptr_t DefinitionNameByIndex = 0x012CB160;
         inline constexpr std::uintptr_t DefinitionIndexByName = 0x012CC3C0;
         inline constexpr std::uintptr_t DefinitionByIndex = 0x01719230;
@@ -61,6 +62,12 @@ namespace fable::game::native
         inline constexpr std::uintptr_t IsQuestRegistered = 0x01891E60;
         inline constexpr std::uintptr_t IsQuestCompleted = 0x01891E70;
         inline constexpr std::uintptr_t IsQuestFailed = 0x01891E80;
+        inline constexpr std::uintptr_t AutoSave = 0x0188C510;
+        inline constexpr std::uintptr_t WorldSaveGameStateManual =
+            0x01BA35B0;
+        inline constexpr std::uintptr_t UserProfileManager = 0x01B9B3C0;
+        inline constexpr std::uintptr_t UserProfileGetAutoSavePathName =
+            0x01B918F0;
         inline constexpr std::uintptr_t ScriptThingVtable = 0x02A5CBF4;
         inline constexpr std::uintptr_t ScriptThingDestructor = 0x0135C7A7;
         inline constexpr std::uintptr_t ScriptThingGetName = 0x0135B8C4;
@@ -124,6 +131,7 @@ namespace fable::game::native
         inline constexpr std::size_t IsQuestRegistered = 300;
         inline constexpr std::size_t IsQuestCompleted = 301;
         inline constexpr std::size_t IsQuestFailed = 302;
+        inline constexpr std::size_t AutoSave = 728;
     }
 
     namespace script_thing_slot

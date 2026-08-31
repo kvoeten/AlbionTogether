@@ -7,7 +7,9 @@ namespace fable::multiplayer::entities
     void EntityNetworkIdentityRegistry::Initialize(
         const core::Diagnostics& diagnostics)
     {
-        Clear();
+        localToCanonical_.clear();
+        canonicalToLocal_.clear();
+        revision_ = 1;
         diagnostics_ = diagnostics;
     }
 
@@ -51,8 +53,17 @@ namespace fable::multiplayer::entities
             return false;
         }
 
+        const bool inserted = local == localToCanonical_.end();
         localToCanonical_[localUid] = canonicalUid;
         canonicalToLocal_[canonicalUid] = localUid;
+        if (inserted)
+        {
+            ++revision_;
+            if (revision_ == 0)
+            {
+                ++revision_;
+            }
+        }
         return true;
     }
 
@@ -110,6 +121,11 @@ namespace fable::multiplayer::entities
         }
         canonicalToLocal_.erase(local->second);
         localToCanonical_.erase(local);
+        ++revision_;
+        if (revision_ == 0)
+        {
+            ++revision_;
+        }
     }
 
     void EntityNetworkIdentityRegistry::ForgetCanonical(
@@ -122,6 +138,11 @@ namespace fable::multiplayer::entities
         }
         localToCanonical_.erase(canonical->second);
         canonicalToLocal_.erase(canonical);
+        ++revision_;
+        if (revision_ == 0)
+        {
+            ++revision_;
+        }
     }
 
     std::size_t EntityNetworkIdentityRegistry::Size() const noexcept
@@ -129,10 +150,25 @@ namespace fable::multiplayer::entities
         return localToCanonical_.size();
     }
 
+    std::uint64_t EntityNetworkIdentityRegistry::Revision() const noexcept
+    {
+        return revision_;
+    }
+
     void EntityNetworkIdentityRegistry::Clear() noexcept
     {
+        const bool changed = !localToCanonical_.empty() ||
+            !canonicalToLocal_.empty();
         localToCanonical_.clear();
         canonicalToLocal_.clear();
+        if (changed)
+        {
+            ++revision_;
+            if (revision_ == 0)
+            {
+                ++revision_;
+            }
+        }
         diagnostics_ = {};
     }
 }

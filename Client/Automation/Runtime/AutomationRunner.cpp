@@ -4,7 +4,9 @@
 #include "Automation/Multiplayer/Abilities/HeroWillAbilityAcceptanceDriver.h"
 #include "Automation/Multiplayer/Combat/CombatTargetAcceptanceDriver.h"
 #include "Automation/Multiplayer/Combat/CombatVisualExchangeDriver.h"
+#include "Automation/Multiplayer/Persistence/SaveAcceptanceDriver.h"
 #include "Automation/Multiplayer/Transition/NpcTransferAcceptanceDriver.h"
+#include "Automation/Multiplayer/Transition/MapStressAcceptanceDriver.h"
 #include "Automation/Runtime/RuntimeConfiguration.h"
 #include "Game/Runtime/GameServiceRuntime.h"
 #include "Multiplayer/Runtime/MultiplayerSession.h"
@@ -21,6 +23,8 @@ namespace fable::automation::runtime
         ::fable::automation::multiplayer::combat::CombatVisualExchangeDriver combatVisual;
         ::fable::automation::multiplayer::abilities::HeroWillAbilityAcceptanceDriver heroWill;
         ::fable::automation::multiplayer::transition::NpcTransferAcceptanceDriver npcTransfer;
+        ::fable::automation::multiplayer::transition::MapStressAcceptanceDriver mapStress;
+        ::fable::automation::multiplayer::persistence::SaveAcceptanceDriver save;
         ::fable::multiplayer::MultiplayerSession* multiplayer = nullptr;
         ::fable::core::Diagnostics diagnostics = {};
         bool heroWillFocused = false;
@@ -102,12 +106,36 @@ namespace fable::automation::runtime
             services.Npcs(),
             multiplayer,
             diagnostics);
+        const bool mapStress =
+            configuration.ScenarioIs(L"multiplayer_host_map_stress") ||
+            configuration.ScenarioIs(L"multiplayer_guest_map_stress");
+        state_->mapStress.Initialize(
+            mapStress,
+            configuration.ScenarioIs(L"multiplayer_host_map_stress"),
+            configuration.MapStressSeed(),
+            configuration.MapStressTransitions(),
+            services.Entities(),
+            multiplayer,
+            diagnostics);
+        const bool hostSave =
+            configuration.ScenarioIs(L"multiplayer_host_save");
+        const bool guestSave =
+            configuration.ScenarioIs(L"multiplayer_guest_save");
+        state_->save.Initialize(
+            hostSave || guestSave,
+            hostSave,
+            services.Entities(),
+            services.Players(),
+            multiplayer,
+            diagnostics);
         return true;
     }
 
     void AutomationRunner::Tick(float deltaSeconds, bool remotePresentationReady) noexcept
     {
         state_->npcTransfer.Tick(remotePresentationReady);
+        state_->mapStress.Tick();
+        state_->save.Tick(remotePresentationReady);
         state_->transition.Tick(deltaSeconds, remotePresentationReady);
         if (state_->combatVisual.WantsTargetDeath())
         {
@@ -122,6 +150,13 @@ namespace fable::automation::runtime
                 : state_->combatVisual.IsComplete());
     }
 
+    bool AutomationRunner::ProcessGameThreadIdle() noexcept
+    {
+        return state_ != nullptr &&
+            (state_->save.ProcessGameThreadIdle() ||
+                state_->mapStress.ProcessGameThreadIdle());
+    }
+
     void AutomationRunner::Shutdown() noexcept
     {
         if (state_ == nullptr)
@@ -129,6 +164,8 @@ namespace fable::automation::runtime
             return;
         }
         state_->npcTransfer.Shutdown();
+        state_->save.Shutdown();
+        state_->mapStress.Shutdown();
         state_->heroWill.Shutdown();
         state_->combatVisual.Shutdown();
         state_->combatTarget.Shutdown();

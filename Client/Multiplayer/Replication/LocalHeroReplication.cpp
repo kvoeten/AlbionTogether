@@ -267,11 +267,14 @@ namespace fable::multiplayer::replication
 
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
+            const std::uint64_t capturedAt = GetTickCount64();
             channel_->Open(
                 actorId_, authorityEpoch_, role_, playerId_,
                 appearanceDefinition_,
                 heroMorph, heroClothing, heroBoneScales, modifiers, equipment,
-                mapName_, mapId_, position, facing, GetTickCount64());
+                mapName_, mapId_, position, facing, capturedAt,
+                protocol::ToSessionTime(
+                    transport_->LocalToSessionTimeMilliseconds(capturedAt)));
         }
 
         if (!combatants_->Bind(actorId_, nativeHero_))
@@ -428,7 +431,9 @@ namespace fable::multiplayer::replication
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
             channel_->CaptureMovement(
-                mapName, position, ReadHeroFacing(), now);
+                mapName, position, ReadHeroFacing(), now,
+                protocol::ToSessionTime(
+                    transport_->LocalToSessionTimeMilliseconds(now)));
             if (!channel_->TakeDirtyUpdate(update))
             {
                 return;
@@ -645,6 +650,7 @@ namespace fable::multiplayer::replication
         }
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
+            equipment.transitionActionId = equipmentTransition_.actionId;
             if (!channel_->CaptureEquipment(equipment))
             {
                 return;
@@ -913,6 +919,10 @@ namespace fable::multiplayer::replication
         equipmentReady_ = false;
         equipmentDirty_.store(false, std::memory_order_release);
         lastEquipmentMutationAt_.store(0, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(ownerStateMutex_);
+            equipmentTransition_ = {};
+        }
         nativePresenceObserved_ = false;
         nextBindDiagnosticAt_ = 0;
         nextAppearanceCaptureAt_ = 0;
@@ -950,6 +960,45 @@ namespace fable::multiplayer::replication
         appearanceDirty_.store(false, std::memory_order_release);
         equipmentDirty_.store(false, std::memory_order_release);
         lastEquipmentMutationAt_.store(0, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(ownerStateMutex_);
+            equipmentTransition_ = {};
+        }
+    }
+
+    void LocalHeroReplication::MarkEquipmentTransition(
+        const std::uint64_t actionId,
+        const protocol::SessionTimeMs startedAtSessionTimeMs,
+        const std::uint32_t animationId,
+        const std::uint16_t durationMs,
+        const std::uint16_t attachmentNotifyOffsetMs) noexcept
+    {
+        LocalEquipmentTransition transition;
+        transition.actionId = actionId;
+        transition.startedAtSessionTimeMs = startedAtSessionTimeMs;
+        transition.animationId = animationId;
+        transition.durationMs = durationMs;
+        transition.attachmentNotifyOffsetMs = attachmentNotifyOffsetMs;
+        if (!transition.IsPresent())
+        {
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(ownerStateMutex_);
+            if (transition.actionId <= equipmentTransition_.actionId)
+            {
+                return;
+            }
+            equipmentTransition_ = transition;
+        }
+        equipmentDirty_.store(true, std::memory_order_release);
+    }
+
+    LocalEquipmentTransition LocalHeroReplication::EquipmentTransition()
+        noexcept
+    {
+        std::lock_guard<std::mutex> lock(ownerStateMutex_);
+        return equipmentTransition_;
     }
 
     bool LocalHeroReplication::IsWorldReady() const noexcept
