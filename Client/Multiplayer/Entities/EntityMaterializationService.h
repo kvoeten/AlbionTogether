@@ -19,6 +19,11 @@ namespace fable::game::npc::village
     class VillageMembershipService;
 }
 
+namespace fable::game::npc::simulation
+{
+    class DummyVillagerService;
+}
+
 namespace fable::multiplayer::authority
 {
     class AuthorityReplication;
@@ -46,6 +51,7 @@ namespace fable::multiplayer::entities
             game::EntityService& entities,
             EntityPresenceReplication& presence,
             EntityNetworkIdentityRegistry& identities,
+            game::npc::simulation::DummyVillagerService& dummyVillagers,
             game::npc::village::VillageMembershipService& villages,
             const core::Diagnostics& diagnostics);
         bool Reconcile(
@@ -90,12 +96,18 @@ namespace fable::multiplayer::entities
             std::uint16_t localMapId) noexcept;
         bool EnsurePresent(
             const WorldEntityRecord& record,
+            const WorldEntityDirectory& directory,
             const LiveEntityRegistry& liveEntities,
             const std::string& localMap,
             std::uint64_t now);
-        bool AdoptByScriptName(
+        bool AdoptByScriptIdentity(
             const WorldEntityRecord& record,
-            const std::string& definitionName,
+            const WorldEntityDirectory& directory,
+            const LiveEntityRegistry& liveEntities,
+            const std::string& localMap);
+        bool AdoptBySimulationIdentity(
+            const WorldEntityRecord& record,
+            const LiveEntityRegistry& liveEntities,
             const std::string& localMap);
         bool Spawn(
             const WorldEntityRecord& record,
@@ -119,7 +131,6 @@ namespace fable::multiplayer::entities
             const LiveEntityRegistry& liveEntities,
             const std::string& localMap,
             std::uint16_t localMapId,
-            bool removeAbsentLocalEntities,
             std::uint64_t now);
         [[nodiscard]] bool RosterMatches(
             const WorldEntityDirectory& directory,
@@ -141,6 +152,8 @@ namespace fable::multiplayer::entities
         game::EntityService* entities_ = nullptr;
         EntityPresenceReplication* presence_ = nullptr;
         EntityNetworkIdentityRegistry* identities_ = nullptr;
+        game::npc::simulation::DummyVillagerService* dummyVillagers_ =
+            nullptr;
         game::npc::village::VillageMembershipService* villages_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;

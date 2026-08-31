@@ -129,6 +129,8 @@ namespace fable::game::npc::simulation::native
         {
             const auto* const bytes = static_cast<const std::uint8_t*>(
                 component);
+            state.creatureUid = *reinterpret_cast<const std::uint64_t*>(
+                bytes + CreatureUidOffset);
             state.recreationDay = *reinterpret_cast<const std::int32_t*>(
                 bytes + RecreationDayOffset);
             state.recreationFrame = *reinterpret_cast<const std::int32_t*>(

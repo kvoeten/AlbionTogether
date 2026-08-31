@@ -30,6 +30,7 @@ namespace fable::multiplayer::entities
         void ForgetLocal(std::uint64_t localUid) noexcept;
         void ForgetCanonical(std::uint64_t canonicalUid) noexcept;
         [[nodiscard]] std::size_t Size() const noexcept;
+        [[nodiscard]] std::uint64_t Revision() const noexcept;
         void Clear() noexcept;
 
     private:
@@ -38,5 +39,6 @@ namespace fable::multiplayer::entities
         core::Diagnostics diagnostics_ = {};
         std::unordered_map<std::uint64_t, std::uint64_t> localToCanonical_;
         std::unordered_map<std::uint64_t, std::uint64_t> canonicalToLocal_;
+        std::uint64_t revision_ = 0;
     };
 }

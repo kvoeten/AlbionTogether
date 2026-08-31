@@ -390,7 +390,7 @@ namespace fable::game::npc::simulation
             {
                 uid = *reinterpret_cast<const std::uint64_t*>(
                     static_cast<const std::uint8_t*>(thing) + native::
-                        DummyVillagerFunctions::ThingUidOffset);
+                        DummyVillagerFunctions::OwnerThingUidOffset);
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

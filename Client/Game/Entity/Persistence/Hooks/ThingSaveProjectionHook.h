@@ -13,15 +13,16 @@
 
 namespace fable::game::entity::persistence
 {
-    // Projects a host-authoritative map ID at CThing's retail persistence
-    // boundaries. Save projection is temporary; load projection becomes the
-    // Thing's placement before derived creature construction completes.
+    // Projects the session's host-authoritative map ID at CThing's retail
+    // persistence boundaries. Save projection is temporary; load projection
+    // becomes the Thing's placement before derived creature construction.
     class ThingSaveProjectionHook final
     {
     public:
         using MapOverrideSink = bool(*)(
             void* context,
             std::uint64_t thingUid,
+            std::uint64_t simulationCreatureUid,
             std::uint16_t definitionIndex,
             const char* scriptName,
             std::uint16_t& mapId);

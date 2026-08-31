@@ -48,6 +48,8 @@
     <ClCompile Include="Multiplayer\Scenarios\BasicScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\RosterScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\TransitionScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\MapStressScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Scenarios\SaveScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\AuthorityScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\CombatScenario.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Scenarios\RunMultiplayerTest.cpp"><Filter>Source Files\Multiplayer\Scenarios</Filter></ClCompile>

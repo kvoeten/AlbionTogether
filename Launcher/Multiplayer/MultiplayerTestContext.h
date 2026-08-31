@@ -2,6 +2,7 @@
 
 #include "../Runtime/GameProcess.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -18,7 +19,9 @@ enum class MultiplayerScenario
     Authority,
     Combat,
     HeroWill,
-    ManualRoster
+    ManualRoster,
+    MapStress,
+    Save
 };
 
 struct MultiplayerTestContext final
@@ -30,6 +33,8 @@ struct MultiplayerTestContext final
     std::wstring sessionId;
     unsigned short port = 38171;
     unsigned int timeoutSeconds = 120;
+    std::uint32_t mapStressSeed = 0;
+    unsigned int mapStressTransitions = 12;
     MultiplayerScenario scenario = MultiplayerScenario::Basic;
     std::vector<std::wstring> gameArguments;
 };

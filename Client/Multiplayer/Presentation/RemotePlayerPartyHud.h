@@ -57,6 +57,7 @@ namespace fable::multiplayer::presentation
         core::Diagnostics diagnostics_ = {};
         std::unordered_map<std::uint64_t, Entry> entries_;
         std::uint64_t localActorId_ = 0;
+        std::uint64_t nativeHudReadyAt_ = 0;
         bool worldTransitionActive_ = false;
     };
 }

@@ -19,7 +19,7 @@ namespace fable::launcher::diagnostics
             0x22, 0x16, 0xF5, 0xD2, 0x51, 0x58, 0xEF, 0xD1,
             0x2B, 0xA4, 0x8B, 0x70, 0x13, 0x09, 0x89, 0xF2};
 
-        bool Sha256File(
+        bool Sha256FileInternal(
             const std::filesystem::path& path,
             std::array<std::uint8_t, 32>& digest)
         {
@@ -119,6 +119,13 @@ namespace fable::launcher::diagnostics
             }
             return succeeded;
         }
+    }
+
+    bool Sha256File(
+        const std::filesystem::path& path,
+        std::array<std::uint8_t, 32>& digest)
+    {
+        return Sha256FileInternal(path, digest);
     }
 
     GameCompatibilityResult CheckGameCompatibility(

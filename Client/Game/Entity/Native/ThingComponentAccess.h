@@ -35,6 +35,10 @@ namespace fable::game::entity::native
         HeroOpinionDeedLog = 0x51,
         AnimationComplex = 0x5A,
         HeroAttachableAppearanceModifiers = 0x5E,
+        // CTCDRegionExit is the native connected-level boundary driver. The
+        // multiplayer map stress fixture discovers these components on live
+        // map Things and asks the retail transition path to use one directly.
+        RegionExit = 0x64,
         ActivationTrigger = 0x66,
         // CTCInventoryAbilities owns the Hero's per-ability unlock records.
         HeroAbilityInventory = 0x6F,

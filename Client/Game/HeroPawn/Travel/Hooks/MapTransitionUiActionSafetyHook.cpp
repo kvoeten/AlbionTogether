@@ -273,4 +273,5 @@ namespace fable::game::hero_pawn::travel::hooks
             "MapTransitionUiActionAllowedWithoutRegistry",
             detail);
     }
+
 }

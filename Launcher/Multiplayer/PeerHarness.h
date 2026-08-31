@@ -16,6 +16,11 @@ struct Peer final
     std::wstring scenario;
     std::filesystem::path root;
     std::filesystem::path events;
+    std::filesystem::path autoSave;
+    std::filesystem::file_time_type initialAutoSaveWriteTime = {};
+    std::uintmax_t initialAutoSaveSize = 0;
+    std::array<std::uint8_t, 32> initialAutoSaveDigest = {};
+    bool initialAutoSaveCaptured = false;
     runtime::LaunchedGame game;
 };
 
@@ -42,6 +47,8 @@ class PeerHarness final
     bool IsResponsive(Peer &peer);
     bool Position(Peer &peer, int x, int y = 0);
     bool Stop(Peer &peer);
+    bool PrepareRelaunch(Peer& peer, const wchar_t* scenario);
+    bool WaitForAutoSaveWrite(Peer& peer);
     bool StopAll();
 
     const MultiplayerTestContext &context() const

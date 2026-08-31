@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 
+#include <cstdint>
 #include <string>
 
 namespace fable::automation::runtime
@@ -33,6 +34,8 @@ namespace fable::automation::runtime
         [[nodiscard]] const std::wstring& MultiplayerPlayerId() const noexcept;
         [[nodiscard]] const std::wstring& MultiplayerAppearance() const noexcept;
         [[nodiscard]] unsigned short MultiplayerPort() const noexcept;
+        [[nodiscard]] std::uint32_t MapStressSeed() const noexcept;
+        [[nodiscard]] unsigned int MapStressTransitions() const noexcept;
         [[nodiscard]] bool MorphSelfTest() const noexcept;
         [[nodiscard]] bool ManualPlaytest() const noexcept;
         [[nodiscard]] bool ShowConsole() const noexcept;
@@ -61,6 +64,8 @@ namespace fable::automation::runtime
         std::wstring multiplayerPlayerId_;
         std::wstring multiplayerAppearance_;
         unsigned short multiplayerPort_ = 0;
+        std::uint32_t mapStressSeed_ = 0;
+        unsigned int mapStressTransitions_ = 0;
         bool morphSelfTest_ = false;
         bool manualPlaytest_ = false;
         bool showConsole_ = true;

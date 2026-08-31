@@ -14,6 +14,7 @@
     <Filter Include="Automation\LocalInstance\Native"><UniqueIdentifier>{F3099718-7D94-4F5C-BD66-0FB9C922698E}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Multiplayer"><UniqueIdentifier>{D0A9A646-06DE-4F72-9139-6259B1581C19}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Multiplayer\Combat"><UniqueIdentifier>{E7CE0FE3-CF60-45B0-8CDD-5175324167B8}</UniqueIdentifier></Filter>
+    <Filter Include="Automation\Multiplayer\Persistence"><UniqueIdentifier>{27B5639A-C610-48F4-8366-E4219D16D97F}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Multiplayer\Transition"><UniqueIdentifier>{5B282DB8-DB8E-4A4B-A4DF-46EF1B806A83}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Runtime"><UniqueIdentifier>{9A87905D-F8F4-4D54-A3E8-534742B7D5B4}</UniqueIdentifier></Filter>
     <Filter Include="Automation\TransformProbe"><UniqueIdentifier>{B6E201C9-2D3A-4A0F-9D89-7F0D7A6A4A27}</UniqueIdentifier></Filter>
@@ -92,6 +93,8 @@
     <Filter Include="Game\Math"><UniqueIdentifier>{B4C53DFB-E661-444D-9890-5ED31E6017C7}</UniqueIdentifier></Filter>
     <Filter Include="Game\Math\Bindings"><UniqueIdentifier>{011DAC29-96EA-42EA-8170-A86383FA22D4}</UniqueIdentifier></Filter>
     <Filter Include="Game\Native"><UniqueIdentifier>{E34F1CC3-EA47-469E-B56C-A7A7A91272BA}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Persistence"><UniqueIdentifier>{E9CA2B12-3FFD-417A-A66A-5356BDD6FD8D}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Persistence\Native"><UniqueIdentifier>{823D0C5D-6007-4DA8-8114-A437A3F605D7}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC"><UniqueIdentifier>{4AECC3C6-F4D7-4697-B783-FCC451C738F0}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Conversation"><UniqueIdentifier>{DC21A4DF-C607-48B2-80C9-E78C92C85384}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Conversation\Native"><UniqueIdentifier>{3D031C54-42BD-450F-854B-E26FA383D9D5}</UniqueIdentifier></Filter>
@@ -169,7 +172,9 @@
     <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp"><Filter>Automation\LocalInstance\Native</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Combat\CombatTargetAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Combat</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.cpp"><Filter>Automation\Multiplayer\Combat</Filter></ClCompile>
+    <ClCompile Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Transition</Filter></ClCompile>
+    <ClCompile Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Transition</Filter></ClCompile>
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp"><Filter>Core\Capabilities</Filter></ClCompile>
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp"><Filter>Core\Diagnostics</Filter></ClCompile>
@@ -289,10 +294,12 @@
     <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp"><Filter>Game\Player\Input\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp"><Filter>Game\Player\Input\Native</Filter></ClCompile>
     <ClCompile Include="Game\Quest\QuestService.cpp"><Filter>Game\Quest</Filter></ClCompile>
+    <ClCompile Include="Game\Persistence\Native\AutoSaveFunction.cpp"><Filter>Game\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\Quest\Bindings\QuestBindings.cpp"><Filter>Game\Quest\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\World\WorldService.cpp"><Filter>Game\World</Filter></ClCompile>
     <ClCompile Include="Game\World\Travel\Hooks\WorldTravelObserver.cpp"><Filter>Game\World\Travel\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\World\Travel\Native\WorldTravelFunctions.cpp"><Filter>Game\World\Travel\Native</Filter></ClCompile>
+    <ClCompile Include="Game\World\Travel\Native\RegionExitFunctions.cpp"><Filter>Game\World\Travel\Native</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Entities\EntityPresenceReplication.cpp"><Filter>Multiplayer\Entities</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Entities\EntityLifecycleReplication.cpp"><Filter>Multiplayer\Entities</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Entities\EntityMaterializationService.cpp"><Filter>Multiplayer\Entities</Filter></ClCompile>
@@ -405,7 +412,9 @@
     <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h"><Filter>Automation\LocalInstance\Native</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Combat\CombatTargetAcceptanceDriver.h"><Filter>Automation\Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.h"><Filter>Automation\Multiplayer\Combat</Filter></ClInclude>
+    <ClInclude Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.h"><Filter>Automation\Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
+    <ClInclude Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h"><Filter>Automation\Runtime</Filter></ClInclude>
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h"><Filter>Core\Capabilities</Filter></ClInclude>
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h"><Filter>Core\Diagnostics</Filter></ClInclude>
@@ -546,10 +555,12 @@
     <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h"><Filter>Game\Player\Input\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h"><Filter>Game\Player\Input\Native</Filter></ClInclude>
     <ClInclude Include="Game\Quest\QuestService.h"><Filter>Game\Quest</Filter></ClInclude>
+    <ClInclude Include="Game\Persistence\Native\AutoSaveFunction.h"><Filter>Game\Persistence\Native</Filter></ClInclude>
     <ClInclude Include="Game\Quest\Bindings\QuestBindings.h"><Filter>Game\Quest\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\World\WorldService.h"><Filter>Game\World</Filter></ClInclude>
     <ClInclude Include="Game\World\Travel\Hooks\WorldTravelObserver.h"><Filter>Game\World\Travel\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\World\Travel\Native\WorldTravelFunctions.h"><Filter>Game\World\Travel\Native</Filter></ClInclude>
+    <ClInclude Include="Game\World\Travel\Native\RegionExitFunctions.h"><Filter>Game\World\Travel\Native</Filter></ClInclude>
     <ClInclude Include="Game\World\Travel\WorldTravelPreparation.h"><Filter>Game\World\Travel</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Entities\EntityPresenceReplication.h"><Filter>Multiplayer\Entities</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Entities\EntityLifecycleReplication.h"><Filter>Multiplayer\Entities</Filter></ClInclude>

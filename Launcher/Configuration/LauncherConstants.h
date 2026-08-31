@@ -37,6 +37,10 @@ inline constexpr wchar_t kMultiplayerPlayerIdEnvironment[] =
     L"ALBIONTOGETHER_MULTIPLAYER_PLAYER_ID";
 inline constexpr wchar_t kMultiplayerAppearanceEnvironment[] =
     L"ALBIONTOGETHER_MULTIPLAYER_APPEARANCE";
+inline constexpr wchar_t kMapStressSeedEnvironment[] =
+    L"ALBIONTOGETHER_MAP_STRESS_SEED";
+inline constexpr wchar_t kMapStressTransitionsEnvironment[] =
+    L"ALBIONTOGETHER_MAP_STRESS_TRANSITIONS";
 inline constexpr wchar_t kManualPlaytestEnvironment[] =
     L"ALBIONTOGETHER_MANUAL_PLAYTEST";
 inline constexpr wchar_t kHeroWillPillarOnlyEnvironment[] =

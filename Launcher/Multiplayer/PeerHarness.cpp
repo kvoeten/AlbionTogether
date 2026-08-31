@@ -2,6 +2,7 @@
 
 #include "../Automation/InputStimulus.h"
 #include "../Configuration/LauncherConstants.h"
+#include "../Diagnostics/GameCompatibility.h"
 #include "../Platform/Win32Error.h"
 
 #include <Windows.h>
@@ -162,6 +163,10 @@ const wchar_t *ScenarioName(const MultiplayerTestContext &context, bool host)
         return host ? L"multiplayer_host_authority" : L"multiplayer_guest_authority";
     case MultiplayerScenario::Transition:
         return host ? L"multiplayer_host_transition" : L"multiplayer_guest_transition";
+    case MultiplayerScenario::MapStress:
+        return host ? L"multiplayer_host_map_stress" : L"multiplayer_guest_map_stress";
+    case MultiplayerScenario::Save:
+        return host ? L"multiplayer_host_save" : L"multiplayer_guest_save";
     default:
         return prefix;
     }
@@ -188,6 +193,8 @@ Peer PeerHarness::MakePeer(const wchar_t *instance, const wchar_t *player, const
     peer.scenario = scenario;
     peer.root = context_.sessionRoot / instance;
     peer.events = peer.root / L"events.jsonl";
+    peer.autoSave = peer.root / L"Documents" / L"My Games" /
+        L"FableHD" / L"Saves" / L"Hero1" / L"AutoSave";
     return peer;
 }
 
@@ -205,7 +212,21 @@ bool PeerHarness::PreparePeer(Peer &peer)
             context_.fixtureDocumentsSource, peer.root / L"Documents",
             std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
     }
-    return !error;
+    if (!error)
+    {
+        peer.initialAutoSaveWriteTime =
+            std::filesystem::last_write_time(peer.autoSave, error);
+    }
+    if (!error)
+    {
+        peer.initialAutoSaveSize =
+            std::filesystem::file_size(peer.autoSave, error);
+    }
+    peer.initialAutoSaveCaptured = !error &&
+        diagnostics::Sha256File(
+            peer.autoSave,
+            peer.initialAutoSaveDigest);
+    return peer.initialAutoSaveCaptured;
 }
 
 bool PeerHarness::SpawnPeer(Peer &peer, const wchar_t *address)
@@ -227,6 +248,8 @@ bool PeerHarness::SpawnPeer(Peer &peer, const wchar_t *address)
     spec.multiplayerPort = context_.port;
     spec.multiplayerPlayerId = peer.player;
     spec.multiplayerAppearance = kRemoteHeroDefinition;
+    spec.mapStressSeed = context_.mapStressSeed;
+    spec.mapStressTransitions = context_.mapStressTransitions;
     spec.arguments = context_.gameArguments;
     return runtime::SpawnGame(spec, peer.game);
 }
@@ -401,6 +424,85 @@ bool PeerHarness::Stop(Peer &peer)
         peer.game.window = nullptr;
     }
     return stopped;
+}
+
+bool PeerHarness::PrepareRelaunch(
+    Peer& peer,
+    const wchar_t* const scenario)
+{
+    if (peer.game.process.valid() || scenario == nullptr ||
+        scenario[0] == L'\0')
+    {
+        return false;
+    }
+    std::error_code error;
+    std::filesystem::remove(peer.events, error);
+    if (error)
+    {
+        return false;
+    }
+    std::filesystem::remove(peer.root / L"client.log", error);
+    if (error)
+    {
+        return false;
+    }
+    peer.scenario = scenario;
+    return true;
+}
+
+bool PeerHarness::WaitForAutoSaveWrite(Peer& peer)
+{
+    if (!peer.initialAutoSaveCaptured)
+    {
+        return false;
+    }
+
+    const ULONGLONG deadline = GetTickCount64() +
+        static_cast<ULONGLONG>(context_.timeoutSeconds) * 1'000;
+    std::filesystem::file_time_type lastWrite = {};
+    std::uintmax_t lastSize = 0;
+    std::array<std::uint8_t, 32> lastDigest = {};
+    ULONGLONG stableSince = 0;
+    while (GetTickCount64() < deadline)
+    {
+        if (!IsAlive(peer))
+        {
+            std::wcerr << L"Multiplayer " << peer.instance
+                       << L" exited while its native save was being written.\n";
+            return false;
+        }
+
+        std::error_code error;
+        const auto writeTime =
+            std::filesystem::last_write_time(peer.autoSave, error);
+        const std::uintmax_t size = !error
+            ? std::filesystem::file_size(peer.autoSave, error)
+            : 0;
+        std::array<std::uint8_t, 32> digest = {};
+        const bool digestRead = !error && size != 0 &&
+            diagnostics::Sha256File(peer.autoSave, digest);
+        if (digestRead && digest != peer.initialAutoSaveDigest)
+        {
+            const ULONGLONG now = GetTickCount64();
+            if (writeTime != lastWrite || size != lastSize ||
+                digest != lastDigest)
+            {
+                lastWrite = writeTime;
+                lastSize = size;
+                lastDigest = digest;
+                stableSince = now;
+            }
+            else if (stableSince != 0 && now - stableSince >= 2'000)
+            {
+                return size != 0;
+            }
+        }
+        Sleep(250);
+    }
+
+    std::wcerr << L"Timed out waiting for multiplayer " << peer.instance
+               << L" to finish writing AutoSave.\n";
+    return false;
 }
 
 bool PeerHarness::StopAll()

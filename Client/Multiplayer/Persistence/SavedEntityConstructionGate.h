@@ -51,6 +51,8 @@ namespace fable::multiplayer::persistence
         void Shutdown() noexcept;
 
     private:
+        static constexpr std::uint64_t MaximumHoldMilliseconds = 30'000;
+
         static void AwaitPostLoad(
             void* context,
             const game::entity::persistence::SavedEntityMapCollectionEvent&

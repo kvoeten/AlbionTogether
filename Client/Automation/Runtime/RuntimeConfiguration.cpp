@@ -36,6 +36,10 @@ namespace
         L"ALBIONTOGETHER_MORPH_SELF_TEST";
     constexpr wchar_t kManualPlaytestEnvironment[] =
         L"ALBIONTOGETHER_MANUAL_PLAYTEST";
+    constexpr wchar_t kMapStressSeedEnvironment[] =
+        L"ALBIONTOGETHER_MAP_STRESS_SEED";
+    constexpr wchar_t kMapStressTransitionsEnvironment[] =
+        L"ALBIONTOGETHER_MAP_STRESS_TRANSITIONS";
     constexpr wchar_t kShutdownEventPrefix[] = L"Local\\AlbionTogether.Shutdown.";
 
     std::wstring ReadEnvironment(const wchar_t* name)
@@ -57,6 +61,18 @@ namespace
         }
         value.resize(static_cast<std::size_t>(copied));
         return value;
+    }
+
+    unsigned long ReadUnsignedEnvironment(const wchar_t* name)
+    {
+        const std::wstring value = ReadEnvironment(name);
+        if (value.empty())
+        {
+            return 0;
+        }
+        wchar_t* end = nullptr;
+        const unsigned long parsed = std::wcstoul(value.c_str(), &end, 10);
+        return end != value.c_str() && *end == L'\0' ? parsed : 0;
     }
 }
 
@@ -94,6 +110,10 @@ namespace fable::automation::runtime
         multiplayerAddress_ = ReadEnvironment(kMultiplayerAddressEnvironment);
         multiplayerPlayerId_ = ReadEnvironment(kMultiplayerPlayerIdEnvironment);
         multiplayerAppearance_ = ReadEnvironment(kMultiplayerAppearanceEnvironment);
+        mapStressSeed_ = static_cast<std::uint32_t>(
+            ReadUnsignedEnvironment(kMapStressSeedEnvironment));
+        mapStressTransitions_ = static_cast<unsigned int>(
+            ReadUnsignedEnvironment(kMapStressTransitionsEnvironment));
         morphSelfTest_ = ReadEnvironment(kMorphSelfTestEnvironment) == L"1";
         manualPlaytest_ =
             ReadEnvironment(kManualPlaytestEnvironment) == L"1";
@@ -196,6 +216,16 @@ namespace fable::automation::runtime
         return multiplayerPort_;
     }
 
+    std::uint32_t RuntimeConfiguration::MapStressSeed() const noexcept
+    {
+        return mapStressSeed_;
+    }
+
+    unsigned int RuntimeConfiguration::MapStressTransitions() const noexcept
+    {
+        return mapStressTransitions_;
+    }
+
     bool RuntimeConfiguration::MorphSelfTest() const noexcept
     {
         return morphSelfTest_;
@@ -250,11 +280,15 @@ namespace fable::automation::runtime
             ScenarioIs(L"multiplayer_host_hero_will") ||
             ScenarioIs(L"multiplayer_host_authority") ||
             ScenarioIs(L"multiplayer_host_transition") ||
+            ScenarioIs(L"multiplayer_host_map_stress") ||
+            ScenarioIs(L"multiplayer_host_save") ||
             ScenarioIs(L"multiplayer_guest") ||
             ScenarioIs(L"multiplayer_guest_combat") ||
             ScenarioIs(L"multiplayer_guest_hero_will") ||
             ScenarioIs(L"multiplayer_guest_authority") ||
-            ScenarioIs(L"multiplayer_guest_transition");
+            ScenarioIs(L"multiplayer_guest_transition") ||
+            ScenarioIs(L"multiplayer_guest_map_stress") ||
+            ScenarioIs(L"multiplayer_guest_save");
     }
 
     bool RuntimeConfiguration::LoadsFixture() const noexcept
@@ -266,10 +300,14 @@ namespace fable::automation::runtime
             ScenarioIs(L"multiplayer_host_hero_will") ||
             ScenarioIs(L"multiplayer_host_authority") ||
             ScenarioIs(L"multiplayer_host_transition") ||
+            ScenarioIs(L"multiplayer_host_map_stress") ||
+            ScenarioIs(L"multiplayer_host_save") ||
             ScenarioIs(L"multiplayer_guest") ||
             ScenarioIs(L"multiplayer_guest_combat") ||
             ScenarioIs(L"multiplayer_guest_hero_will") ||
             ScenarioIs(L"multiplayer_guest_authority") ||
-            ScenarioIs(L"multiplayer_guest_transition");
+            ScenarioIs(L"multiplayer_guest_transition") ||
+            ScenarioIs(L"multiplayer_guest_map_stress") ||
+            ScenarioIs(L"multiplayer_guest_save");
     }
 }

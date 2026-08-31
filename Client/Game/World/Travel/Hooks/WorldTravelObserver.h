@@ -14,9 +14,9 @@
 
 namespace fable::game::world::travel
 {
-    // Pairs Fable's connected region entrance with UE3's subsequent level-name
-    // preparation. Observation occurs before either native transition routine
-    // mutates world state.
+    // Pairs an accepted connected-region departure with UE3's subsequent
+    // level-name preparation. The departure is published after retail accepts
+    // it, but before its asynchronously scheduled world teardown begins.
     class WorldTravelObserver final
     {
     public:

@@ -60,7 +60,9 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Automation\LocalInstance\Native\UnrealSingletonImport.cpp" />
     <ClCompile Include="Automation\Multiplayer\Combat\CombatTargetAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.cpp" />
+    <ClCompile Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.cpp" />
+    <ClCompile Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp" />
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp" />
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp" />
@@ -173,9 +175,11 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp" />
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp" />
     <ClCompile Include="Game\Quest\QuestService.cpp" />
+    <ClCompile Include="Game\Persistence\Native\AutoSaveFunction.cpp" />
     <ClCompile Include="Game\World\WorldService.cpp" />
     <ClCompile Include="Game\World\Travel\Hooks\WorldTravelObserver.cpp" />
     <ClCompile Include="Game\World\Travel\Native\WorldTravelFunctions.cpp" />
+    <ClCompile Include="Game\World\Travel\Native\RegionExitFunctions.cpp" />
     <ClCompile Include="Multiplayer\Entities\EntityPresenceReplication.cpp" />
     <ClCompile Include="Multiplayer\Entities\EntityLifecycleReplication.cpp" />
     <ClCompile Include="Multiplayer\Entities\EntityMaterializationService.cpp" />
@@ -296,7 +300,9 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Automation\LocalInstance\Native\UnrealSingletonImport.h" />
     <ClInclude Include="Automation\Multiplayer\Combat\CombatTargetAcceptanceDriver.h" />
     <ClInclude Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.h" />
+    <ClInclude Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.h" />
     <ClInclude Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.h" />
+    <ClInclude Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.h" />
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h" />
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h" />
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h" />
@@ -430,9 +436,11 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h" />
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h" />
     <ClInclude Include="Game\Quest\QuestService.h" />
+    <ClInclude Include="Game\Persistence\Native\AutoSaveFunction.h" />
     <ClInclude Include="Game\World\WorldService.h" />
     <ClInclude Include="Game\World\Travel\Hooks\WorldTravelObserver.h" />
     <ClInclude Include="Game\World\Travel\Native\WorldTravelFunctions.h" />
+    <ClInclude Include="Game\World\Travel\Native\RegionExitFunctions.h" />
     <ClInclude Include="Game\World\Travel\WorldTravelPreparation.h" />
     <ClInclude Include="Multiplayer\Entities\EntityPresenceReplication.h" />
     <ClInclude Include="Multiplayer\Entities\EntityLifecycleReplication.h" />

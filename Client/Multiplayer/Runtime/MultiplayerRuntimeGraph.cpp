@@ -115,7 +115,15 @@ namespace fable::multiplayer
         e.entityIdentities.Initialize(diagnostics_);
         e.entityPresence.Initialize(e.entityIdentities, diagnostics_);
         e.entityLifecycle.Initialize(role, actorId, t.transport, w.authority, diagnostics_);
-        e.entityMaterialization.Initialize(role, actorId, entities, e.entityPresence, e.entityIdentities, villages, diagnostics_);
+        e.entityMaterialization.Initialize(
+            role,
+            actorId,
+            entities,
+            e.entityPresence,
+            e.entityIdentities,
+            dummyVillagers,
+            villages,
+            diagnostics_);
         w.hostWorldState.Initialize(role, e.entityLifecycle, e.entityIdentities, diagnostics_);
         w.savedEntityMapBaseline.Initialize(role, actorId, t.transport, diagnostics_);
         w.authority.SetMapBaselineGate(&w.savedEntityMapBaseline);

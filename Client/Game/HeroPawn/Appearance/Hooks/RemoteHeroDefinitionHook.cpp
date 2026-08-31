@@ -11,8 +11,12 @@ namespace
 {
     constexpr std::size_t kHookDisplacedBytes = 7;
 
-    constexpr std::array<const char*, 7> kHeroComponents = {
+    constexpr std::array<const char*, 11> kHeroComponents = {
+        "CTCHero",
         "CTCInventory",
+        "CTCInventoryWeapons",
+        "CTCInventoryAbilities",
+        "CTCSpecialAbilities",
         "CTCHeroMorph",
         "CTCSkeletalMorph",
         "CTCHeroAttachableAppearanceModifiers",

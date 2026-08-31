@@ -117,8 +117,21 @@ namespace fable::multiplayer::persistence
         std::string requestedMap;
         std::uint16_t requestedMapId = 0;
         bool heldReported = false;
+        const std::uint64_t startedAt = GetTickCount64();
         for (;;)
         {
+            if (GetTickCount64() - startedAt >= MaximumHoldMilliseconds)
+            {
+                Report(
+                    "MultiplayerSavedEntityConstructionGateTimedOut",
+                    requestedMap,
+                    requestedMapId,
+                    "host map preparation did not complete within 30 seconds; local construction is being released instead of hanging forever");
+                diagnostics_.Event(
+                    "ClientFailed",
+                    "multiplayer-saved-entity-construction-timeout");
+                break;
+            }
             if (stopping_.load(std::memory_order_acquire))
             {
                 Report(

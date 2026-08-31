@@ -15,7 +15,6 @@
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace fable::game
 {
@@ -71,6 +70,13 @@ namespace fable::game::hero_pawn::remote
         NativeReady,
         BaselineApplied,
         Active,
+    };
+
+    enum class RemoteHeroActivationResult : std::uint8_t
+    {
+        Pending,
+        Ready,
+        Failed,
     };
 
     // Actor-scoped aggregate for one remote Hero. Networking owns only its
@@ -160,7 +166,8 @@ namespace fable::game::hero_pawn::remote
             std::uint32_t mapEpoch) const noexcept;
 
     private:
-        bool Spawn(
+        bool Spawn(const PlayerState& state);
+        RemoteHeroActivationResult ActivateSpawnedPresentation(
             const PlayerState& state,
             const std::string& localMap,
             game::Entity* localHero,
@@ -173,8 +180,8 @@ namespace fable::game::hero_pawn::remote
             const std::string& localMap,
             game::Entity* localHero,
             std::uint64_t receivedAt);
-        void Retire(bool worldUnloading = false) noexcept;
-        void ReapQuarantinedAvatars() noexcept;
+        void DetachForWorldTransition() noexcept;
+        void Retire() noexcept;
         static bool ReadMovement(
             void* context,
             void* creature,
@@ -209,16 +216,6 @@ namespace fable::game::hero_pawn::remote
         void* nativeAvatar_ = nullptr;
         void* nativeCompanionHero_ = nullptr;
         game::ScriptControl* control_ = nullptr;
-        struct DeferredWorldPresentation final
-        {
-            game::Entity* avatar = nullptr;
-            void* nativeAvatar = nullptr;
-            game::ScriptControl* control = nullptr;
-        } deferred_;
-        // Keep only the immediately previous world generation alive while
-        // Fable's asynchronous graphics jobs drain. The next completed world
-        // transition explicitly destroys that bounded generation.
-        std::vector<game::Entity*> quarantinedAvatars_;
         std::string playerId_;
         std::string appearanceDefinition_;
         std::uint64_t actorId_ = 0;

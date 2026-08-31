@@ -1,5 +1,7 @@
 #include "ThingSaveProjectionHook.h"
 
+#include "Game/NPC/Simulation/DummyVillager/Native/DummyVillagerFunctions.h"
+
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -9,6 +11,7 @@ namespace
     struct ThingIdentity final
     {
         std::uint64_t uid = 0;
+        std::uint64_t simulationCreatureUid = 0;
         std::uint16_t definitionIndex = 0;
         std::uint16_t mapId = 0;
         std::array<char, 96> scriptName = {};
@@ -51,6 +54,13 @@ namespace
                     }
                     identity.scriptName[index] = '\0';
                 }
+            }
+            fable::game::npc::simulation::DummyVillagerState lowSimulation;
+            if (fable::game::npc::simulation::native::
+                    DummyVillagerFunctions::Read(thing, lowSimulation) &&
+                lowSimulation.componentPresent)
+            {
+                identity.simulationCreatureUid = lowSimulation.creatureUid;
             }
             return identity.uid != 0;
         }
@@ -213,6 +223,7 @@ namespace fable::game::entity::persistence
                 sink(
                     hook->sinkContext_.load(std::memory_order_acquire),
                     identity.uid,
+                    identity.simulationCreatureUid,
                     identity.definitionIndex,
                     identity.scriptName.data(),
                     projectedMapId) &&
@@ -278,6 +289,7 @@ namespace fable::game::entity::persistence
                 sink(
                     hook->sinkContext_.load(std::memory_order_acquire),
                     identity.uid,
+                    identity.simulationCreatureUid,
                     identity.definitionIndex,
                     identity.scriptName.data(),
                     projectedMapId) &&

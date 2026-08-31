@@ -14,6 +14,7 @@ namespace
     constexpr char HeroTexture[] = "HUD_HERO_ICON";
     constexpr float BarScale = 1.0f;
     constexpr std::uint64_t RetryDelayMilliseconds = 1000;
+    constexpr std::uint64_t WorldTransitionSettleMilliseconds = 1000;
     constexpr fable::ui::HudColour FilledColour = { 62, 174, 75, 255 };
     constexpr fable::ui::HudColour EmptyColour = { 31, 66, 35, 255 };
 }
@@ -136,7 +137,7 @@ namespace fable::multiplayer::presentation
             return;
         }
         const std::uint64_t now = GetTickCount64();
-        if (now < entry.nextAddAttemptAt)
+        if (now < nativeHudReadyAt_ || now < entry.nextAddAttemptAt)
         {
             return;
         }
@@ -230,10 +231,15 @@ namespace fable::multiplayer::presentation
     void RemotePlayerPartyHud::CompleteWorldTransition() noexcept
     {
         worldTransitionActive_ = false;
+        // Quest-info removals are native queued UI actions. Recreating the
+        // bars in the same destination-completion frame can race that deferred
+        // teardown and leave Fable's UI spatial list holding a stale node.
+        nativeHudReadyAt_ = GetTickCount64() +
+            WorldTransitionSettleMilliseconds;
         for (auto& [actorId, entry] : entries_)
         {
             (void)actorId;
-            entry.nextAddAttemptAt = 0;
+            entry.nextAddAttemptAt = nativeHudReadyAt_;
         }
     }
 
@@ -247,6 +253,7 @@ namespace fable::multiplayer::presentation
         hud_ = nullptr;
         diagnostics_ = {};
         localActorId_ = 0;
+        nativeHudReadyAt_ = 0;
         worldTransitionActive_ = false;
     }
 }

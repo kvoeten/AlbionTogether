@@ -2,6 +2,7 @@
 
 #include "../Platform/UniqueHandle.h"
 #include <Windows.h>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -37,6 +38,8 @@ struct GameLaunchSpec final
     unsigned short multiplayerPort = 0;
     std::wstring multiplayerPlayerId;
     std::wstring multiplayerAppearance;
+    std::uint32_t mapStressSeed = 0;
+    unsigned int mapStressTransitions = 0;
     bool showConsole = true;
     bool generateLogs = true;
     std::vector<std::wstring> arguments;
