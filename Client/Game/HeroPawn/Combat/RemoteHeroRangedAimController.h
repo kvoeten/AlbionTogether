@@ -6,15 +6,19 @@
 
 namespace fable::game::hero_pawn::combat
 {
-    // Owns the native CTCCreatureModeManager source used by Fable while the
-    // Hero holds a ranged weapon drawn. Existing replicated velocity then
+    // Tracks the native CTCCreatureModeManager source installed by Fable's
+    // accepted HeroLoadRangedWeapon action. Existing replicated velocity then
     // drives the retail bow strafe locomotion instead of ordinary running.
+    //
+    // The controller must not add source 25 itself: the native action already
+    // does that. Adding it twice and removing it once leaves the remote Hero
+    // permanently in the ranged pose after switching weapons.
     class RemoteHeroRangedAimController final
     {
     public:
         void Initialize(const core::Diagnostics& diagnostics) noexcept;
         void Bind(void* nativeHero, std::uint64_t actorId) noexcept;
-        [[nodiscard]] bool Begin() noexcept;
+        [[nodiscard]] bool TrackNativeBegin() noexcept;
         [[nodiscard]] bool End() noexcept;
         void Unbind() noexcept;
         void Shutdown() noexcept;

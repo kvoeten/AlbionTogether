@@ -5,7 +5,7 @@
 namespace fable::launcher {
 inline constexpr wchar_t kGameExecutableName[] = L"Fable Anniversary.exe";
 inline constexpr wchar_t kClientDllName[] = L"AlbionTogether.Client.dll";
-inline constexpr wchar_t kLauncherVersion[] = L"v0.1.0-alpha.12";
+inline constexpr wchar_t kLauncherVersion[] = L"v0.1.0-alpha.13";
 inline constexpr wchar_t kDiscordUrl[] = L"https://discord.gg/5JSKmjKd85";
 inline constexpr wchar_t kClientModeEnvironment[] =
     L"ALBIONTOGETHER_CLIENT_MODE";

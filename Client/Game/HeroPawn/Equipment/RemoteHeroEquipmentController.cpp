@@ -1,9 +1,11 @@
 #include "RemoteHeroEquipmentController.h"
 
 #include "Game/Creature/Equipment/Native/CreatureWeaponFunctions.h"
+#include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponentProvisioner.h"
+#include "Multiplayer/Protocol/EquipmentTransitionTiming.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -17,6 +19,13 @@ namespace
 
     constexpr std::uint64_t ActionEquipmentLeaseMilliseconds = 4'000;
     constexpr std::uint64_t TransitionEquipmentLeaseMilliseconds = 1'200;
+    // Native EquipWeapon creates short-lived CThingSoundEmitter objects. Do
+    // not create both cached weapons while the remote Hero and its native
+    // component graph are still settling. The visible baseline is applied
+    // first; hidden cache population begins later and creates at most one
+    // missing weapon per attempt.
+    constexpr std::uint64_t WeaponCacheWarmDelayMilliseconds = 750;
+    constexpr std::uint64_t WeaponCacheWarmRetryMilliseconds = 250;
 
     const char* WeaponFamilyName(CreatureWeaponFamily family) noexcept
     {
@@ -127,6 +136,7 @@ namespace fable::game::hero_pawn::equipment
 {
     bool RemoteHeroEquipmentController::Initialize(
         game::EntityService& entities,
+        game::creature::animation::CreatureAnimationService& animation,
         hooks::RemoteRangedWeaponOrientationHook& orientationHook,
         const core::Diagnostics& diagnostics) noexcept
     {
@@ -134,7 +144,7 @@ namespace fable::game::hero_pawn::equipment
         entities_ = &entities;
         orientationHook_ = &orientationHook;
         diagnostics_ = diagnostics;
-        return transitions_.Initialize(entities, diagnostics);
+        return transitions_.Initialize(entities, animation, diagnostics);
     }
 
     bool RemoteHeroEquipmentController::Bind(
@@ -179,7 +189,7 @@ namespace fable::game::hero_pawn::equipment
         hero_ = &hero;
         nativeHero_ = nativeHero;
         actorId_ = actorId;
-        transitions_.Bind(hero, nativeHero, actorId);
+        transitions_.Bind(hero, nativeHero, actorId, weaponCache_);
         char detail[256] = {};
         std::snprintf(
             detail,
@@ -198,16 +208,61 @@ namespace fable::game::hero_pawn::equipment
     bool RemoteHeroEquipmentController::PerformTransition(
         const HeroEquipmentState& finalState,
         const std::string& sourceActionType,
-        std::uint32_t animationId)
+        std::uint32_t animationId,
+        std::uint64_t actionId)
     {
+        (void)sourceActionType;
+        return PerformTransition(
+            finalState,
+            animationId,
+            actionId,
+            0,
+            fable::multiplayer::protocol::equipment_transition_timing::
+                DefaultTransitionDurationMilliseconds,
+            fable::multiplayer::protocol::equipment_transition_timing::
+                DefaultAttachmentNotifyOffsetMilliseconds);
+    }
+
+    bool RemoteHeroEquipmentController::PerformTransition(
+        const HeroEquipmentState& finalState,
+        const std::uint32_t animationId,
+        const std::uint64_t actionId,
+        const std::uint32_t elapsedMs,
+        const std::uint32_t durationMs,
+        const std::uint32_t attachmentNotifyOffsetMs)
+    {
+        if (actionId == 0)
+        {
+            return false;
+        }
+        if (actionId <= lastTransitionActionId_)
+        {
+            return true;
+        }
         const HeroEquipmentState& current = attempted_.IsSane()
             ? attempted_
             : applied_;
         const HeroEquipmentState transitionState =
             MergeTransitionCarryState(finalState, current);
+        if (!cachedWeapons_.Equals(transitionState.WeaponDefinitions()) ||
+            !weaponCache_.IsReady(
+                nativeHero_,
+                transitionState.meleeDefinitionIndex,
+                transitionState.rangedDefinitionIndex))
+        {
+            // Reconcile owns native cache materialization. A reliable
+            // transition stays pending and is retried with its original
+            // timestamp once the actor-scoped cache is warm.
+            return false;
+        }
 
         if (!transitions_.Submit(
-                transitionState, sourceActionType, animationId))
+                transitionState,
+                animationId,
+                actionId,
+                elapsedMs,
+                durationMs,
+                attachmentNotifyOffsetMs))
         {
             return false;
         }
@@ -219,6 +274,7 @@ namespace fable::game::hero_pawn::equipment
         actionOverrideRangedSlot_ = transitionState.rangedAttachmentSlot;
         actionOverrideUntil_ = now + TransitionEquipmentLeaseMilliseconds;
         attempted_ = transitionState;
+        lastTransitionActionId_ = actionId;
         preparedWeapons_ = {};
         activeWeaponReady_ = false;
         nextAttemptAt_ = 0;
@@ -273,28 +329,12 @@ namespace fable::game::hero_pawn::equipment
         {
             return false;
         }
-        const std::int32_t preparationMeleeDefinition =
-            family == CreatureWeaponFamily::Melee
-                ? requested.meleeDefinitionIndex
-                : -1;
-        const std::int32_t preparationRangedDefinition =
-            family == CreatureWeaponFamily::Ranged
-                ? requested.rangedDefinitionIndex
-                : -1;
-        const std::uint32_t preparationMeleeSlot =
-            family == CreatureWeaponFamily::Melee
-                ? requested.meleeAttachmentSlot
-                : 0;
-        const std::uint32_t preparationRangedSlot =
-            family == CreatureWeaponFamily::Ranged
-                ? requested.rangedAttachmentSlot
-                : 0;
         creature::equipment::native::CreatureWeaponInspection inspection;
         bool inspected = creature::equipment::native::
             CreatureWeaponFunctions::Inspect(
                 nativeHero_,
-                preparationMeleeDefinition,
-                preparationRangedDefinition,
+                requested.meleeDefinitionIndex,
+                requested.rangedDefinitionIndex,
                 inspection);
         const bool activePresent = inspected &&
             ActiveWeaponPresent(family, inspection);
@@ -307,24 +347,36 @@ namespace fable::game::hero_pawn::equipment
             activeFamily_ = family;
             activeWeaponReady_ = true;
             preparedWeapons_ = requiredWeapons;
-            TrackRangedOrientation(family, inspection.rangedWeapon);
+            TrackRangedOrientation(
+                family,
+                inspection.rangedWeapon,
+                inspection.rangedWeaponType,
+                requested.rangedDefinitionIndex);
             return true;
+        }
+
+        if (!cachedWeapons_.Equals(requiredWeapons) ||
+            !weaponCache_.IsReady(
+                nativeHero_,
+                requested.meleeDefinitionIndex,
+                requested.rangedDefinitionIndex))
+        {
+            // The active visible weapon path above is immediately usable.
+            // Missing inactive assets are materialized only by Reconcile's
+            // delayed cache warm, never synchronously from an attack.
+            return false;
         }
 
         if (!activePresented)
         {
             // An attack can precede the retail auto-draw action in Fable's
-            // accepted action stream. Prepare the exact carry state once so
-            // that action can execute; the separately ordered transition owns
-            // the visible draw animation and must never be synthesized here.
+            // accepted action stream. The retained cache keeps both weapon
+            // Things warm; this path only changes their visible carry slots.
             CreatureWeaponInspection prepared;
-            const bool materialized = creature::equipment::native::
-                CreatureWeaponFunctions::ApplyLoadout(
+            const bool materialized = weaponCache_.ApplyPresentation(
                     nativeHero_,
-                    preparationMeleeDefinition,
-                    preparationRangedDefinition,
-                    preparationMeleeSlot,
-                    preparationRangedSlot,
+                    requested.meleeAttachmentSlot,
+                    requested.rangedAttachmentSlot,
                     family,
                     &prepared);
             if (!materialized || !hero_->UpdateAttachment())
@@ -340,7 +392,11 @@ namespace fable::game::hero_pawn::equipment
                 activeFamily_ = family;
                 activeWeaponReady_ = true;
                 preparedWeapons_ = requiredWeapons;
-                TrackRangedOrientation(family, prepared.rangedWeapon);
+                TrackRangedOrientation(
+                    family,
+                    prepared.rangedWeapon,
+                    prepared.rangedWeaponType,
+                    requested.rangedDefinitionIndex);
                 return true;
             }
         }
@@ -378,7 +434,9 @@ namespace fable::game::hero_pawn::equipment
                     transitionedInspection);
             TrackRangedOrientation(
                 transitioned.activeFamily,
-                inspected ? transitionedInspection.rangedWeapon : nullptr);
+                inspected ? transitionedInspection.rangedWeapon : nullptr,
+                inspected ? transitionedInspection.rangedWeaponType : -1,
+                transitioned.rangedDefinitionIndex);
         }
         HeroEquipmentState desired = state;
         if (now < actionOverrideUntil_ &&
@@ -451,9 +509,19 @@ namespace fable::game::hero_pawn::equipment
             attemptCount_ = 0;
             nextAttemptAt_ = 0;
             pendingReported_ = false;
+            if (!cachedWeapons_.Equals(desired.WeaponDefinitions()))
+            {
+                nextCacheWarmAt_ = now +
+                    WeaponCacheWarmDelayMilliseconds;
+            }
         }
 
-        if (applied_.Equals(desired) || now < nextAttemptAt_)
+        if (applied_.Equals(desired))
+        {
+            (void)WarmWeaponCache(desired, now);
+            return;
+        }
+        if (now < nextAttemptAt_)
         {
             return;
         }
@@ -468,6 +536,8 @@ namespace fable::game::hero_pawn::equipment
         const auto markApplied = [&](bool activeReady)
         {
             applied_ = desired;
+            lastTransitionActionId_ = (std::max)(
+                lastTransitionActionId_, desired.transitionActionId);
             preparedWeapons_ = desired.WeaponDefinitions();
             activeFamily_ = desired.activeFamily;
             activeWeaponReady_ = activeReady;
@@ -487,8 +557,8 @@ namespace fable::game::hero_pawn::equipment
             ? desired.rangedDefinitionIndex
             : -1;
         CreatureWeaponInspection inspection;
-        bool matches = creature::equipment::native::CreatureWeaponFunctions::
-                Inspect(
+        bool matches = creature::equipment::native::
+            CreatureWeaponFunctions::Inspect(
                     nativeHero_,
                     desired.meleeDefinitionIndex,
                     desired.rangedDefinitionIndex,
@@ -496,7 +566,19 @@ namespace fable::game::hero_pawn::equipment
             CreatureEquipmentMatches(desired, inspection);
         if (!matches)
         {
-            matches = creature::equipment::native::CreatureWeaponFunctions::
+            const bool cacheReady = cachedWeapons_.Equals(desiredWeapons) &&
+                weaponCache_.IsReady(
+                    nativeHero_,
+                    desired.meleeDefinitionIndex,
+                    desired.rangedDefinitionIndex);
+            const bool appliedPresentation = cacheReady
+                ? weaponCache_.ApplyPresentation(
+                    nativeHero_,
+                    desired.meleeAttachmentSlot,
+                    desired.rangedAttachmentSlot,
+                    desired.activeFamily,
+                    &inspection)
+                : creature::equipment::native::CreatureWeaponFunctions::
                     ApplyLoadout(
                         nativeHero_,
                         presentedMelee,
@@ -504,7 +586,8 @@ namespace fable::game::hero_pawn::equipment
                         requireMelee ? desired.meleeAttachmentSlot : 0,
                         requireRanged ? desired.rangedAttachmentSlot : 0,
                         desired.activeFamily,
-                        &inspection) &&
+                        &inspection);
+            matches = appliedPresentation &&
                 hero_->UpdateAttachment() &&
                 CreatureEquipmentMatches(desired, inspection);
         }
@@ -514,7 +597,10 @@ namespace fable::game::hero_pawn::equipment
                 desired.activeFamily == CreatureWeaponFamily::None ||
                 ActiveWeaponPresent(desired.activeFamily, inspection));
             TrackRangedOrientation(
-                desired.activeFamily, inspection.rangedWeapon);
+                desired.activeFamily,
+                inspection.rangedWeapon,
+                inspection.rangedWeaponType,
+                desired.rangedDefinitionIndex);
             char detail[320] = {};
             std::snprintf(
                 detail,
@@ -528,6 +614,7 @@ namespace fable::game::hero_pawn::equipment
                 WeaponFamilyName(desired.activeFamily));
             diagnostics_.Event(
                 "MultiplayerRemoteEquipmentApplied", detail);
+            (void)WarmWeaponCache(desired, now);
             return;
         }
 
@@ -538,7 +625,7 @@ namespace fable::game::hero_pawn::equipment
             std::snprintf(
                 detail,
                 sizeof(detail),
-                "actor_id=%llu carrying=%p functions=%s signature_mask=0x%03X requested_melee=%d requested_melee_slot=%u requested_ranged=%d requested_ranged_slot=%u actual_melee_present=%s actual_melee_slot=%u actual_melee_stowed=%s actual_melee_stowed_slot=%u actual_ranged_present=%s actual_ranged_slot=%u actual_ranged_stowed=%s actual_ranged_stowed_slot=%u attempt=%u operation=direct-replicated-carry-state",
+                "actor_id=%llu carrying=%p functions=%s signature_mask=0x%04X requested_melee=%d requested_melee_slot=%u requested_ranged=%d requested_ranged_slot=%u actual_melee_present=%s actual_melee_slot=%u actual_melee_stowed=%s actual_melee_stowed_slot=%u actual_ranged_present=%s actual_ranged_slot=%u actual_ranged_stowed=%s actual_ranged_stowed_slot=%u attempt=%u operation=direct-replicated-carry-state",
                 static_cast<unsigned long long>(actorId_),
                 inspection.carryingComponent,
                 inspection.functionsResolved ? "true" : "false",
@@ -564,6 +651,7 @@ namespace fable::game::hero_pawn::equipment
     void RemoteHeroEquipmentController::Unbind() noexcept
     {
         transitions_.Unbind();
+        weaponCache_.Reset();
         if (orientationHook_ != nullptr && orientationToken_ != 0)
         {
             orientationHook_->Unregister(orientationToken_);
@@ -575,6 +663,7 @@ namespace fable::game::hero_pawn::equipment
         applied_ = {};
         attempted_ = {};
         preparedWeapons_ = {};
+        cachedWeapons_ = {};
         actionOverrideWeapons_ = {};
         prunedPresentation_ = {};
         activeFamily_ = CreatureWeaponFamily::None;
@@ -582,8 +671,10 @@ namespace fable::game::hero_pawn::equipment
         actionOverrideMeleeSlot_ = 0;
         actionOverrideRangedSlot_ = 0;
         nextAttemptAt_ = 0;
+        nextCacheWarmAt_ = 0;
         actionOverrideUntil_ = 0;
         nextPruneAttemptAt_ = 0;
+        lastTransitionActionId_ = 0;
         attemptCount_ = 0;
         pendingReported_ = false;
         activeWeaponReady_ = false;
@@ -593,6 +684,11 @@ namespace fable::game::hero_pawn::equipment
     {
         return hero_ != nullptr && hero_->IsValid() && nativeHero_ != nullptr &&
             applied_.IsSane() && activeWeaponReady_;
+    }
+
+    bool RemoteHeroEquipmentController::IsTransitionPending() const noexcept
+    {
+        return transitions_.IsPending();
     }
 
     void RemoteHeroEquipmentController::Shutdown() noexcept
@@ -606,7 +702,9 @@ namespace fable::game::hero_pawn::equipment
 
     void RemoteHeroEquipmentController::TrackRangedOrientation(
         CreatureWeaponFamily family,
-        void* rangedWeapon) noexcept
+        void* rangedWeapon,
+        std::int32_t rangedWeaponType,
+        const std::int32_t rangedDefinitionIndex) noexcept
     {
         if (orientationHook_ == nullptr || orientationToken_ == 0)
         {
@@ -614,12 +712,95 @@ namespace fable::game::hero_pawn::equipment
         }
         void* const activeRangedWeapon =
             family == CreatureWeaponFamily::Ranged ? rangedWeapon : nullptr;
+        if (activeRangedWeapon != nullptr && rangedWeaponType == -1 &&
+            entities_ != nullptr && rangedDefinitionIndex > 0 &&
+            rangedDefinitionIndex <=
+                (std::numeric_limits<std::uint16_t>::max)())
+        {
+            std::string definitionName;
+            if (entities_->ResolveDefinitionName(
+                    static_cast<std::uint16_t>(rangedDefinitionIndex),
+                    definitionName))
+            {
+                // Some freshly materialized ranged Things do not expose their
+                // weapon properties until after their first attachment. The
+                // authoritative definition name still distinguishes the two
+                // native model bases without hard-coding individual weapons.
+                if (definitionName.find("CROSSBOW") != std::string::npos)
+                {
+                    rangedWeaponType = 4;
+                }
+                else if (definitionName.find("BOW") != std::string::npos)
+                {
+                    rangedWeaponType = 3;
+                }
+            }
+        }
         if (!orientationHook_->SetActiveWeapon(
-                orientationToken_, activeRangedWeapon))
+                orientationToken_, activeRangedWeapon, rangedWeaponType))
         {
             diagnostics_.Event(
                 "MultiplayerRemoteRangedOrientationTrackingFailed",
                 "remote Hero carrying registration was retired");
         }
+    }
+
+    bool RemoteHeroEquipmentController::WarmWeaponCache(
+        const HeroEquipmentState& state,
+        const std::uint64_t now)
+    {
+        if (entities_ == nullptr || hero_ == nullptr || !hero_->IsValid() ||
+            nativeHero_ == nullptr || !state.IsSane())
+        {
+            return false;
+        }
+        const HeroWeaponDefinitions definitions = state.WeaponDefinitions();
+        if (cachedWeapons_.Equals(definitions) &&
+            weaponCache_.IsReady(
+                nativeHero_,
+                definitions.meleeDefinitionIndex,
+                definitions.rangedDefinitionIndex))
+        {
+            return true;
+        }
+        if (now < nextCacheWarmAt_)
+        {
+            return false;
+        }
+        nextCacheWarmAt_ = now + WeaponCacheWarmRetryMilliseconds;
+        if (!weaponCache_.Ensure(
+                *entities_,
+                nativeHero_,
+                definitions.meleeDefinitionIndex,
+                definitions.rangedDefinitionIndex))
+        {
+            return false;
+        }
+
+        CreatureWeaponInspection inspection;
+        const bool restored = weaponCache_.ApplyPresentation(
+                nativeHero_,
+                state.meleeAttachmentSlot,
+                state.rangedAttachmentSlot,
+                state.activeFamily,
+                &inspection) &&
+            hero_->UpdateAttachment() &&
+            CreatureEquipmentMatches(state, inspection);
+        if (!restored)
+        {
+            return false;
+        }
+        cachedWeapons_ = definitions;
+        nextCacheWarmAt_ = 0;
+        char detail[256] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "actor_id=%llu melee=%d ranged=%d operation=delayed-hidden-cache-warm",
+            static_cast<unsigned long long>(actorId_),
+            definitions.meleeDefinitionIndex,
+            definitions.rangedDefinitionIndex);
+        diagnostics_.Event("MultiplayerRemoteWeaponCacheWarmed", detail);
+        return true;
     }
 }

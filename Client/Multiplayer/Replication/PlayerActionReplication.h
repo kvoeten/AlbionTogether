@@ -1,12 +1,10 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
-#include "Game/Creature/Actions/CreatureActionLifecycleEvent.h"
-#include "Game/Creature/Combat/CreatureAbilityEvent.h"
-#include "Game/HeroPawn/Abilities/HeroAbilityEvent.h"
 #include "Multiplayer/Protocol/PlayerActionMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
-#include "Multiplayer/Replication/PlayerActionEventQueue.h"
+#include "Multiplayer/Presentation/RemotePlayerActionPresentation.h"
+#include "Multiplayer/Replication/LocalPlayerActionCapture.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
 
 #include <cstddef>
@@ -95,6 +93,17 @@ namespace fable::multiplayer::replication
         bool AttachModeObserver(
             game::creature::locomotion::CreatureModeManagerObserver&
                 observer);
+        // Drain native callbacks into bounded semantic records. This phase
+        // may mark actor components dirty, but never publishes them; the
+        // frame coordinator first captures and queues those component states
+        // so dependent action events follow them on the same actor stream.
+        bool CaptureLocalPending();
+        // Publish already captured local action events after the actor-state
+        // service has queued this frame's component patches.
+        bool PublishLocalPending();
+        // Present authoritative remote events after their preceding actor
+        // patches have been reconciled into the native remote Hero.
+        bool ReplayRemotePending();
         bool ProcessPending();
         bool HandleReliableMessage(
             const TransportMessage& message) override;
@@ -103,72 +112,13 @@ namespace fable::multiplayer::replication
         void Shutdown() noexcept;
 
     private:
-        static constexpr std::size_t PendingEventCapacity = 1024;
         static constexpr std::size_t PendingMessageCapacity = 1024;
-        static constexpr std::size_t PendingReplayCapacity = 256;
-        static constexpr std::uint64_t ActionPairWindowMilliseconds = 250;
-        static constexpr std::uint64_t
-            WeaponTransitionCaptureWindowMilliseconds = 1'500;
-        // Fable mutates CTCCarrying in several steps after accepting a
-        // draw/stow action. Publish only after a mutation belonging to the
-        // action has occurred and the carrying graph has been quiet long
-        // enough to represent its final state.
-        static constexpr std::uint64_t
-            WeaponTransitionMutationSettleMilliseconds = 100;
-        static constexpr std::uint64_t TargetResolutionGraceMilliseconds =
-            1'000;
-        static constexpr std::uint64_t NativeReplayFailureGraceMilliseconds =
-            2'000;
-        static constexpr std::uint64_t ReplayRetryMilliseconds = 50;
-        struct PendingReplay final
-        {
-            protocol::PlayerActionMessage message;
-            std::uint64_t queuedAt = 0;
-            std::uint64_t nativeReadyAt = 0;
-            std::uint64_t nextAttemptAt = 0;
-            std::uint64_t sourceConnectionNonce = 0;
-            bool diagnosticEmitted = false;
-        };
         struct PendingPublication final
         {
             protocol::PlayerActionMessage message;
             std::uint64_t sourceConnectionNonce = 0;
         };
 
-        static void CaptureAbility(
-            void* context,
-            const game::creature::combat::CreatureAbilityEvent& event);
-        static void CaptureAction(
-            void* context,
-            const game::creature::actions::CreatureActionLifecycleEvent&
-                event);
-        static void CaptureHeroAbility(
-            void* context,
-            const game::hero_pawn::abilities::HeroAbilityEvent& event);
-        static void CaptureModeSource(
-            void* context,
-            const game::creature::locomotion::CreatureModeSourceEvent&
-                event);
-        bool PairAcceptedLocalActions();
-        bool CaptureLocal(
-            const game::creature::combat::CreatureAbilityEvent& event,
-            const game::creature::actions::CreatureActionLifecycleEvent*
-                resolvedAction = nullptr);
-        bool CaptureLocalWeaponTransition(
-            const game::creature::actions::CreatureActionLifecycleEvent&
-                action,
-            const game::hero_pawn::equipment::HeroEquipmentState& equipment);
-        bool CaptureLocalExpression(
-            const game::creature::actions::CreatureActionLifecycleEvent&
-                action);
-        bool CaptureLocalRangedAction(
-            const game::creature::actions::CreatureActionLifecycleEvent&
-                action);
-        bool CaptureLocalRangedAimEnd(
-            const game::creature::locomotion::CreatureModeSourceEvent&
-                event);
-        bool CaptureLocalHeroAbility(
-            const game::hero_pawn::abilities::HeroAbilityEvent& event);
         bool AcceptIntent(
             protocol::PlayerActionMessage message,
             std::uint64_t sourceActorId,
@@ -182,12 +132,12 @@ namespace fable::multiplayer::replication
         bool Queue(
             protocol::PlayerActionMessage message,
             std::uint64_t sourceConnectionNonce = 0);
-        bool QueueReplay(
-            protocol::PlayerActionMessage message,
-            std::uint64_t sourceConnectionNonce);
         bool PublishPending();
-        bool ReplayPending();
-        [[nodiscard]] std::uint64_t NextActionId() noexcept;
+        bool ImportLocalCaptured();
+        bool EnsurePresentationTiming(
+            protocol::PlayerActionMessage& message,
+            std::uint64_t observedAt,
+            std::uint32_t durationMs);
 
         UdpPeer* transport_ = nullptr;
         LocalHeroReplication* localHero_ = nullptr;
@@ -201,23 +151,13 @@ namespace fable::multiplayer::replication
             nullptr;
         game::hero_pawn::abilities::HeroWillAbilityService* abilities_ =
             nullptr;
-        game::creature::actions::CreatureActionLifecycleObserver*
-            actionObserver_ = nullptr;
-        game::creature::locomotion::CreatureModeManagerObserver*
-            modeObserver_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
-        std::uint64_t nextActionId_ = 0;
-        PlayerActionEventQueue eventQueue_;
-        std::deque<game::creature::combat::CreatureAbilityEvent>
-            unmatchedAbilities_;
-        std::deque<game::creature::actions::CreatureActionLifecycleEvent>
-            unmatchedActions_;
-        std::deque<game::creature::actions::CreatureActionLifecycleEvent>
-            pendingWeaponTransitions_;
         std::deque<PendingPublication> pendingMessages_;
-        std::deque<PendingReplay> pendingReplays_;
+        LocalPlayerActionCapture localCapture_;
+        presentation::RemotePlayerActionPresentation presentation_;
+        std::uint32_t nextPresentationRevision_ = 0;
         bool publishBackpressured_ = false;
         bool initialized_ = false;
     };

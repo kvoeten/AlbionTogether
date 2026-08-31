@@ -2,6 +2,7 @@
 
 #include "Game/Entity/Persistence/Hooks/SavedEntityMapBlobObserver.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
+#include "Multiplayer/Replication/PlayerActionReplication.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
 #include "Multiplayer/Transport/UdpPeer.h"
@@ -19,6 +20,7 @@ namespace fable::multiplayer::persistence
         UdpPeer& transport,
         ReliableMessageDispatcher& reliableMessages,
         replication::RemotePlayerChannels& remotePlayers,
+        replication::PlayerActionReplication& playerActions,
         authority::AuthorityReplication& authority,
         const core::Diagnostics& diagnostics) noexcept
     {
@@ -27,6 +29,7 @@ namespace fable::multiplayer::persistence
         transport_ = &transport;
         reliableMessages_ = &reliableMessages;
         remotePlayers_ = &remotePlayers;
+        playerActions_ = &playerActions;
         authority_ = &authority;
         diagnostics_ = diagnostics;
         stopping_.store(false, std::memory_order_release);
@@ -37,7 +40,8 @@ namespace fable::multiplayer::persistence
         noexcept
     {
         if (transport_ == nullptr || reliableMessages_ == nullptr ||
-            remotePlayers_ == nullptr || authority_ == nullptr ||
+            remotePlayers_ == nullptr || playerActions_ == nullptr ||
+            authority_ == nullptr ||
             !observer.IsInstalled())
         {
             return false;
@@ -65,6 +69,7 @@ namespace fable::multiplayer::persistence
         transport_ = nullptr;
         reliableMessages_ = nullptr;
         remotePlayers_ = nullptr;
+        playerActions_ = nullptr;
         authority_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
@@ -229,7 +234,14 @@ namespace fable::multiplayer::persistence
         {
             if ((inbound.changedProperties & player_property::Retired) != 0)
             {
+                // Remove the channel first so the existing invalidation API
+                // observes the retired incarnation rather than treating it
+                // as the current owner and preserving its pending actions.
                 remotePlayers_->Remove(inbound.actorId);
+                if (playerActions_ != nullptr)
+                {
+                    playerActions_->InvalidateActor(inbound.actorId);
+                }
                 continue;
             }
             remotePlayers_->Apply(inbound, now);

@@ -138,7 +138,9 @@ namespace fable::game::hero_pawn::remote
             std::uint32_t meleeAttachmentSlot,
             std::uint32_t rangedAttachmentSlot,
             const std::string& resolvedActionType,
-            std::uint32_t resolvedAnimationId);
+            std::uint32_t resolvedAnimationId,
+            std::uint64_t actionId);
+        [[nodiscard]] bool IsWeaponTransitionPending() const noexcept;
         bool PerformHeroAbility(
             game::hero_pawn::abilities::HeroAbility ability,
             game::hero_pawn::abilities::HeroAbilityCommand command,

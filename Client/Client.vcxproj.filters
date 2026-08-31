@@ -192,6 +192,7 @@
     <ClCompile Include="Game\Creature\Combat\Bindings\CreatureCombatBindings.cpp"><Filter>Game\Creature\Combat\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\CreatureCombatService.cpp"><Filter>Game\Creature\Combat</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Equipment\Native\CreatureWeaponFunctions.cpp"><Filter>Game\Creature\Equipment\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Creature\Equipment\Native\CreatureWeaponCache.cpp"><Filter>Game\Creature\Equipment\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Equipment\Hooks\CreatureCarryingMutationObserver.cpp"><Filter>Game\Creature\Equipment\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\Hooks\CombatHealthMutationHook.cpp"><Filter>Game\Creature\Combat\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Creature\Combat\CreatureHitResolutionHook.cpp"><Filter>Game\Creature\Combat\Hooks</Filter></ClCompile>
@@ -332,14 +333,16 @@
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp"><Filter>Game\HeroPawn\Remote</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Presentation\RemotePlayerActionPresentation.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerPartyHud.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\LocalPlayerActionCapture.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActionEventQueue.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
-    <ClCompile Include="Multiplayer\Replication\PlayerActionReplay.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActorStateReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\PlayerActorLifecycleReducer.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActorStatePublicationQueue.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityVitalsReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\CombatHitAuthorityPipeline.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
@@ -355,6 +358,7 @@
     <ClCompile Include="Multiplayer\Transport\PeerSessionRegistry.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\ReliableStreamTransport.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Transport\UdpPeer.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Transport\SessionClock.cpp"><Filter>Multiplayer\Transport</Filter></ClCompile>
     <ClCompile Include="Multiplayer\World\MapIdentityRegistry.cpp"><Filter>Multiplayer\World</Filter></ClCompile>
     <ClCompile Include="Multiplayer\World\MapTransitionAuthorityService.cpp"><Filter>Multiplayer\World</Filter></ClCompile>
     <ClCompile Include="Game\World\Bindings\WorldBindings.cpp"><Filter>Game\World\Bindings</Filter></ClCompile>
@@ -436,6 +440,8 @@
     <ClInclude Include="Game\Creature\Equipment\CreatureWeaponFamily.h"><Filter>Game\Creature\Equipment</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Equipment\Hooks\CreatureCarryingMutationObserver.h"><Filter>Game\Creature\Equipment\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Equipment\Native\CreatureWeaponFunctions.h"><Filter>Game\Creature\Equipment\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Equipment\Native\CreatureWeaponCache.h"><Filter>Game\Creature\Equipment\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Creature\Equipment\Native\CreatureWeaponNativeSupport.h"><Filter>Game\Creature\Equipment\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\CombatHealthMutationEvent.h"><Filter>Game\Creature\Combat</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\ResolvedHitEvent.h"><Filter>Game\Creature\Combat</Filter></ClInclude>
     <ClInclude Include="Game\Creature\Combat\CreatureHitResolutionHook.h"><Filter>Game\Creature\Combat\Hooks</Filter></ClInclude>
@@ -585,6 +591,7 @@
     <ClInclude Include="Multiplayer\Combat\PlayerDeathPolicy.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Presentation\RemotePlayerActionPresentation.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerPartyHud.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\AuthorityMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
@@ -596,6 +603,8 @@
     <ClInclude Include="Multiplayer\Protocol\EntityMovementMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityVitalsMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityVitalsMessageCodec.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\EquipmentTransitionTiming.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\SessionTime.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityLowSimulationMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\EntityLowSimulationMessageCodec.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PacketEnvelope.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
@@ -607,11 +616,14 @@
     <ClInclude Include="Multiplayer\Protocol\PopulationStateMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\LocalPlayerActionCapture.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionEventQueue.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionSemantics.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActorStateReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActorLifecycleLimits.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\PlayerActorLifecycleReducer.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActorStatePublicationQueue.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityVitalsReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\CombatHitAuthorityPipeline.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
@@ -630,6 +642,7 @@
     <ClInclude Include="Multiplayer\Transport\ReliableStream.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\ReliableStreamTransport.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\UdpPeer.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Transport\SessionClock.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Transport\TransportMessage.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Multiplayer\World\MapIdentityRegistry.h"><Filter>Multiplayer\World</Filter></ClInclude>
     <ClInclude Include="Multiplayer\World\MapTransitionAuthorityService.h"><Filter>Multiplayer\World</Filter></ClInclude>

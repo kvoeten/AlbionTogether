@@ -8,6 +8,7 @@
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
 #include "Multiplayer/Entities/EntityNetworkIdentityRegistry.h"
+#include "Multiplayer/Entities/EntityPresenceReplication.h"
 #include "Multiplayer/Entities/LiveEntityRegistry.h"
 #include "Multiplayer/Entities/WorldEntityDirectory.h"
 #include "Multiplayer/Presentation/RemotePlayerRegistry.h"
@@ -17,6 +18,11 @@
 namespace
 {
     const fable::multiplayer::PlayerState* g_currentState = nullptr;
+    bool g_actionWorldReady = false;
+    bool g_remoteActionLifecycleReady = false;
+    std::string g_actionMapName;
+    std::uint32_t g_performedAbilityCount = 0;
+    std::uint32_t g_lastPerformedAnimationId = 0;
 }
 
 namespace fable::multiplayer::replication::testing
@@ -25,6 +31,28 @@ namespace fable::multiplayer::replication::testing
     {
         g_currentState = state;
     }
+}
+
+extern "C" void ConfigureRemoteActionPresentationForTest(
+    const bool worldReady,
+    const char* const mapName,
+    const bool lifecycleReady) noexcept
+{
+    g_actionWorldReady = worldReady;
+    g_actionMapName = mapName != nullptr ? mapName : "";
+    g_remoteActionLifecycleReady = lifecycleReady;
+    g_performedAbilityCount = 0;
+    g_lastPerformedAnimationId = 0;
+}
+
+extern "C" std::uint32_t PerformedAbilityCountForTest() noexcept
+{
+    return g_performedAbilityCount;
+}
+
+extern "C" std::uint32_t LastPerformedAnimationIdForTest() noexcept
+{
+    return g_lastPerformedAnimationId;
 }
 
 namespace fable::multiplayer::replication
@@ -42,15 +70,110 @@ namespace fable::multiplayer::replication
         return nullptr;
     }
 
+    bool LocalHeroReplication::IsWorldReady() const noexcept
+    {
+        return g_actionWorldReady;
+    }
+
+    const std::string& LocalHeroReplication::MapName() const noexcept
+    {
+        return g_actionMapName;
+    }
+
     std::uint64_t LocalHeroReplication::LastEquipmentMutationAt() const
         noexcept
     {
         return 0;
     }
 
-    bool PlayerActionReplication::ReplayPending()
+    void LocalHeroReplication::MarkEquipmentTransition(
+        const std::uint64_t,
+        const protocol::SessionTimeMs,
+        const std::uint32_t,
+        const std::uint16_t,
+        const std::uint16_t) noexcept
     {
-        return true;
+    }
+
+    LocalEquipmentTransition LocalHeroReplication::EquipmentTransition()
+        noexcept
+    {
+        return {};
+    }
+
+}
+
+namespace fable::multiplayer::presentation
+{
+    bool RemotePlayerRegistry::IsLifecycleActive(
+        const std::uint64_t,
+        const std::uint32_t,
+        const std::uint32_t) const noexcept
+    {
+        return g_remoteActionLifecycleReady;
+    }
+
+    bool RemotePlayerRegistry::PerformAbility(
+        const std::uint64_t,
+        const game::creature::equipment::CreatureWeaponFamily,
+        const game::hero_pawn::equipment::HeroWeaponDefinitions&,
+        const std::uint32_t,
+        const std::uint32_t,
+        const std::uint32_t,
+        const float,
+        void*,
+        const std::string&,
+        const std::uint32_t resolvedAnimationId)
+    {
+        ++g_performedAbilityCount;
+        g_lastPerformedAnimationId = resolvedAnimationId;
+        return g_remoteActionLifecycleReady;
+    }
+
+    bool RemotePlayerRegistry::EndRangedAim(const std::uint64_t) noexcept
+    {
+        return false;
+    }
+
+    bool RemotePlayerRegistry::PerformHeroAbility(
+        const std::uint64_t,
+        const game::hero_pawn::abilities::HeroAbility,
+        const game::hero_pawn::abilities::HeroAbilityCommand,
+        const std::int32_t,
+        void*)
+    {
+        return false;
+    }
+
+    bool RemotePlayerRegistry::PerformExpression(
+        const std::uint64_t,
+        const std::string&,
+        void*,
+        const std::string&,
+        const std::uint32_t,
+        const std::int32_t,
+        const std::int32_t)
+    {
+        return false;
+    }
+}
+
+namespace fable::multiplayer::entities
+{
+    const LiveEntityRegistry& EntityPresenceReplication::LiveEntities() const
+        noexcept
+    {
+        static const LiveEntityRegistry empty;
+        return empty;
+    }
+}
+
+namespace fable::multiplayer::combat
+{
+    void* PlayerCombatantDirectory::FindCreature(
+        const std::uint64_t) const noexcept
+    {
+        return nullptr;
     }
 }
 

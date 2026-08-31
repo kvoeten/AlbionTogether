@@ -1,5 +1,8 @@
 #include "RemotePlayerChannels.h"
 
+#include "Multiplayer/Protocol/EquipmentTransitionTiming.h"
+#include "Multiplayer/Replication/PlayerActorLifecycleReducer.h"
+
 #include <cmath>
 #include <utility>
 
@@ -23,16 +26,6 @@ namespace
         return facing < 0.0f ? facing + 1.0f : facing;
     }
 
-    bool IsOlderIncarnation(
-        const fable::multiplayer::replication::RemotePlayerLifecycle& current,
-        const fable::multiplayer::protocol::PlayerActorStateMessage& incoming)
-        noexcept
-    {
-        return incoming.actorGeneration < current.actorGeneration ||
-            (incoming.actorGeneration == current.actorGeneration &&
-                incoming.mapEpoch < current.mapEpoch);
-    }
-
     bool IsSameIncarnation(
         const fable::multiplayer::replication::RemotePlayerLifecycle& current,
         const fable::multiplayer::protocol::PlayerActorStateMessage& incoming)
@@ -41,6 +34,82 @@ namespace
         return current.actorGeneration == incoming.actorGeneration &&
             current.mapEpoch == incoming.mapEpoch;
     }
+
+    fable::multiplayer::protocol::PlayerActorStateMessage
+        LifecycleMessage(
+            const fable::multiplayer::replication::RemotePlayerSnapshot&
+                snapshot)
+    {
+        using namespace fable::multiplayer;
+        protocol::PlayerActorStateMessage message;
+        message.operation = protocol::PlayerActorStateOperation::Construct;
+        message.actorId = snapshot.state.actorId;
+        message.authorityEpoch = snapshot.state.authorityEpoch;
+        message.actorGeneration = snapshot.lifecycle.actorGeneration;
+        message.mapEpoch = snapshot.lifecycle.mapEpoch;
+        message.structuralRevision =
+            snapshot.lifecycle.structuralRevision;
+        message.role = snapshot.state.role;
+        message.mapId = snapshot.state.mapId;
+        message.initialPosition = snapshot.state.position;
+        message.initialFacing = snapshot.state.facing;
+        message.playerId = snapshot.state.playerId;
+        message.mapName = snapshot.state.mapName;
+        message.appearanceDefinition = snapshot.state.appearanceDefinition;
+        message.heroMorph = snapshot.state.heroMorph;
+        message.heroClothing = snapshot.state.heroClothing;
+        message.heroBoneScales = snapshot.state.heroBoneScales;
+        message.heroAppearanceModifiers =
+            snapshot.state.heroAppearanceModifiers;
+        message.heroEquipment = snapshot.state.heroEquipment;
+        message.componentFlags =
+            (snapshot.lifecycle.appearancePresent
+                ? protocol::player_actor_state_flag::AppearancePresent
+                : 0) |
+            (snapshot.lifecycle.equipmentPresent
+                ? protocol::player_actor_state_flag::EquipmentPresent
+                : 0);
+        return message;
+    }
+
+    fable::multiplayer::replication::RemoteEquipmentTransition
+        MaterializeEquipmentTransition(
+            const fable::multiplayer::protocol::PlayerActorStateMessage&
+                message,
+            const std::uint64_t receivedAt,
+            const fable::multiplayer::protocol::SessionTimeMs sessionNow)
+        noexcept
+    {
+        using namespace fable::multiplayer;
+        replication::RemoteEquipmentTransition result;
+        if (!protocol::equipment_transition_timing::HasValidMetadata(
+                message.heroEquipment.transitionActionId,
+                message.transitionStartedAtSessionTimeMs,
+                message.transitionAnimationId,
+                message.transitionDurationMs,
+                message.attachmentNotifyOffsetMs))
+        {
+            return result;
+        }
+        result.actionId = message.heroEquipment.transitionActionId;
+        result.animationId = message.transitionAnimationId;
+        result.durationMs = message.transitionDurationMs;
+        result.attachmentNotifyOffsetMs =
+            message.attachmentNotifyOffsetMs;
+        result.startedAtLocalMs = receivedAt;
+        if (sessionNow != protocol::SessionTimeUnset)
+        {
+            if (!protocol::equipment_transition_timing::ProjectStartToLocal(
+                    receivedAt,
+                    sessionNow,
+                    message.transitionStartedAtSessionTimeMs,
+                    result.startedAtLocalMs))
+            {
+                return {};
+            }
+        }
+        return result;
+    }
 }
 
 namespace fable::multiplayer::replication
@@ -48,7 +117,8 @@ namespace fable::multiplayer::replication
     bool RemotePlayerChannels::ApplyActorState(
         const protocol::PlayerActorStateMessage& message,
         std::uint64_t receivedAt,
-        const std::uint64_t connectionNonce)
+        const std::uint64_t connectionNonce,
+        const protocol::SessionTimeMs sessionNow)
     {
         if (message.actorId == 0 || message.authorityEpoch == 0 ||
             message.actorGeneration == 0 || message.mapEpoch == 0 ||
@@ -59,22 +129,35 @@ namespace fable::multiplayer::replication
 
         const auto existing = channels_.find(message.actorId);
         const bool hasExisting = existing != channels_.end();
+        if (message.operation == protocol::PlayerActorStateOperation::Construct &&
+            !hasExisting && channels_.size() >= MaxTrackedActors)
+        {
+            return false;
+        }
         if (message.operation == protocol::PlayerActorStateOperation::Retire)
         {
             if (!hasExisting)
             {
                 return true;
             }
-            if (existing->second.state.authorityEpoch !=
-                message.authorityEpoch ||
+            if (existing->second.state.authorityEpoch != message.authorityEpoch ||
                 !IsSameIncarnation(existing->second.lifecycle, message) ||
-                message.structuralRevision <=
-                    existing->second.lifecycle.structuralRevision ||
                 (existing->second.lifecycle.connectionNonce != 0 &&
                     (connectionNonce == 0 || connectionNonce !=
                         existing->second.lifecycle.connectionNonce)))
             {
                 return false;
+            }
+            const protocol::PlayerActorStateMessage current =
+                LifecycleMessage(existing->second);
+            protocol::PlayerActorStateMessage next;
+            const auto reduction = PlayerActorLifecycleReducer::Reduce(
+                &current, message, next);
+            if (reduction != PlayerActorLifecycleReduction::Applied)
+            {
+                return reduction == PlayerActorLifecycleReduction::Ignored &&
+                    message.structuralRevision ==
+                        existing->second.lifecycle.structuralRevision;
             }
             if (!allActorsInvalidated_ && invalidatedActors_.size() < 1024)
             {
@@ -94,11 +177,6 @@ namespace fable::multiplayer::replication
             return false;
         }
 
-        if (hasExisting && IsOlderIncarnation(
-                existing->second.lifecycle, message))
-        {
-            return false;
-        }
         if (hasExisting &&
             IsSameIncarnation(existing->second.lifecycle, message) &&
             message.authorityEpoch != existing->second.state.authorityEpoch)
@@ -124,6 +202,40 @@ namespace fable::multiplayer::replication
         {
             return false;
         }
+
+        protocol::PlayerActorStateMessage current;
+        if (hasExisting)
+        {
+            current = LifecycleMessage(existing->second);
+        }
+        if (hasExisting && message.operation ==
+                protocol::PlayerActorStateOperation::Construct &&
+            PlayerActorLifecycleReducer::IsOlderIncarnation(current, message))
+        {
+            return false;
+        }
+        const bool replacementConstruct = hasExisting &&
+            message.operation ==
+                protocol::PlayerActorStateOperation::Construct &&
+            connectionNonce != 0 &&
+            existing->second.lifecycle.connectionNonce != 0 &&
+            connectionNonce != existing->second.lifecycle.connectionNonce;
+        protocol::PlayerActorStateMessage reduced;
+        const auto reduction = PlayerActorLifecycleReducer::Reduce(
+            hasExisting && !replacementConstruct ? &current : nullptr,
+            message,
+            reduced);
+        if (reduction != PlayerActorLifecycleReduction::Applied)
+        {
+            if (!hasExisting)
+            {
+                return false;
+            }
+            return reduction == PlayerActorLifecycleReduction::Ignored &&
+                message.structuralRevision ==
+                existing->second.lifecycle.structuralRevision;
+        }
+        const protocol::PlayerActorStateMessage& canonical = reduced;
 
         if (message.operation == protocol::PlayerActorStateOperation::Construct)
         {
@@ -170,6 +282,8 @@ namespace fable::multiplayer::replication
                 message.heroEquipment.IsSane();
             snapshot.lifecycle.active = snapshot.lifecycle.appearanceReady &&
                 snapshot.lifecycle.equipmentReady;
+            snapshot.equipmentTransition = MaterializeEquipmentTransition(
+                message, receivedAt, sessionNow);
 
             PlayerState& state = snapshot.state;
             state.actorId = message.actorId;
@@ -232,40 +346,30 @@ namespace fable::multiplayer::replication
         }
 
         if (message.operation == protocol::PlayerActorStateOperation::
-                MapTransition &&
-            !IsSameIncarnation(existing->second.lifecycle, message))
+                MapTransition)
         {
-            if (message.actorGeneration < existing->second.lifecycle.
-                    actorGeneration ||
-                (message.actorGeneration == existing->second.lifecycle.
-                    actorGeneration &&
-                    message.mapEpoch <= existing->second.lifecycle.mapEpoch) ||
-                message.structuralRevision <=
-                    existing->second.lifecycle.structuralRevision)
-            {
-                return false;
-            }
             RemotePlayerSnapshot next = existing->second;
             next.receivedAt = receivedAt;
-            next.state.authorityEpoch = message.authorityEpoch;
-            next.state.actorGeneration = message.actorGeneration;
-            next.state.mapEpoch = message.mapEpoch;
-            next.state.role = message.role;
-            next.lifecycle.actorGeneration = message.actorGeneration;
-            next.lifecycle.mapEpoch = message.mapEpoch;
-            next.lifecycle.structuralRevision = message.structuralRevision;
+            next.state.authorityEpoch = canonical.authorityEpoch;
+            next.state.actorGeneration = canonical.actorGeneration;
+            next.state.mapEpoch = canonical.mapEpoch;
+            next.state.role = canonical.role;
+            next.lifecycle.actorGeneration = canonical.actorGeneration;
+            next.lifecycle.mapEpoch = canonical.mapEpoch;
+            next.lifecycle.structuralRevision = canonical.structuralRevision;
             if (connectionNonce != 0)
             {
                 next.lifecycle.connectionNonce = connectionNonce;
             }
-            next.state.mapName = message.mapName;
-            next.state.mapId = message.mapId;
-            next.state.position = message.initialPosition;
+            next.state.mapName = canonical.mapName;
+            next.state.mapId = canonical.mapId;
+            next.state.position = canonical.initialPosition;
             next.state.velocity = {};
-            next.state.facing = NormalizeFacing(message.initialFacing);
+            next.state.facing = NormalizeFacing(canonical.initialFacing);
             next.state.angularVelocity = 0.0f;
             next.state.moving = false;
             next.state.sequence = 0;
+            next.equipmentTransition = {};
             next.state.changedProperties = player_property::Identity |
                 player_property::Map | player_property::Movement;
             if (next.lifecycle.appearancePresent)
@@ -290,37 +394,7 @@ namespace fable::multiplayer::replication
             return true;
         }
 
-        if (!IsSameIncarnation(existing->second.lifecycle, message))
-        {
-            return false;
-        }
-
-        // Appearance and equipment are mandatory for the lifetime of this
-        // remote Hero incarnation. A delta that clears either component would
-        // leave an existing native presentation with no valid baseline.
-        if (message.operation == protocol::PlayerActorStateOperation::
-                ComponentDelta &&
-            ((message.AppearanceChanged() && !message.AppearancePresent()) ||
-                (message.EquipmentChanged() && !message.EquipmentPresent())))
-        {
-            return false;
-        }
-
         RemotePlayerSnapshot& snapshot = existing->second;
-        if (message.structuralRevision <
-            snapshot.lifecycle.structuralRevision)
-        {
-            return false;
-        }
-        if (message.structuralRevision ==
-            snapshot.lifecycle.structuralRevision)
-        {
-            return true;
-        }
-        if (message.authorityEpoch != snapshot.state.authorityEpoch)
-        {
-            return false;
-        }
 
         if (message.operation == protocol::PlayerActorStateOperation::
                 ComponentDelta)
@@ -328,19 +402,20 @@ namespace fable::multiplayer::replication
             if (message.AppearanceChanged())
             {
                 snapshot.lifecycle.appearancePresent =
-                    message.AppearancePresent();
+                    canonical.AppearancePresent();
                 snapshot.lifecycle.appearanceReady =
                     snapshot.lifecycle.appearancePresent &&
-                    message.heroMorph.IsSane() && message.heroClothing.IsSane() &&
-                    message.heroBoneScales.IsSane() &&
-                    message.heroAppearanceModifiers.IsSane();
+                    canonical.heroMorph.IsSane() &&
+                    canonical.heroClothing.IsSane() &&
+                    canonical.heroBoneScales.IsSane() &&
+                    canonical.heroAppearanceModifiers.IsSane();
                 if (snapshot.lifecycle.appearancePresent)
                 {
-                    snapshot.state.heroMorph = message.heroMorph;
-                    snapshot.state.heroClothing = message.heroClothing;
-                    snapshot.state.heroBoneScales = message.heroBoneScales;
+                    snapshot.state.heroMorph = canonical.heroMorph;
+                    snapshot.state.heroClothing = canonical.heroClothing;
+                    snapshot.state.heroBoneScales = canonical.heroBoneScales;
                     snapshot.state.heroAppearanceModifiers =
-                        message.heroAppearanceModifiers;
+                        canonical.heroAppearanceModifiers;
                 }
                 else
                 {
@@ -353,14 +428,24 @@ namespace fable::multiplayer::replication
             if (message.EquipmentChanged())
             {
                 snapshot.lifecycle.equipmentPresent =
-                    message.EquipmentPresent();
+                    canonical.EquipmentPresent();
                 snapshot.lifecycle.equipmentReady =
                     snapshot.lifecycle.equipmentPresent &&
-                    message.heroEquipment.IsSane();
+                    canonical.heroEquipment.IsSane();
                 snapshot.state.heroEquipment =
                     snapshot.lifecycle.equipmentPresent
-                    ? message.heroEquipment
+                    ? canonical.heroEquipment
                     : game::hero_pawn::equipment::HeroEquipmentState{};
+                snapshot.equipmentTransition =
+                    MaterializeEquipmentTransition(
+                        message, receivedAt, sessionNow);
+            }
+            else if (message.AppearanceChanged())
+            {
+                // This revision does not describe equipment. Do not leave a
+                // prior transition record looking like a new event to the
+                // presentation layer.
+                snapshot.equipmentTransition = {};
             }
         }
         else
@@ -369,6 +454,7 @@ namespace fable::multiplayer::replication
             snapshot.state.mapId = message.mapId;
             snapshot.state.position = message.initialPosition;
             snapshot.state.facing = NormalizeFacing(message.initialFacing);
+            snapshot.equipmentTransition = {};
         }
         snapshot.lifecycle.structuralRevision = message.structuralRevision;
         snapshot.lifecycle.active = snapshot.lifecycle.appearanceReady &&
@@ -427,6 +513,8 @@ namespace fable::multiplayer::replication
             ? update.angularVelocity
             : 0.0f;
         state.moving = update.moving;
+        state.movementSampleTimeMs = update.movementSampleTimeMs;
+        state.movementSampleAt = update.movementSampleAt;
         state.sequence = update.sequence;
         state.changedProperties = changed;
         snapshot.receivedAt = receivedAt;

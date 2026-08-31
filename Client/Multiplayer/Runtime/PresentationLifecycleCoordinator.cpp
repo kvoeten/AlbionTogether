@@ -80,6 +80,12 @@ namespace fable::multiplayer
         if (!localHero.IsWorldReady()) {
             if (!graph.ProcessPlayerActorState()) diagnostics.Event("ClientFailed", "multiplayer-player-actor-state-replication");
             InvalidateRemotePlayerState(graph);
+            // A player action is transient presentation work. While this
+            // client has no live world, retire queued actions instead of
+            // replaying a historical draw/attack burst on the destination
+            // actor. Its reliable Construct/component baseline carries the
+            // durable final state into the new map.
+            if (!actions.playerActions.ProcessPending()) diagnostics.Event("ClientFailed", "multiplayer-transition-player-action-retirement");
             const std::uint64_t controlNow = GetTickCount64(); PlayerState controlState;
             while (transport.transport.TryConsume(controlState)) {
                 transport.remotePlayerChannels.Apply(controlState, controlNow);
@@ -104,8 +110,15 @@ namespace fable::multiplayer
             remotePlayers.BeginWorldTransition(); world.populationSimulation.SetHighDetailReady(departingEntityMap_, false); entitySimulation.Refresh(departingEntityMap_, false); localHero.BeginWorldTransition(); return true;
         }
 
-        const std::uint64_t now = GetTickCount64(); localHero.CaptureMovement(now); localHero.CaptureAppearance(now); localHero.CaptureEquipment(now);
+        const std::uint64_t now = GetTickCount64();
+        // Drain accepted native callbacks first so stateful actions can mark
+        // their actor component dirty. Queue the resulting current-state
+        // patches before transient events that depend on them; both use the
+        // same ordered actor stream.
+        if (!actions.playerActions.CaptureLocalPending()) diagnostics.Event("ClientFailed", "multiplayer-local-player-action-capture");
+        localHero.CaptureMovement(now); localHero.CaptureAppearance(now); localHero.CaptureEquipment(now);
         if (!graph.ProcessPlayerActorState()) diagnostics.Event("ClientFailed", "multiplayer-player-actor-state-replication");
+        if (!actions.playerActions.PublishLocalPending()) diagnostics.Event("ClientFailed", "multiplayer-local-player-action-publication");
         InvalidateRemotePlayerState(graph);
         PlayerState inbound;
         while (transport.transport.TryConsume(inbound)) {
@@ -114,6 +127,11 @@ namespace fable::multiplayer
         }
         const auto remoteSnapshots = transport.remotePlayerChannels.Snapshots();
         remotePlayers.Reconcile(remoteSnapshots, localHero.MapName(), localHero.Hero());
+        // RepNotify-style state application precedes presentation events.
+        // An attack that depends on newly equipped state therefore observes
+        // the new component graph, while its animation remains free to
+        // interrupt an older presentation.
+        if (!actions.playerActions.ReplayRemotePending()) diagnostics.Event("ClientFailed", "multiplayer-player-action-replication");
         if (!authority.Reconcile(localHero.CurrentState(), remoteSnapshots)) diagnostics.Event("ClientFailed", "multiplayer-authority-replication");
         if (!world.populationSimulation.Process()) diagnostics.Event("ClientFailed", "multiplayer-population-state-replication");
         if (!entityMaterialization.Reconcile(entityLifecycle.Directory(), entityPresence.LiveEntities(), authority, localHero.MapName(), localHero.MapId())) diagnostics.Event("ClientFailed", "multiplayer-entity-materialization");
@@ -133,7 +151,6 @@ namespace fable::multiplayer
                 "ClientFailed", "multiplayer-entity-movement-replication");
         }
         if (!actions.entityActions.ProcessPending(localHero.MapName(), ownerRosterReady)) diagnostics.Event("ClientFailed", "multiplayer-entity-action-replication");
-        if (!actions.playerActions.ProcessPending()) diagnostics.Event("ClientFailed", "multiplayer-player-action-replication");
         if (!actions.combatHits.Process()) diagnostics.Event("ClientFailed", "multiplayer-combat-hit-replication");
         if (!actions.playerDeath.Process(localHero)) diagnostics.Event("ClientFailed", "multiplayer-player-death");
         if (!actions.entityVitals.Process(localHero, entityPresence.LiveEntities(), remotePlayers)) diagnostics.Event("ClientFailed", "multiplayer-entity-vitals-replication");

@@ -182,9 +182,7 @@ namespace fable::game::hero_pawn::combat
                     inspection) &&
                 inspection.rangedPresent &&
                 inspection.rangedWeapon != nullptr;
-            const bool aimWasActive = rangedAim_.IsActive();
-            const bool aimModeReady = !rangedAim || rangedAim_.Begin();
-            submitted = rangedWeaponReady && aimModeReady && (rangedAim
+            submitted = rangedWeaponReady && (rangedAim
                 ? combat_->SubmitReplicatedRangedAim(
                     nativeHero_,
                     inspection.rangedWeapon,
@@ -195,9 +193,15 @@ namespace fable::game::hero_pawn::combat
                     inspection.rangedWeapon,
                     resolvedActionType.c_str(),
                     resolvedAnimationId));
-            if (rangedAim && !submitted && !aimWasActive)
+            if (rangedAim && submitted && !rangedAim_.TrackNativeBegin())
             {
-                (void)rangedAim_.End();
+                // Submission is already terminal: never retry an accepted
+                // native action. TrackNativeBegin still records the active
+                // state, so the ordered end event can resolve and remove the
+                // native source on a later frame.
+                diagnostics_.Event(
+                    "MultiplayerRemoteRangedAimModeTrackingPending",
+                    "native ranged aim was accepted before its mode manager could be resolved");
             }
             else if (rangedFire && submitted && !rangedAim_.End())
             {

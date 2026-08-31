@@ -2,6 +2,7 @@
 
 #include "Multiplayer/Protocol/PlayerActorStateMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
+#include "Multiplayer/Replication/PlayerActorLifecycleLimits.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -26,11 +27,30 @@ namespace fable::multiplayer::replication
         bool active = false;
     };
 
+    // Current equipment RepNotify presentation for one actor incarnation.
+    // This is one replace-in-place value, never an animation history queue.
+    struct RemoteEquipmentTransition final
+    {
+        std::uint64_t actionId = 0;
+        std::uint64_t startedAtLocalMs = 0;
+        std::uint32_t animationId = 0;
+        std::uint16_t durationMs = 0;
+        std::uint16_t attachmentNotifyOffsetMs = 0;
+
+        [[nodiscard]] bool IsPresent() const noexcept
+        {
+            return actionId != 0 && startedAtLocalMs != 0 &&
+                animationId != 0 && durationMs != 0 &&
+                attachmentNotifyOffsetMs <= durationMs;
+        }
+    };
+
     struct RemotePlayerSnapshot final
     {
         PlayerState state;
         std::uint64_t receivedAt = 0;
         RemotePlayerLifecycle lifecycle;
+        RemoteEquipmentTransition equipmentTransition;
 
         [[nodiscard]] std::uint32_t ActorGeneration() const noexcept
         {
@@ -68,7 +88,9 @@ namespace fable::multiplayer::replication
         bool ApplyActorState(
             const protocol::PlayerActorStateMessage& message,
             std::uint64_t receivedAt,
-            std::uint64_t connectionNonce = 0);
+            std::uint64_t connectionNonce = 0,
+            protocol::SessionTimeMs sessionNow =
+                protocol::SessionTimeUnset);
         bool Apply(const PlayerState& update, std::uint64_t receivedAt);
         [[nodiscard]] std::vector<RemotePlayerSnapshot> Snapshots() const;
         [[nodiscard]] const PlayerState* Find(
@@ -100,6 +122,8 @@ namespace fable::multiplayer::replication
         [[nodiscard]] std::uint64_t ObserverReadinessRevision() const noexcept;
 
     private:
+        static constexpr std::size_t MaxTrackedActors =
+            player_actor_lifecycle::MaxTrackedActors;
         void AdvanceObserverReadinessRevision() noexcept;
 
         std::unordered_map<std::uint64_t, RemotePlayerSnapshot> channels_;

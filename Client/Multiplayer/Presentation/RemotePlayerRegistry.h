@@ -109,7 +109,10 @@ namespace fable::multiplayer::presentation
             std::uint32_t meleeAttachmentSlot,
             std::uint32_t rangedAttachmentSlot,
             const std::string& resolvedActionType,
-            std::uint32_t resolvedAnimationId);
+            std::uint32_t resolvedAnimationId,
+            std::uint64_t actionId);
+        [[nodiscard]] bool IsWeaponTransitionPending(
+            std::uint64_t actorId) const noexcept;
         bool PerformHeroAbility(
             std::uint64_t actorId,
             game::hero_pawn::abilities::HeroAbility ability,

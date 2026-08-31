@@ -151,7 +151,7 @@ namespace fable::multiplayer
         }
         t.reliableMessages.Initialize(t.transport, diagnostics_);
         MarkStage(InitializationStage::ReliableDispatcher);
-        w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, w.authority, diagnostics_);
+        w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, a.playerActions, w.authority, diagnostics_);
         MarkStage(InitializationStage::ConstructionGate);
         if (!ReliableSinkDescriptorRegistry::RegisterDiscovered(
                 contexts_, t.reliableMessages, diagnostics_))

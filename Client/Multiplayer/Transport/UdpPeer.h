@@ -66,6 +66,14 @@ namespace fable::multiplayer
         // re-open their reliable actor baseline after reconnecting.
         [[nodiscard]] std::uint64_t ConnectionNonce() const noexcept;
         [[nodiscard]] std::vector<std::uint64_t> ConnectedActorIds() const;
+        // Host time is the session clock. Guests return their bounded,
+        // smoothed host-time estimate once at least one probe has completed;
+        // before that they deterministically fall back to local monotonic
+        // time.
+        [[nodiscard]] bool HasSynchronizedSessionClock() const noexcept;
+        [[nodiscard]] std::uint64_t SessionTimeMilliseconds() const noexcept;
+        [[nodiscard]] std::uint64_t LocalToSessionTimeMilliseconds(
+            std::uint64_t localTick) const noexcept;
 
     private:
         struct Implementation;

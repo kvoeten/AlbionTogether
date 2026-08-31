@@ -253,7 +253,8 @@ namespace fable::multiplayer::presentation
         std::uint32_t meleeAttachmentSlot,
         std::uint32_t rangedAttachmentSlot,
         const std::string& resolvedActionType,
-        std::uint32_t resolvedAnimationId)
+        std::uint32_t resolvedAnimationId,
+        std::uint64_t actionId)
     {
         const auto iterator = presentations_.find(actorId);
         return iterator != presentations_.end() &&
@@ -264,7 +265,17 @@ namespace fable::multiplayer::presentation
                 meleeAttachmentSlot,
                 rangedAttachmentSlot,
                 resolvedActionType,
-                resolvedAnimationId);
+                resolvedAnimationId,
+                actionId);
+    }
+
+    bool RemotePlayerRegistry::IsWeaponTransitionPending(
+        const std::uint64_t actorId) const noexcept
+    {
+        const auto iterator = presentations_.find(actorId);
+        return iterator != presentations_.end() &&
+            iterator->second != nullptr &&
+            iterator->second->IsWeaponTransitionPending();
     }
 
     bool RemotePlayerRegistry::PerformHeroAbility(

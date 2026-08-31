@@ -27,6 +27,7 @@ namespace fable::multiplayer::authority
 namespace fable::multiplayer::replication
 {
     class RemotePlayerChannels;
+    class PlayerActionReplication;
 }
 
 namespace fable::multiplayer::persistence
@@ -43,6 +44,7 @@ namespace fable::multiplayer::persistence
             UdpPeer& transport,
             ReliableMessageDispatcher& reliableMessages,
             replication::RemotePlayerChannels& remotePlayers,
+            replication::PlayerActionReplication& playerActions,
             authority::AuthorityReplication& authority,
             const core::Diagnostics& diagnostics) noexcept;
         bool Attach(
@@ -71,6 +73,7 @@ namespace fable::multiplayer::persistence
         UdpPeer* transport_ = nullptr;
         ReliableMessageDispatcher* reliableMessages_ = nullptr;
         replication::RemotePlayerChannels* remotePlayers_ = nullptr;
+        replication::PlayerActionReplication* playerActions_ = nullptr;
         authority::AuthorityReplication* authority_ = nullptr;
         game::entity::persistence::SavedEntityMapBlobObserver* observer_ =
             nullptr;

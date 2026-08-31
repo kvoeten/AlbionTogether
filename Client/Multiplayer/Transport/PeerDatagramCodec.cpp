@@ -81,6 +81,7 @@ namespace fable::multiplayer::transport_codec
         movement.actorGeneration = state.actorGeneration;
         movement.mapEpoch = state.mapEpoch;
         movement.sequence = state.sequence;
+        movement.sessionTimeMs = state.movementSampleTimeMs;
         movement.mapId = state.mapId;
         movement.moving = state.moving;
         movement.position = state.position;

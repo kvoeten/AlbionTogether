@@ -1,6 +1,9 @@
 #include "RemoteHeroWeaponTransitionController.h"
 
+#include "Game/Creature/Actions/Native/CreatureActionFunctions.h"
+#include "Game/Creature/Animation/CreatureAnimationService.h"
 #include "Game/Creature/Equipment/Native/CreatureWeaponFunctions.h"
+#include "Game/Creature/Equipment/Native/CreatureWeaponCache.h"
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
 
@@ -12,18 +15,10 @@
 namespace
 {
     using fable::game::creature::equipment::CreatureWeaponFamily;
+    using fable::game::creature::equipment::native::CreatureWeaponInspection;
 
-    bool IsSemanticTransition(
-        const std::string& actionType,
-        CreatureWeaponFamily finalFamily) noexcept
-    {
-        const bool draw = actionType.find("UnsheatheItemFromInventory") !=
-            std::string::npos;
-        const bool stow = actionType.find("SheatheItemToInventory") !=
-            std::string::npos;
-        return (draw && finalFamily != CreatureWeaponFamily::None) ||
-            (stow && finalFamily == CreatureWeaponFamily::None);
-    }
+    constexpr const char* NativeWeaponTransitionActionType =
+        "CCreatureAction_UnsheatheWeapons";
 
     const char* FamilyName(CreatureWeaponFamily family) noexcept
     {
@@ -33,24 +28,63 @@ namespace
                 ? "ranged"
                 : "sheathed";
     }
+
+    bool MatchesTransitionState(
+        const fable::game::hero_pawn::equipment::HeroEquipmentState& expected,
+        const CreatureWeaponInspection& actual) noexcept
+    {
+        const bool meleeExpected = expected.meleeDefinitionIndex > 0 &&
+            (expected.activeFamily == CreatureWeaponFamily::Melee ||
+                expected.meleeAttachmentSlot != 0);
+        const bool rangedExpected = expected.rangedDefinitionIndex > 0 &&
+            (expected.activeFamily == CreatureWeaponFamily::Ranged ||
+                expected.rangedAttachmentSlot != 0);
+        const bool meleeSlotMatches = !meleeExpected ||
+            expected.meleeAttachmentSlot == 0 ||
+            actual.meleeAttachmentSlot == expected.meleeAttachmentSlot;
+        const bool rangedSlotMatches = !rangedExpected ||
+            expected.rangedAttachmentSlot == 0 ||
+            actual.rangedAttachmentSlot == expected.rangedAttachmentSlot;
+
+        if (!meleeSlotMatches || !rangedSlotMatches ||
+            (meleeExpected && !actual.meleePresent) ||
+            (rangedExpected && !actual.rangedPresent))
+        {
+            return false;
+        }
+        if (expected.activeFamily == CreatureWeaponFamily::Melee)
+        {
+            return actual.meleePresent && !actual.meleeStowed &&
+                (!rangedExpected || actual.rangedStowed);
+        }
+        if (expected.activeFamily == CreatureWeaponFamily::Ranged)
+        {
+            return actual.rangedPresent && !actual.rangedStowed &&
+                (!meleeExpected || actual.meleeStowed);
+        }
+        return (!meleeExpected || actual.meleeStowed) &&
+            (!rangedExpected || actual.rangedStowed);
+    }
 }
 
 namespace fable::game::hero_pawn::equipment::transitions
 {
     bool RemoteHeroWeaponTransitionController::Initialize(
         game::EntityService& entities,
+        game::creature::animation::CreatureAnimationService& animation,
         const core::Diagnostics& diagnostics) noexcept
     {
         Shutdown();
         entities_ = &entities;
+        animation_ = &animation;
         diagnostics_ = diagnostics;
-        initialized_ = animation_.Resolve(entities.GameModule());
+        initialized_ = animation.IsReady();
         diagnostics_.Event(
             initialized_
                 ? "MultiplayerRemoteWeaponTransitionReady"
                 : "ClientFailed",
             initialized_
-                ? "resolved native Hero draw/stow animation playback"
+                ? "resolved native Hero draw/stow action submission"
                 : "multiplayer-remote-weapon-transition-animation");
         return initialized_;
     }
@@ -58,41 +92,102 @@ namespace fable::game::hero_pawn::equipment::transitions
     void RemoteHeroWeaponTransitionController::Bind(
         game::Entity& hero,
         void* nativeHero,
-        std::uint64_t actorId) noexcept
+        std::uint64_t actorId,
+        game::creature::equipment::native::CreatureWeaponCache&
+            weaponCache) noexcept
     {
         Unbind();
         hero_ = &hero;
         nativeHero_ = nativeHero;
         actorId_ = actorId;
+        weaponCache_ = &weaponCache;
     }
 
     bool RemoteHeroWeaponTransitionController::Submit(
         const HeroEquipmentState& finalState,
-        const std::string& sourceActionType,
-        std::uint32_t animationId)
+        std::uint32_t animationId,
+        std::uint64_t actionId)
     {
-        if (!initialized_ || hero_ == nullptr || !hero_->IsValid() ||
-            nativeHero_ == nullptr || pending_.active ||
-            !finalState.IsSane() || animationId == 0 ||
-            !IsSemanticTransition(sourceActionType, finalState.activeFamily))
+        return Submit(
+            finalState,
+            animationId,
+            actionId,
+            0,
+            fable::multiplayer::protocol::equipment_transition_timing::
+                DefaultTransitionDurationMilliseconds,
+            fable::multiplayer::protocol::equipment_transition_timing::
+                DefaultAttachmentNotifyOffsetMilliseconds);
+    }
+
+    bool RemoteHeroWeaponTransitionController::Submit(
+        const HeroEquipmentState& finalState,
+        std::uint32_t animationId,
+        std::uint64_t actionId,
+        const std::uint32_t elapsedMs,
+        const std::uint32_t durationMs,
+        const std::uint32_t attachmentNotifyOffsetMs)
+    {
+        if (!initialized_ || entities_ == nullptr || animation_ == nullptr ||
+            hero_ == nullptr || !hero_->IsValid() ||
+            nativeHero_ == nullptr || weaponCache_ == nullptr ||
+            !finalState.IsSane() || animationId == 0 || actionId == 0 ||
+            durationMs == 0 || elapsedMs >= durationMs ||
+            attachmentNotifyOffsetMs > durationMs ||
+            actionId <= lastSubmittedActionId_)
+        {
+            return false;
+        }
+        if (pending_.active && actionId <= pending_.actionId)
+        {
+            return false;
+        }
+        if (pending_.active)
+        {
+            // A newer reliable revision owns the actor immediately. Resetting
+            // this record invalidates the older delayed carry mutation before
+            // it can run; there is no FIFO animation-completion wait.
+            pending_ = {};
+            diagnostics_.Event(
+                "MultiplayerRemoteWeaponTransitionSuperseded",
+                "newer action/change revision replaced pending transition");
+        }
+        if (!weaponCache_->Ensure(
+                *entities_,
+                nativeHero_,
+                finalState.meleeDefinitionIndex,
+                finalState.rangedDefinitionIndex) ||
+            !weaponCache_->StageTransition(
+                nativeHero_, finalState.activeFamily))
         {
             return false;
         }
 
-        const game::creature::animation::native::AnimationPlaybackAttempt
-            attempt = animation_.Play(nativeHero_, animationId, 0);
-        if (attempt.result != game::creature::animation::native::
-                AnimationPlaybackResult::Played)
+        const bool selectionArmed = animation_->BeginReplicatedActionSelection(
+            nativeHero_, NativeWeaponTransitionActionType, animationId);
+        const bool submitted = game::creature::actions::native::
+            CreatureActionFunctions::SubmitWeaponTransition(
+                entities_->GameModule(), nativeHero_, finalState.activeFamily);
+        if (selectionArmed)
+        {
+            animation_->EndReplicatedActionSelection();
+        }
+        if (!submitted)
         {
             return false;
         }
+        lastSubmittedActionId_ = actionId;
 
         const std::uint64_t now = GetTickCount64();
+        const std::uint32_t mutationDelay =
+            attachmentNotifyOffsetMs > elapsedMs
+                ? attachmentNotifyOffsetMs - elapsedMs
+                : 0;
+        const std::uint32_t remainingDuration = durationMs - elapsedMs;
         pending_.finalState = finalState;
-        pending_.sourceActionType = sourceActionType;
-        pending_.mutationAt = now + CarryMutationDelayMilliseconds;
-        pending_.expiresAt = now + TransitionLifetimeMilliseconds;
+        pending_.mutationAt = now + mutationDelay;
+        pending_.expiresAt = now + remainingDuration;
         pending_.animationId = animationId;
+        pending_.actionId = actionId;
         pending_.mutationAttempts = 0;
         pending_.active = true;
 
@@ -100,70 +195,70 @@ namespace fable::game::hero_pawn::equipment::transitions
         std::snprintf(
             detail,
             sizeof(detail),
-            "actor_id=%llu avatar=%p family=%s animation_id=%u native_action=%s mutation_delay_ms=%llu",
+            "actor_id=%llu avatar=%p family=%s animation_id=%u elapsed_ms=%u mutation_delay_ms=%u remaining_ms=%u",
             static_cast<unsigned long long>(actorId_),
             nativeHero_,
             FamilyName(finalState.activeFamily),
             animationId,
-            sourceActionType.c_str(),
-            static_cast<unsigned long long>(
-                CarryMutationDelayMilliseconds));
+            elapsedMs,
+            mutationDelay,
+            remainingDuration);
         diagnostics_.Event(
-            "MultiplayerRemoteWeaponTransitionAnimationStarted", detail);
+            "MultiplayerRemoteWeaponTransitionNativeActionStarted", detail);
         return true;
+    }
+
+    bool RemoteHeroWeaponTransitionController::Submit(
+        const HeroEquipmentState& finalState,
+        const std::string& sourceActionType,
+        std::uint32_t animationId,
+        std::uint64_t actionId)
+    {
+        (void)sourceActionType;
+        return Submit(finalState, animationId, actionId);
     }
 
     void RemoteHeroWeaponTransitionController::Process(
         std::uint64_t now) noexcept
     {
-        if (!pending_.active || now < pending_.mutationAt)
+        if (!pending_.active)
+        {
+            return;
+        }
+        if (now < pending_.mutationAt)
         {
             return;
         }
 
         using game::creature::equipment::CreatureWeaponFamily;
         using game::creature::equipment::native::CreatureWeaponFunctions;
-        using game::creature::equipment::native::CreatureWeaponInspection;
         using game::creature::equipment::native::CreatureCarryingEntry;
         using game::creature::equipment::native::CreatureCarryingInspection;
-        CreatureWeaponInspection current;
-        const bool inspected = CreatureWeaponFunctions::Inspect(
-            nativeHero_,
-            pending_.finalState.meleeDefinitionIndex,
-            pending_.finalState.rangedDefinitionIndex,
-            current);
-        const bool requireMelee =
-            pending_.finalState.activeFamily == CreatureWeaponFamily::Melee;
-        const bool requireRanged =
-            pending_.finalState.activeFamily == CreatureWeaponFamily::Ranged;
         const std::int32_t meleeDefinition =
-            pending_.finalState.meleeDefinitionIndex > 0 &&
-                (requireMelee || (inspected && current.meleePresent))
-            ? pending_.finalState.meleeDefinitionIndex
-            : -1;
+            pending_.finalState.meleeDefinitionIndex;
         const std::int32_t rangedDefinition =
-            pending_.finalState.rangedDefinitionIndex > 0 &&
-                (requireRanged || (inspected && current.rangedPresent))
-            ? pending_.finalState.rangedDefinitionIndex
-            : -1;
-        const std::uint32_t meleeSlot = meleeDefinition > 0
-            ? pending_.finalState.meleeAttachmentSlot
-            : 0;
-        const std::uint32_t rangedSlot = rangedDefinition > 0
-            ? pending_.finalState.rangedAttachmentSlot
-            : 0;
+            pending_.finalState.rangedDefinitionIndex;
 
         CreatureWeaponInspection applied;
-        const bool mutated = CreatureWeaponFunctions::ApplyLoadout(
-                nativeHero_,
-                meleeDefinition,
-                rangedDefinition,
-                meleeSlot,
-                rangedSlot,
-                pending_.finalState.activeFamily,
-                &applied) &&
-            hero_->UpdateAttachment();
+        const bool inspected = CreatureWeaponFunctions::Inspect(
+            nativeHero_, meleeDefinition, rangedDefinition, applied);
+        bool mutated = inspected &&
+            MatchesTransitionState(pending_.finalState, applied);
         ++pending_.mutationAttempts;
+        if (!mutated)
+        {
+            // Remote Heroes do not own CTCHeroInventoryWeapons, so the retail
+            // action cannot always perform its inventory event. The cached
+            // weapon Thing is attached at the action's normal mutation point;
+            // no definition or render graph is created on this visible frame.
+            mutated = weaponCache_->ApplyPresentation(
+                    nativeHero_,
+                    pending_.finalState.meleeAttachmentSlot,
+                    pending_.finalState.rangedAttachmentSlot,
+                    pending_.finalState.activeFamily,
+                    &applied) &&
+                hero_->UpdateAttachment();
+        }
         if (mutated)
         {
             char detail[512] = {};
@@ -226,12 +321,14 @@ namespace fable::game::hero_pawn::equipment::transitions
             }
             appliedState_ = pending_.finalState;
             appliedStateAvailable_ = true;
+            // Carrying state is authoritative as soon as the latest revision
+            // reaches its mutation point. Do not retain an animation-completion
+            // lease: a subsequent revision must be able to submit immediately.
             pending_ = {};
             return;
         }
 
-        if (pending_.mutationAttempts >= MaximumMutationAttempts ||
-            now >= pending_.expiresAt)
+        if (now >= pending_.expiresAt)
         {
             char detail[384] = {};
             std::snprintf(
@@ -256,7 +353,9 @@ namespace fable::game::hero_pawn::equipment::transitions
         hero_ = nullptr;
         nativeHero_ = nullptr;
         actorId_ = 0;
+        weaponCache_ = nullptr;
         pending_ = {};
+        lastSubmittedActionId_ = 0;
         appliedState_ = {};
         appliedStateAvailable_ = false;
     }
@@ -265,6 +364,7 @@ namespace fable::game::hero_pawn::equipment::transitions
     {
         Unbind();
         entities_ = nullptr;
+        animation_ = nullptr;
         diagnostics_ = {};
         initialized_ = false;
     }

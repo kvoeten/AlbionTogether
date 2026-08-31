@@ -60,9 +60,12 @@
     <ClCompile Include="..\..\Client\Multiplayer\Replication\RemotePlayerChannels.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\EntityVitalsReplication.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActionEventQueue.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\LocalPlayerActionCapture.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActionReplication.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Presentation\RemotePlayerActionPresentation.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActorStateReplication.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActorLifecycleReducer.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActorStatePublicationQueue.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Transport\ConnectionNonceRegistry.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Transport\MovementTransport.cpp" />
@@ -71,6 +74,10 @@
     <ClCompile Include="..\..\Client\Multiplayer\Transport\ReliableStreamTransport.cpp" />
     <ClCompile Include="PlayerActorStateTestStubs.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Transport\UdpPeer.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Transport\SessionClock.cpp" />
+    <ClCompile Include="SessionClock.Tests.cpp" />
+    <ClCompile Include="ReliableStreamWindow.Tests.cpp" />
+    <ClCompile Include="EquipmentTransitionTiming.Tests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Client\Multiplayer\Combat\CombatActionLedger.h" />
@@ -90,9 +97,13 @@
     <ClInclude Include="..\..\Client\Multiplayer\Replication\RemotePlayerChannels.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\EntityVitalsReplication.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActionEventQueue.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\LocalPlayerActionCapture.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActionReplication.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Presentation\RemotePlayerActionPresentation.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\UdpPeer.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActorStatePublicationQueue.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActorLifecycleLimits.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActorLifecycleReducer.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\MovementTransport.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerDatagramCodec.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerSessionRegistry.h" />

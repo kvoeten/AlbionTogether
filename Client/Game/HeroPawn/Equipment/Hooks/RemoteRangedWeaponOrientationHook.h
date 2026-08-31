@@ -31,7 +31,8 @@ namespace fable::game::hero_pawn::equipment::hooks
             std::uint64_t actorId) noexcept;
         [[nodiscard]] bool SetActiveWeapon(
             RegistrationToken token,
-            void* rangedWeapon) noexcept;
+            void* rangedWeapon,
+            std::int32_t weaponType) noexcept;
         void Unregister(RegistrationToken token) noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
 
@@ -60,6 +61,7 @@ namespace fable::game::hero_pawn::equipment::hooks
             std::atomic<RegistrationToken> token{0};
             std::atomic<void*> carrying{nullptr};
             std::atomic<void*> weapon{nullptr};
+            std::atomic<std::int32_t> weaponType{-1};
             std::atomic<std::uint64_t> actorId{0};
             std::atomic_bool correctionReported{false};
         };

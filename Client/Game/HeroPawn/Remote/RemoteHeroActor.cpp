@@ -13,6 +13,7 @@
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/NPC/NpcService.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
+#include "Multiplayer/Protocol/EquipmentTransitionTiming.h"
 
 #include <Windows.h>
 
@@ -55,7 +56,8 @@ namespace fable::game::hero_pawn::remote
         presentationFactory_ = &presentationFactory;
         movement_.Initialize(locomotion, diagnostics);
         appearance_.Initialize(diagnostics);
-        equipment_.Initialize(entities, orientationHook, diagnostics);
+        equipment_.Initialize(
+            entities, animation, orientationHook, diagnostics);
         combat_.Initialize(entities, combat, equipment_, diagnostics);
         abilities_.Initialize(entities, abilities, diagnostics);
         expressions_.Initialize(entities, animation, diagnostics);
@@ -108,7 +110,8 @@ namespace fable::game::hero_pawn::remote
         std::uint32_t meleeAttachmentSlot,
         std::uint32_t rangedAttachmentSlot,
         const std::string& resolvedActionType,
-        std::uint32_t resolvedAnimationId)
+        std::uint32_t resolvedAnimationId,
+        std::uint64_t actionId)
     {
         game::hero_pawn::equipment::HeroEquipmentState equipment;
         equipment.valid = true;
@@ -119,6 +122,7 @@ namespace fable::game::hero_pawn::remote
         equipment.meleeAttachmentSlot = meleeAttachmentSlot;
         equipment.rangedAttachmentSlot = rangedAttachmentSlot;
         equipment.activeFamily = weaponFamily;
+        equipment.transitionActionId = actionId;
         if (!initialized_ || !IsLifecycleActive() || avatarSuspended_)
         {
             return false;
@@ -129,7 +133,13 @@ namespace fable::game::hero_pawn::remote
             (void)combat_.EndRangedAim();
         }
         return equipment_.PerformTransition(
-            equipment, resolvedActionType, resolvedAnimationId);
+            equipment, resolvedActionType, resolvedAnimationId, actionId);
+    }
+
+    bool RemoteHeroActor::IsWeaponTransitionPending() const noexcept
+    {
+        return initialized_ && IsLifecycleActive() && !avatarSuspended_ &&
+            equipment_.IsTransitionPending();
     }
 
     bool RemoteHeroActor::PerformHeroAbility(
@@ -181,7 +191,12 @@ namespace fable::game::hero_pawn::remote
         sample.facing = state.facing;
         sample.angularVelocity = state.angularVelocity;
         sample.moving = state.moving;
-        sample.receivedAt = receivedAt;
+        // The transport projects the owner-authored session timestamp onto
+        // this receiver's monotonic clock. Fall back to arrival time during
+        // the brief pre-synchronization window.
+        sample.receivedAt = state.movementSampleAt != 0
+            ? state.movementSampleAt
+            : receivedAt;
         return sample;
     }
 
@@ -347,6 +362,27 @@ namespace fable::game::hero_pawn::remote
         // must continue reconciling while that work is pending.
         if (snapshot.lifecycle.equipmentPresent)
         {
+            const auto& transition = snapshot.equipmentTransition;
+            if (equipmentBaselineApplied_ && transition.IsPresent() &&
+                multiplayer::protocol::equipment_transition_timing::EvaluateLocal(
+                    now,
+                    transition.startedAtLocalMs,
+                    transition.durationMs) ==
+                    multiplayer::protocol::equipment_transition_timing::Phase::Active)
+            {
+                const std::uint64_t elapsed64 =
+                    now - transition.startedAtLocalMs;
+                if (elapsed64 < transition.durationMs)
+                {
+                    (void)equipment_.PerformTransition(
+                        state.heroEquipment,
+                        transition.animationId,
+                        transition.actionId,
+                        static_cast<std::uint32_t>(elapsed64),
+                        transition.durationMs,
+                        transition.attachmentNotifyOffsetMs);
+                }
+            }
             equipment_.Reconcile(state.heroEquipment, now);
         }
         // The current Hero path requires both reliable component presence bits
@@ -365,8 +401,13 @@ namespace fable::game::hero_pawn::remote
             lifecyclePhase_ = RemoteHeroLifecyclePhase::BaselineApplied;
             lifecyclePhase_ = RemoteHeroLifecyclePhase::Active;
         }
-        else
+        else if (lifecyclePhase_ != RemoteHeroLifecyclePhase::Active)
         {
+            // Native presentation readiness is an activation gate, not a
+            // continuously recomputed actor lifecycle. A draw/stow action
+            // temporarily marks equipment busy; once the complete baseline
+            // has activated this actor, that must not make later real-time
+            // actions look like stale pre-construction traffic.
             lifecyclePhase_ = RemoteHeroLifecyclePhase::NativeReady;
             return;
         }
