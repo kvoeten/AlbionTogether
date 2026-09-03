@@ -1,10 +1,14 @@
 /bin/
 /**/bin/
 /build/
+/.build/
 /obj/
 /**/build/
 /*.obj
 /.analysis/
+# Private player saves used for local acceptance, never release content.
+/Hero1.zip
+/Hero2.zip
 /.vs/
 /fixtures/candidates/
 *.user

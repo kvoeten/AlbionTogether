@@ -14,6 +14,7 @@ struct Peer final
     std::wstring player;
     std::wstring role;
     std::wstring scenario;
+    std::wstring fixtureSaveName;
     std::filesystem::path root;
     std::filesystem::path events;
     std::filesystem::path autoSave;

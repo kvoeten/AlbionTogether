@@ -4,6 +4,7 @@
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/HeroPawn/Abilities/Hooks/PillarAbilityLifecycleHook.h"
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
+#include "Game/HeroPawn/Remote/RemoteHeroNativeLifecycle.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
@@ -53,6 +54,14 @@ extern "C" std::uint32_t PerformedAbilityCountForTest() noexcept
 extern "C" std::uint32_t LastPerformedAnimationIdForTest() noexcept
 {
     return g_lastPerformedAnimationId;
+}
+
+namespace fable::game::hero_pawn::remote
+{
+    // The focused replication test executable does not link the native Hero
+    // implementation. Keep its owned incomplete lifecycle type destructible
+    // so registry lifetime tests can use the real public aggregate.
+    RemoteHeroActor::~RemoteHeroActor() = default;
 }
 
 namespace fable::multiplayer::replication
@@ -308,6 +317,15 @@ namespace fable::multiplayer::authority
     {
         return false;
     }
+
+    bool AuthorityReplication::IsEntityActionPublisher(
+        const EntityAuthorityKey&,
+        const std::string&,
+        std::uint64_t,
+        std::uint32_t) const noexcept
+    {
+        return false;
+    }
 }
 
 namespace fable::multiplayer::entities
@@ -318,23 +336,16 @@ namespace fable::multiplayer::entities
         return true;
     }
 
-    const WorldEntityDirectory& EntityLifecycleReplication::Directory()
-        const noexcept
+    WorldEntityDirectory& EntityLifecycleReplication::Directory() noexcept
     {
-        static const WorldEntityDirectory directory;
+        static WorldEntityDirectory directory;
         return directory;
     }
 
-    const WorldEntityRecord* WorldEntityDirectory::Find(
-        const std::uint64_t) const noexcept
-    {
-        return nullptr;
-    }
-
-    std::uint64_t WorldEntityDirectory::LatestWorldRevision()
+    const WorldEntityDirectory& EntityLifecycleReplication::Directory()
         const noexcept
     {
-        return 0;
+        return const_cast<EntityLifecycleReplication*>(this)->Directory();
     }
 
     std::uint64_t EntityNetworkIdentityRegistry::Canonicalize(

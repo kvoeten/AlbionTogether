@@ -179,6 +179,22 @@ namespace fable::multiplayer::persistence
         return iterator != blobs_.end() ? &iterator->second : nullptr;
     }
 
+    std::vector<std::uint16_t>
+        SavedEntityMapBlobDirectory::PopulatedMapIds() const
+    {
+        std::vector<std::uint16_t> result;
+        result.reserve(blobs_.size());
+        for (const auto& [mapId, blob] : blobs_)
+        {
+            (void)blob;
+            if (mapId != 0 && mapId < MaximumMapRecords)
+            {
+                result.push_back(static_cast<std::uint16_t>(mapId));
+            }
+        }
+        return result;
+    }
+
     bool SavedEntityMapBlobDirectory::IsComplete() const noexcept
     {
         return complete_;

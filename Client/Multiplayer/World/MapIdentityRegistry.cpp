@@ -2,9 +2,28 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <utility>
 
 namespace fable::multiplayer::world
 {
+    std::size_t MapIdentityRegistry::ConflictSignatureHash::operator()(
+        const ConflictSignature& signature) const noexcept
+    {
+        std::size_t hash = std::hash<std::uint16_t>{}(signature.mapId);
+        const auto combine = [&hash](const std::string& value)
+        {
+            const std::size_t valueHash = std::hash<std::string>{}(value);
+            hash ^= valueHash + static_cast<std::size_t>(0x9e3779b9) +
+                (hash << 6U) + (hash >> 2U);
+        };
+        combine(signature.currentName);
+        combine(signature.candidateName);
+        hash ^= std::hash<bool>{}(signature.authoritativeOverride) +
+            static_cast<std::size_t>(0x9e3779b9) + (hash << 6U) +
+            (hash >> 2U);
+        return hash;
+    }
+
     void MapIdentityRegistry::Initialize(
         PeerRole role,
         std::uint64_t localActorId,
@@ -22,10 +41,11 @@ namespace fable::multiplayer::world
     {
         if (localPlayer != nullptr)
         {
-            Observe(
-                *localPlayer,
-                role_ == PeerRole::Host &&
-                    localPlayer->actorId == localActorId_);
+            // Script-facing Hero map names can lag the numeric map change
+            // during native travel. Only the retail preparation/authority
+            // seams call ObserveAuthoritative; ordinary player state remains
+            // provisional even when it belongs to the host.
+            Observe(*localPlayer, false);
         }
         std::vector<const PlayerState*> ordered;
         ordered.reserve(remotePlayers.size());
@@ -44,12 +64,20 @@ namespace fable::multiplayer::world
         {
             if (player != nullptr)
             {
-                Observe(
-                    *player,
-                    role_ == PeerRole::Guest &&
-                        player->role == PeerRole::Host);
+                Observe(*player, false);
             }
         }
+    }
+
+    bool MapIdentityRegistry::ObserveAuthoritative(
+        const std::string& mapName,
+        const std::uint16_t mapId)
+    {
+        PlayerState observation;
+        observation.actorId = localActorId_;
+        observation.mapId = mapId;
+        observation.mapName = mapName;
+        return Observe(observation, true);
     }
 
     const std::string* MapIdentityRegistry::FindName(
@@ -75,6 +103,7 @@ namespace fable::multiplayer::world
     {
         byId_.clear();
         byName_.clear();
+        reportedConflicts_.clear();
         role_ = PeerRole::Guest;
         localActorId_ = 0;
         diagnostics_ = {};
@@ -83,7 +112,7 @@ namespace fable::multiplayer::world
 
     bool MapIdentityRegistry::Observe(
         const PlayerState& player,
-        bool hostVerified)
+        const bool authoritative)
     {
         if (player.actorId == 0 || player.mapId == 0 ||
             player.mapName.empty())
@@ -96,9 +125,9 @@ namespace fable::multiplayer::world
             idMatch->second.mapName == player.mapName &&
             nameMatch != byName_.end() && nameMatch->second == player.mapId)
         {
-            if (hostVerified)
+            if (authoritative)
             {
-                idMatch->second.hostVerified = true;
+                idMatch->second.authoritative = true;
                 idMatch->second.sourceActorId = player.actorId;
             }
             return true;
@@ -106,8 +135,9 @@ namespace fable::multiplayer::world
 
         const bool conflict = idMatch != byId_.end() ||
             nameMatch != byName_.end();
-        if (conflict && (!hostVerified ||
-                (idMatch != byId_.end() && idMatch->second.hostVerified)))
+        if (conflict && (!authoritative ||
+                (idMatch != byId_.end() &&
+                    idMatch->second.authoritative)))
         {
             ReportConflict(
                 player.mapId,
@@ -137,7 +167,7 @@ namespace fable::multiplayer::world
         Binding binding;
         binding.mapName = player.mapName;
         binding.sourceActorId = player.actorId;
-        binding.hostVerified = hostVerified;
+        binding.authoritative = authoritative;
         byId_[player.mapId] = std::move(binding);
         byName_[player.mapName] = player.mapId;
         if (conflict)
@@ -155,22 +185,29 @@ namespace fable::multiplayer::world
         std::uint16_t mapId,
         const std::string& currentName,
         const std::string& candidateName,
-        bool hostOverride)
+        const bool authoritativeOverride)
     {
-        ++conflictCount_;
-        if (conflictCount_ > 32)
+        ConflictSignature signature;
+        signature.mapId = mapId;
+        signature.currentName = currentName;
+        signature.candidateName = candidateName;
+        signature.authoritativeOverride = authoritativeOverride;
+        if (reportedConflicts_.find(signature) != reportedConflicts_.end() ||
+            reportedConflicts_.size() >= MaximumConflictDiagnostics)
         {
             return;
         }
+        reportedConflicts_.insert(std::move(signature));
+        ++conflictCount_;
         char detail[384] = {};
         std::snprintf(
             detail,
             sizeof(detail),
-            "map_id=%u current=%s candidate=%s host_override=%s",
+            "map_id=%u current=%s candidate=%s authoritative_override=%s",
             static_cast<unsigned int>(mapId),
             currentName.c_str(),
             candidateName.c_str(),
-            hostOverride ? "true" : "false");
+            authoritativeOverride ? "true" : "false");
         diagnostics_.Event("MultiplayerMapIdentityConflict", detail);
     }
 }

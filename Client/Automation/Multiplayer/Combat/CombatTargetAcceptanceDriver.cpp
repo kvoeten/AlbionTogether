@@ -472,7 +472,45 @@ namespace fable::automation::multiplayer::combat
                 diagnostics_.Event(
                     "MultiplayerCombatNativeMeleeStowed", detail);
             }
-            if (sheatheReady_ && !redrawRequested_ && equipmentRead &&
+            if (sheatheReady_ && !unarmedAttackSubmitted_ && equipmentRead &&
+                equipment.activeFamily == CreatureWeaponFamily::None &&
+                combat_ != nullptr && now >= nextWeaponTransitionAt_)
+            {
+                // Prove the weaponless owner path after the authoritative
+                // carrying state has settled. Fable must construct its real
+                // InterruptableMidAttackAutoTurn action; capture then carries
+                // that semantic action through the ordered player mailbox.
+                const bool clearedBefore =
+                    game::creature::combat::native::HeroTargetingComponent::
+                        ClearTargets(entities_->GameModule(), targeting);
+                const bool submitted = clearedBefore &&
+                    combat_->SubmitReplicatedAbility(
+                        heroThing, HeroMeleeAttackAbility, 0.0f);
+                const bool clearedAfter = submitted &&
+                    game::creature::combat::native::HeroTargetingComponent::
+                        ClearTargets(entities_->GameModule(), targeting);
+                if (submitted && clearedAfter)
+                {
+                    combat_->ObservePlayerAbility(
+                        heroThing,
+                        HeroMeleeAttackAbility,
+                        0.0f,
+                        true);
+                    unarmedAttackSubmitted_ = true;
+                    nextWeaponTransitionAt_ =
+                        now + SustainedAttackIntervalMilliseconds;
+                    diagnostics_.Event(
+                        "MultiplayerCombatNativeUnarmedAttackSubmitted",
+                        "ability_id=1101 weapon=none target=null source=native-creature-ability");
+                }
+                else
+                {
+                    nextWeaponTransitionAt_ =
+                        now + WeaponStateRetryMilliseconds;
+                }
+            }
+            if (sheatheReady_ && unarmedAttackSubmitted_ &&
+                !redrawRequested_ && equipmentRead &&
                 now >= nextWeaponTransitionAt_)
             {
                 redrawRequested_ = HeroWeaponComponent::RequestActiveFamily(
@@ -828,6 +866,7 @@ namespace fable::automation::multiplayer::combat
         nativeAttackSubmitted_ = false;
         sheatheRequested_ = false;
         sheatheReady_ = false;
+        unarmedAttackSubmitted_ = false;
         redrawRequested_ = false;
         redrawReady_ = false;
         healthMutationApplied_ = false;

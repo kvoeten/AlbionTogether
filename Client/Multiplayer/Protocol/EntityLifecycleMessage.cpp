@@ -24,6 +24,10 @@ namespace
         std::uint16_t definitionIndex = 0;
         float position[3] = {};
         float facing = 0.0f;
+        std::uint32_t lowSimulationRevision = 0;
+        std::int32_t lowSimulationDay = 0;
+        std::int32_t lowSimulationFrame = 0;
+        std::uint8_t lowSimulationFlags = 0;
         char mapName[96] = {};
         char sourceMapName[96] = {};
         char definitionName[128] = {};
@@ -32,7 +36,7 @@ namespace
 #pragma pack(pop)
 
     static_assert(std::is_trivially_copyable_v<WireEntityLifecycleMessage>);
-    static_assert(sizeof(WireEntityLifecycleMessage) == 488);
+    static_assert(sizeof(WireEntityLifecycleMessage) == 501);
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept
@@ -115,7 +119,7 @@ namespace
             const bool common = message.flags == 0 &&
                 message.entityUid == 0 && message.villageUid == 0 &&
                 message.entityGeneration == 0 &&
-                message.baselineId == 0 && message.mapId == 0 &&
+                message.baselineId == 0 && message.mapId != 0 &&
                 message.definitionIndex == 0 &&
                 message.position.x == 0.0f &&
                 message.position.y == 0.0f &&
@@ -160,6 +164,21 @@ namespace
             (message.flags &
                 entity_lifecycle_flag::HasVillageMembership) != 0;
         if (hasVillageMembership != (message.villageUid != 0))
+        {
+            return false;
+        }
+        constexpr std::uint8_t LowSimulationAllowed = 0x07u;
+        const bool hasLowSimulation = message.lowSimulationRevision != 0;
+        if ((message.lowSimulation.componentPresent != hasLowSimulation) ||
+            (message.lowSimulation.componentPresent !=
+                ((message.lowSimulationFlags & 0x04u) != 0)) ||
+            (message.lowSimulation.respawnable &&
+                !(message.lowSimulationFlags & 0x01u)) ||
+            (message.lowSimulation.guard &&
+                !(message.lowSimulationFlags & 0x02u)) ||
+            (message.lowSimulationFlags & ~LowSimulationAllowed) != 0 ||
+            (!hasLowSimulation && message.lowSimulation !=
+                fable::game::npc::simulation::DummyVillagerState{}))
         {
             return false;
         }
@@ -216,6 +235,10 @@ namespace
             {
                 return !live && message.entityGeneration != 0 &&
                     message.mapId != 0 && message.mapEpoch == 0;
+            }
+            if (message.lowSimulationRevision != 0)
+            {
+                return false;
             }
             return message.mapId != 0 &&
                 message.mapEpoch == message.sourceMapEpoch &&
@@ -292,6 +315,10 @@ namespace fable::multiplayer::protocol
         wire.position[1] = message.position.y;
         wire.position[2] = message.position.z;
         wire.facing = message.facing;
+        wire.lowSimulationRevision = message.lowSimulationRevision;
+        wire.lowSimulationDay = message.lowSimulation.recreationDay;
+        wire.lowSimulationFrame = message.lowSimulation.recreationFrame;
+        wire.lowSimulationFlags = message.lowSimulationFlags;
         strncpy_s(wire.mapName, message.mapName.c_str(), _TRUNCATE);
         strncpy_s(
             wire.sourceMapName,
@@ -346,6 +373,16 @@ namespace fable::multiplayer::protocol
         message.position = {
             wire.position[0], wire.position[1], wire.position[2]};
         message.facing = wire.facing;
+        message.lowSimulationRevision = wire.lowSimulationRevision;
+        message.lowSimulationFlags = wire.lowSimulationFlags;
+        message.lowSimulation.recreationDay = wire.lowSimulationDay;
+        message.lowSimulation.recreationFrame = wire.lowSimulationFrame;
+        message.lowSimulation.respawnable =
+            (wire.lowSimulationFlags & 0x01u) != 0;
+        message.lowSimulation.guard =
+            (wire.lowSimulationFlags & 0x02u) != 0;
+        message.lowSimulation.componentPresent =
+            (wire.lowSimulationFlags & 0x04u) != 0;
         message.mapName = wire.mapName;
         message.sourceMapName = wire.sourceMapName;
         message.definitionName = wire.definitionName;

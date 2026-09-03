@@ -229,6 +229,22 @@ namespace
             options.multiplayerRole = L"guest";
             return ParseResult::Handled;
         }
+        if (argument == L"--host-save" || argument == L"--guest-save")
+        {
+            std::wstring& destination = argument == L"--host-save"
+                ? options.hostFixtureSave
+                : options.guestFixtureSave;
+            const wchar_t* const missing = argument == L"--host-save"
+                ? L"Missing save entry name after --host-save"
+                : L"Missing save entry name after --guest-save";
+            if (!ReadValue(index, argc, argv, missing, destination, error) ||
+                destination.empty())
+            {
+                if (error.empty()) error = missing;
+                return ParseResult::Error;
+            }
+            return ParseResult::Handled;
+        }
         if (argument != L"--player-id" && argument != L"--appearance")
         {
             return ParseResult::NotHandled;
@@ -504,6 +520,24 @@ namespace
             error = L"--character-snapshot is supported only with fixture-loading automation";
             return false;
         }
+        const auto validSaveName = [](const std::wstring& value)
+        {
+            return !value.empty() && value.size() <= 64 &&
+                std::all_of(value.begin(), value.end(), [](wchar_t character)
+                {
+                    return character >= L' ' && character != L'/' &&
+                        character != L'\\' && character != L':' &&
+                        character != L'*' && character != L'?' &&
+                        character != L'"' && character != L'<' &&
+                        character != L'>' && character != L'|';
+                });
+        };
+        if (!validSaveName(options.hostFixtureSave) ||
+            !validSaveName(options.guestFixtureSave))
+        {
+            error = L"fixture save names must be valid save-list entries of at most 64 characters";
+            return false;
+        }
         return true;
     }
 
@@ -585,7 +619,9 @@ void PrintUsage()
         << L"  --game-dir <path>  Fable Anniversary root or Binaries\\Win32 directory\n"
         << L"  --exe <path>       Exact game executable path\n"
         << L"  --dll <path>       Exact client DLL path\n"
-        << L"  --fixture-documents <dir>  Override the bundled adult-town save fixture\n"
+        << L"  --fixture-documents <dir>  Required isolated save fixture; multiplayer accepts host/Documents plus guest/Documents\n"
+        << L"  --host-save <name>  Exact host fixture save entry (default: AutoSave)\n"
+        << L"  --guest-save <name>  Exact guest fixture save entry (default: AutoSave)\n"
         << L"  --character-snapshot <json>  Optional server-character state to apply after fixture load\n"
         << L"  --automation <id>  Run observe_frontend, observe_save_list, bootstrap_fixture_probe, load_fixture, or appearance_cycle\n"
         << L"  --timeout <sec>     Automation timeout from 10 to 600 seconds (default: 120)\n"
@@ -597,7 +633,7 @@ void PrintUsage()
         << L"  --port <port>       Multiplayer UDP port (default: 38171)\n"
         << L"  --player-id <name>  Multiplayer display identity\n"
         << L"  --appearance <id>   Stable creature definition used as this player's body\n"
-        << L"  --multiplayer-test  Load two adult-town peers and prove remote locomotion\n"
+        << L"  --multiplayer-test  Load two isolated saved Heroes and prove remote locomotion\n"
         << L"  --multiplayer-roster-test  Load a host and two guests and prove guest-to-guest relay\n"
         << L"  --multiplayer-transition-test  Transition both peers and prove destination replication\n"
         << L"  --multiplayer-map-stress-test  Repeatedly split, reunite, and jointly roam two peers through random connected maps\n"

@@ -12,6 +12,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AlbionTogether.Launcher", "
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AngelScript", "ThirdParty\AngelScript\AngelScript.vcxproj", "{A9354F5D-A550-4D94-A86A-40C843E28EAD}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ImGui", "ThirdParty\ImGui\ImGui.vcxproj", "{52D302CA-9F87-44EC-B633-F38998622A1C}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PlayerReplication.Tests", "Tests\PlayerReplication.Tests\PlayerReplication.Tests.vcxproj", "{D7BDF4A7-1C83-4D2A-9E58-C6C9B9D3A7D4}"
 EndProject
 Global
@@ -32,6 +34,10 @@ Global
 		{A9354F5D-A550-4D94-A86A-40C843E28EAD}.Debug|Win32.Build.0 = Debug|Win32
 		{A9354F5D-A550-4D94-A86A-40C843E28EAD}.Release|Win32.ActiveCfg = Release|Win32
 		{A9354F5D-A550-4D94-A86A-40C843E28EAD}.Release|Win32.Build.0 = Release|Win32
+		{52D302CA-9F87-44EC-B633-F38998622A1C}.Debug|Win32.ActiveCfg = Debug|Win32
+		{52D302CA-9F87-44EC-B633-F38998622A1C}.Debug|Win32.Build.0 = Debug|Win32
+		{52D302CA-9F87-44EC-B633-F38998622A1C}.Release|Win32.ActiveCfg = Release|Win32
+		{52D302CA-9F87-44EC-B633-F38998622A1C}.Release|Win32.Build.0 = Release|Win32
 		{D7BDF4A7-1C83-4D2A-9E58-C6C9B9D3A7D4}.Debug|Win32.ActiveCfg = Debug|Win32
 		{D7BDF4A7-1C83-4D2A-9E58-C6C9B9D3A7D4}.Debug|Win32.Build.0 = Debug|Win32
 		{D7BDF4A7-1C83-4D2A-9E58-C6C9B9D3A7D4}.Release|Win32.ActiveCfg = Release|Win32

@@ -24,7 +24,8 @@ namespace fable::launcher::automation
         const std::filesystem::path& eventPath,
         const wchar_t* instance,
         int x,
-        unsigned int timeoutSeconds);
+        unsigned int timeoutSeconds,
+        bool requireFixtureDocuments = true);
 
     bool RepositionLocalInstanceWindow(
         runtime::LaunchedGame& game,

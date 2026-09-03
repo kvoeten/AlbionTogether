@@ -19,6 +19,8 @@ inline constexpr wchar_t kLogFilesEnabledEnvironment[] =
     L"ALBIONTOGETHER_LOG_FILES_ENABLED";
 inline constexpr wchar_t kFixtureDocumentsEnvironment[] =
     L"ALBIONTOGETHER_FIXTURE_DOCUMENTS";
+inline constexpr wchar_t kFixtureSaveNameEnvironment[] =
+    L"ALBIONTOGETHER_FIXTURE_SAVE_NAME";
 inline constexpr wchar_t kCharacterSnapshotEnvironment[] =
     L"ALBIONTOGETHER_CHARACTER_SNAPSHOT";
 inline constexpr wchar_t kScriptDataEnvironment[] =

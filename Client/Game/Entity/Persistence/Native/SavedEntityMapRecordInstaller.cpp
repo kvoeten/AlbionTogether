@@ -115,6 +115,65 @@ namespace fable::game::entity::persistence::native
         return cleared;
     }
 
+    bool SavedEntityMapRecordInstaller::ClearAll(
+        void* savedEntities) const noexcept
+    {
+        if (!IsReady() || savedEntities == nullptr)
+        {
+            return false;
+        }
+        bool cleared = false;
+        std::size_t recordCount = 0;
+        __try
+        {
+            const auto* const object =
+                static_cast<const std::uint8_t*>(savedEntities);
+            const auto* const recordVector = object + RecordVectorOffset;
+            const auto* const begin =
+                *reinterpret_cast<const std::uint8_t* const*>(recordVector);
+            const auto* const end = *reinterpret_cast<
+                const std::uint8_t* const*>(
+                    recordVector + sizeof(void*));
+            if ((begin == nullptr) != (end == nullptr) ||
+                (begin != nullptr &&
+                    (end < begin ||
+                        static_cast<std::size_t>(end - begin) %
+                            RecordBytes != 0)))
+            {
+                return false;
+            }
+            recordCount = begin != nullptr
+                ? static_cast<std::size_t>(end - begin) / RecordBytes
+                : 0;
+            if (recordCount > MaximumMapRecords)
+            {
+                return false;
+            }
+            for (std::size_t mapId = 0; mapId < recordCount; ++mapId)
+            {
+                auto* const record =
+                    const_cast<std::uint8_t*>(begin) + mapId * RecordBytes;
+                record[PopulatedOffset] = 0;
+                byteResize_(record + ByteVectorOffset, 0);
+                *reinterpret_cast<std::uint32_t*>(record + MetadataOffset) = 0;
+            }
+            cleared = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            cleared = false;
+        }
+        char detail[128] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "records=%zu cleared=%s",
+            recordCount,
+            cleared ? "true" : "false");
+        diagnostics_.Event("SavedEntityMapRecordsCleared", detail);
+        return cleared;
+    }
+
     bool SavedEntityMapRecordInstaller::InstallGuarded(
         SavedEntitiesFunctions::RecordVectorResizePointer recordResize,
         SavedEntitiesFunctions::ByteVectorResizePointer byteResize,

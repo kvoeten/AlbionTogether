@@ -31,6 +31,7 @@ namespace fable::game::entity::persistence::native
         bool Clear(
             void* savedEntities,
             std::uint32_t mapId) const noexcept;
+        bool ClearAll(void* savedEntities) const noexcept;
         [[nodiscard]] bool IsReady() const noexcept;
 
     private:

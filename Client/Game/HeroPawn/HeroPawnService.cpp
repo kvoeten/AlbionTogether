@@ -14,7 +14,7 @@ namespace fable::game
         diagnostics_ = diagnostics;
         if (entities.GameModule() == nullptr ||
             !mapTransitionUiActionSafetyHook_.Install(
-                entities.GameModule(), diagnostics_) ||
+                entities.GameModule(), entities, diagnostics_) ||
             !guildTeleportSafetyHook_.Install(
                 entities.GameModule(), diagnostics_))
         {

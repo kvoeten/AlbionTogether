@@ -328,6 +328,12 @@ namespace fable::game::npc::simulation
             mode = 0;
         }
         const bool saving = mode == 1 || mode == 3;
+        // The canonical projection is also a load handoff.  A host may have
+        // received a guest-owned low-simulation mutation while the matching
+        // native Thing was dormant, so the next retail deserialize must not
+        // resurrect the stale local schedule from the save blob.  Unknown
+        // serializer modes retain the historical load-side behavior.
+        const bool loading = !saving;
         DummyVillagerState before;
         DummyVillagerState projected;
         bool projectionApplied = false;
@@ -356,6 +362,41 @@ namespace fable::game::npc::simulation
         if (projectionApplied)
         {
             native::DummyVillagerFunctions::WriteComponent(component, before);
+        }
+        if (result && loading && sink != nullptr)
+        {
+            // Leave the authoritative state installed after a load.  This is
+            // deliberately keyed by the stable native Thing UID; no spatial
+            // matching or nearest-actor heuristic is allowed at this seam.
+            __try
+            {
+                void* const thing = ReadOwnerThing(component);
+                const std::uint64_t uid = ReadThingUid(thing);
+                if (uid != 0 &&
+                    native::DummyVillagerFunctions::ReadComponent(
+                        component,
+                        before))
+                {
+                    projected = before;
+                    if (sink(
+                            hook->projectionSinkContext_.load(
+                                std::memory_order_acquire),
+                            uid,
+                            projected) &&
+                        projected.componentPresent && projected != before)
+                    {
+                        native::DummyVillagerFunctions::WriteComponent(
+                            component,
+                            projected);
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                // A malformed or partially constructed native component is
+                // left untouched; the normal materialization retry can apply
+                // the overlay once its identity is complete.
+            }
         }
         return result;
     }

@@ -50,11 +50,11 @@ namespace fable::multiplayer::entities
         }
 
         const authority::MapAuthorityLease* const lease =
-            authority_->FindMapLease(localMap);
+            authority_->FindMapLease(localMapId);
         const bool ownsMap = lease != nullptr && !localMap.empty() &&
             lease->actorId == localActorId_ && lease->epoch != 0;
         const bool sameOwnedLease = ownsMap &&
-            lastOwnedMap_ == localMap &&
+            lastOwnedMapId_ == localMapId &&
             lastOwnedMapEpoch_ == lease->epoch;
         const bool ownershipChanged = ownsMap &&
             !sameOwnedLease;
@@ -121,13 +121,13 @@ namespace fable::multiplayer::entities
         }
         if (ownsMap)
         {
-            lastOwnedMap_ = localMap;
+            lastOwnedMapId_ = localMapId;
             lastOwnedMapEpoch_ = lease->epoch;
             lastOwnedRosterReady_ = ownerRosterReady;
         }
         else
         {
-            lastOwnedMap_.clear();
+            lastOwnedMapId_ = 0;
             lastOwnedMapEpoch_ = 0;
             lastOwnedRosterReady_ = false;
         }
@@ -310,14 +310,15 @@ namespace fable::multiplayer::entities
                 return false;
             }
         }
-        return CompleteLocalMapRoster(localMap, mapEpoch);
+        return CompleteLocalMapRoster(localMap, localMapId, mapEpoch);
     }
 
     bool EntityLifecycleReplication::CompleteLocalMapRoster(
         const std::string& localMap,
+        const std::uint16_t localMapId,
         std::uint32_t mapEpoch)
     {
-        if (localMap.empty() || mapEpoch == 0)
+        if (localMap.empty() || localMapId == 0 || mapEpoch == 0)
         {
             return false;
         }
@@ -327,6 +328,7 @@ namespace fable::multiplayer::entities
             bool changed = false;
             if (!directory_.HostCompleteMapRoster(
                     localMap,
+                    localMapId,
                     localActorId_,
                     mapEpoch,
                     authoritative,
@@ -336,7 +338,7 @@ namespace fable::multiplayer::entities
             }
             if (changed)
             {
-                mapSeedAllowances_.erase(localMap);
+                mapSeedAllowances_.erase(localMapId);
                 char detail[256] = {};
                 std::snprintf(
                     detail,
@@ -357,6 +359,7 @@ namespace fable::multiplayer::entities
             ObserveMapRosterComplete;
         marker.mapEpoch = mapEpoch;
         marker.sourceMapEpoch = mapEpoch;
+        marker.mapId = localMapId;
         marker.mapName = localMap;
         marker.sourceMapName = localMap;
         if (!Queue(std::move(marker)))
@@ -407,8 +410,32 @@ namespace fable::multiplayer::entities
                 EntityLifecycleOperation::ObserveMapRosterComplete;
         if (role_ == PeerRole::Host)
         {
+            const WorldEntityRecord* const current =
+                directory_.Find(message.entityUid);
+            std::uint16_t sourceMapId = message.mapId;
+            const std::string* const destination =
+                authority_->ResolveMapName(message.mapId);
+            if (message.operation ==
+                    EntityLifecycleOperation::ObserveTransfer &&
+                current != nullptr)
+            {
+                message.sourceMapName = current->mapName;
+                sourceMapId = current->mapId;
+                if (destination != nullptr)
+                {
+                    message.mapName = *destination;
+                }
+            }
+            else if (destination != nullptr)
+            {
+                // mapId is authoritative for all non-transfer observations.
+                // Normalize a script label which may still name the source
+                // map immediately after native travel.
+                message.mapName = *destination;
+                message.sourceMapName = *destination;
+            }
             if (!intent || !authority_->IsMapPublisher(
-                    message.sourceMapName,
+                    sourceMapId,
                     transportMessage.sourceActorId,
                     message.sourceMapEpoch))
             {
@@ -437,13 +464,14 @@ namespace fable::multiplayer::entities
                         transportMessage.sourceActorId) &&
                     directory_.HostCompleteMapRoster(
                         message.mapName,
+                        message.mapId,
                         transportMessage.sourceActorId,
                         message.mapEpoch,
                         authoritative,
                         changed);
                 if (accepted)
                 {
-                    mapSeedAllowances_.erase(message.mapName);
+                    mapSeedAllowances_.erase(message.mapId);
                 }
             }
             else if (message.operation == EntityLifecycleOperation::
@@ -597,6 +625,7 @@ namespace fable::multiplayer::entities
             marker.simulationOwnerActorId =
                 completion.simulationOwnerActorId;
             marker.mapEpoch = completion.mapEpoch;
+            marker.mapId = completion.mapId;
             marker.mapName = completion.mapName;
             pending_.push_back(std::move(marker));
         }
@@ -676,7 +705,7 @@ namespace fable::multiplayer::entities
                 continue;
             }
             const authority::MapAuthorityLease* const lease =
-                authority_->FindMapLease(*mapName);
+                authority_->FindMapLease(record.mapId);
             protocol::EntityLifecycleMessage authoritative;
             bool changed = false;
             if (!directory_.HostResolveMapIdentity(
@@ -714,7 +743,7 @@ namespace fable::multiplayer::entities
                 return false;
             }
             const authority::MapAuthorityLease* const lease =
-                authority_->FindMapLease(record.mapName);
+                authority_->FindMapLease(record.mapId);
             protocol::EntityLifecycleMessage authoritative;
             bool changed = false;
             if (!directory_.HostReconcileMapAuthority(
@@ -738,7 +767,7 @@ namespace fable::multiplayer::entities
         for (const MapRosterCompletion& known : knownRosters)
         {
             const authority::MapAuthorityLease* const lease =
-                authority_->FindMapLease(known.mapName);
+                authority_->FindMapLease(known.mapId);
             if (lease == nullptr || lease->actorId == 0 ||
                 lease->epoch == 0 ||
                 (known.simulationOwnerActorId == lease->actorId &&
@@ -755,6 +784,7 @@ namespace fable::multiplayer::entities
             bool changed = false;
             if (!directory_.HostCompleteMapRoster(
                     known.mapName,
+                    known.mapId,
                     lease->actorId,
                     lease->epoch,
                     authoritative,
@@ -768,19 +798,20 @@ namespace fable::multiplayer::entities
             }
         }
 
-        std::unordered_set<std::string> activeUnseededMaps;
+        std::unordered_set<std::uint16_t> activeUnseededMaps;
         const std::vector<authority::MapAuthorityLease> leases =
             authority_->MapLeases();
         for (const authority::MapAuthorityLease& lease : leases)
         {
-            if (lease.mapName.empty() || lease.actorId == 0 ||
-                lease.epoch == 0 || directory_.HasMapRoster(lease.mapName))
+            if (lease.mapId == 0 || lease.mapName.empty() ||
+                lease.actorId == 0 || lease.epoch == 0 ||
+                directory_.HasMapRoster(lease.mapId))
             {
-                mapSeedAllowances_.erase(lease.mapName);
+                mapSeedAllowances_.erase(lease.mapId);
                 continue;
             }
-            activeUnseededMaps.insert(lease.mapName);
-            const auto existing = mapSeedAllowances_.find(lease.mapName);
+            activeUnseededMaps.insert(lease.mapId);
+            const auto existing = mapSeedAllowances_.find(lease.mapId);
             if (existing != mapSeedAllowances_.end() &&
                 existing->second.simulationOwnerActorId == lease.actorId &&
                 existing->second.mapEpoch == lease.epoch)
@@ -792,12 +823,13 @@ namespace fable::multiplayer::entities
                 AuthoritativeMapRosterSeedAllowed;
             marker.simulationOwnerActorId = lease.actorId;
             marker.mapEpoch = lease.epoch;
+            marker.mapId = lease.mapId;
             marker.mapName = lease.mapName;
             if (!Queue(marker))
             {
                 return false;
             }
-            mapSeedAllowances_[lease.mapName] = std::move(marker);
+            mapSeedAllowances_[lease.mapId] = std::move(marker);
         }
         for (auto iterator = mapSeedAllowances_.begin();
              iterator != mapSeedAllowances_.end();)
@@ -819,11 +851,15 @@ namespace fable::multiplayer::entities
         const protocol::EntityLifecycleMessage& message,
         std::uint64_t sourceActorId) const noexcept
     {
-        if (directory_.HasMapRoster(message.mapName))
+        if (message.mapId == 0)
+        {
+            return false;
+        }
+        if (directory_.HasMapRoster(message.mapId))
         {
             return true;
         }
-        const auto allowance = mapSeedAllowances_.find(message.mapName);
+        const auto allowance = mapSeedAllowances_.find(message.mapId);
         return allowance != mapSeedAllowances_.end() &&
             sourceActorId != 0 &&
             allowance->second.simulationOwnerActorId == sourceActorId &&
@@ -836,21 +872,21 @@ namespace fable::multiplayer::entities
              iterator != pendingTransfers_.end();)
         {
             protocol::EntityLifecycleMessage& intent = iterator->second;
-            const authority::MapAuthorityLease* const sourceLease =
-                authority_->FindMapLease(intent.sourceMapName);
             const WorldEntityRecord* const canonical =
                 directory_.Find(intent.entityUid);
-            if (sourceLease == nullptr ||
+            const authority::MapAuthorityLease* const sourceLease =
+                canonical != nullptr
+                    ? authority_->FindMapLease(canonical->mapId)
+                    : nullptr;
+            if (sourceLease == nullptr || canonical == nullptr ||
                 sourceLease->actorId != localActorId_ ||
                 sourceLease->epoch != intent.sourceMapEpoch ||
-                (canonical != nullptr &&
-                    (!canonical->live || !canonical->available ||
-                        canonical->mapName != intent.sourceMapName)))
+                !canonical->live || !canonical->available)
             {
                 iterator = pendingTransfers_.erase(iterator);
                 continue;
             }
-            if (canonical == nullptr || canonical->generation == 0)
+            if (canonical->generation == 0)
             {
                 ++iterator;
                 continue;
@@ -1006,6 +1042,14 @@ namespace fable::multiplayer::entities
         intent.entityGeneration = canonical != nullptr
             ? canonical->generation
             : 0;
+        if (transfer && canonical != nullptr && canonical->hasLowSimulation)
+        {
+            intent.lowSimulationRevision = canonical->lowSimulationRevision;
+            intent.lowSimulation = canonical->lowSimulation;
+            intent.lowSimulationFlags =
+                (canonical->lowSimulation.respawnable ? 0x01u : 0u) |
+                (canonical->lowSimulation.guard ? 0x02u : 0u) | 0x04u;
+        }
         intent.sourceMapEpoch = mapEpoch;
         intent.sourceMapName = localMap;
         intent.mapEpoch = transfer ? 0 : mapEpoch;
@@ -1036,6 +1080,11 @@ namespace fable::multiplayer::entities
             ++nextBaselineId_;
         }
         return nextBaselineId_;
+    }
+
+    WorldEntityDirectory& EntityLifecycleReplication::Directory() noexcept
+    {
+        return directory_;
     }
 
     const WorldEntityDirectory& EntityLifecycleReplication::Directory()
@@ -1193,7 +1242,7 @@ namespace fable::multiplayer::entities
         knownPeerRevision_ = 0;
         nextBaselineId_ = 0;
         lastOwnedMapEpoch_ = 0;
-        lastOwnedMap_.clear();
+        lastOwnedMapId_ = 0;
         lastOwnedRosterReady_ = false;
         publishBackpressured_ = false;
         initialized_ = false;

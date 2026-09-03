@@ -9,6 +9,7 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace
@@ -26,6 +27,7 @@ namespace
     constexpr std::uint64_t TransitionTimeoutMilliseconds = 90'000;
     constexpr std::uint64_t TravelReadinessRetryMilliseconds = 250;
     constexpr unsigned int TravelInvocationLimit = 8;
+    constexpr std::size_t StableMapHistoryLimit = 16;
 
     std::uint64_t Mix(std::uint64_t value) noexcept
     {
@@ -95,11 +97,6 @@ namespace fable::automation::multiplayer::transition
 
         if (!started_)
         {
-            if (local.id != remote.id)
-            {
-                Fail("peers-did-not-start-on-the-same-map");
-                return;
-            }
             started_ = true;
             phaseReadyAt_ = now + InitialSettleMilliseconds;
             ReportStarted(local);
@@ -112,7 +109,7 @@ namespace fable::automation::multiplayer::transition
             {
                 return;
             }
-            if (!BeginTransition(local, now))
+            if (!BeginTransition(local, remote, now))
             {
                 if (now - phaseReadyAt_ > RouteDiscoveryTimeoutMilliseconds)
                 {
@@ -234,6 +231,44 @@ namespace fable::automation::multiplayer::transition
         return invoked;
     }
 
+    bool MapStressAcceptanceDriver::IsStableSameMap() const noexcept
+    {
+        if (!enabled_ || failed_ || !started_)
+        {
+            return false;
+        }
+        PeerMap local;
+        PeerMap remote;
+        if (!ReadStableMaps(local, remote) || local.id != remote.id)
+        {
+            return false;
+        }
+        if (completed_)
+        {
+            return true;
+        }
+        // A same-map transition is deliberately observed for fifteen seconds
+        // before the next request. Expose that settled window to companion
+        // acceptance drivers; the zero-request gap is consumed by Tick before
+        // they run and therefore is not an observable checkpoint.
+        return transitionRequestedAt_ != 0 && settledAt_ != 0;
+    }
+
+    bool MapStressAcceptanceDriver::IsComplete() const noexcept
+    {
+        return completed_;
+    }
+
+    bool MapStressAcceptanceDriver::HasFailed() const noexcept
+    {
+        return failed_;
+    }
+
+    unsigned int MapStressAcceptanceDriver::TransitionOrdinal() const noexcept
+    {
+        return transitionOrdinal_;
+    }
+
     bool MapStressAcceptanceDriver::ReadStableMaps(
         PeerMap& local,
         PeerMap& remote) const
@@ -252,6 +287,8 @@ namespace fable::automation::multiplayer::transition
         local.name = hero.MapName();
         local.id = hero.MapId();
         local.epoch = current->mapEpoch;
+        local.position = current->position;
+        local.facing = current->facing;
 
         const auto snapshots =
             contexts.transport.remotePlayerChannels.Snapshots();
@@ -272,6 +309,10 @@ namespace fable::automation::multiplayer::transition
         remote.name = match->state.mapName;
         remote.id = match->state.mapId;
         remote.epoch = match->state.mapEpoch;
+        remote.position = match->state.position;
+        remote.facing = match->state.facing;
+        RememberStableMap(local);
+        RememberStableMap(remote);
         return true;
     }
 
@@ -339,12 +380,55 @@ namespace fable::automation::multiplayer::transition
 
     bool MapStressAcceptanceDriver::BeginTransition(
         const PeerMap& local,
+        const PeerMap& remote,
         const std::uint64_t now)
     {
+        if (local.id != remote.id)
+        {
+            sourceMapId_ = local.id;
+            sourceMapEpoch_ = local.epoch;
+            localDestinationMapId_ = host_ ? local.id : remote.id;
+            holdingForReunion_ = host_;
+            if (!host_ && !RequestPeerReunion(local, remote))
+            {
+                sourceMapId_ = 0;
+                sourceMapEpoch_ = 0;
+                localDestinationMapId_ = 0;
+                return false;
+            }
+
+            char detail[256] = {};
+            std::snprintf(
+                detail,
+                sizeof(detail),
+                "ordinal=%u role=%s source_map_id=%u destination_map_id=%u mode=%s",
+                transitionOrdinal_ + 1,
+                host_ ? "host" : "guest",
+                static_cast<unsigned int>(local.id),
+                static_cast<unsigned int>(localDestinationMapId_),
+                host_ ? "hold-reunion-authority" : "join-authority-peer");
+            diagnostics_.Event(
+                "MultiplayerMapStressTransitionRequested",
+                detail);
+            transitionRequestedAt_ = now;
+            settledAt_ = 0;
+            return true;
+        }
+
         const auto exits = AvailableDestinations(local);
         if (exits.empty())
         {
-            return false;
+            sourceMapId_ = local.id;
+            sourceMapEpoch_ = local.epoch;
+            if (!RequestObservedFallback(local))
+            {
+                sourceMapId_ = 0;
+                sourceMapEpoch_ = 0;
+                return false;
+            }
+            transitionRequestedAt_ = now;
+            settledAt_ = 0;
+            return true;
         }
 
         const std::uint32_t roleSalt = host_ ? 0x51u : 0xD3u;
@@ -365,6 +449,96 @@ namespace fable::automation::multiplayer::transition
         ReportRequest(selected);
         transitionRequestedAt_ = now;
         settledAt_ = 0;
+        return true;
+    }
+
+    bool MapStressAcceptanceDriver::RequestPeerReunion(
+        const PeerMap& local,
+        const PeerMap& remote) noexcept
+    {
+        if (travelQueued_.load(std::memory_order_acquire) || remote.id == 0 ||
+            !std::isfinite(remote.position.x) ||
+            !std::isfinite(remote.position.y) ||
+            !std::isfinite(remote.position.z) ||
+            !std::isfinite(remote.facing))
+        {
+            ReportTravelRequestFailure(
+                "peer-reunion-destination-unavailable");
+            return false;
+        }
+        destinationPosition_ = remote.position;
+        destinationFacing_ = remote.facing;
+        travelInvocations_ = 0;
+        nextTravelAttemptAt_ = 0;
+        travelQueued_.store(true, std::memory_order_release);
+        routeDiagnosticReported_ = false;
+        char detail[320] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "source_map_id=%u destination_map_id=%u target=(%.3f,%.3f,%.3f) facing=%.3f scheduling=game-thread-idle-peer-reunion",
+            static_cast<unsigned int>(local.id),
+            static_cast<unsigned int>(remote.id),
+            destinationPosition_.x,
+            destinationPosition_.y,
+            destinationPosition_.z,
+            destinationFacing_);
+        diagnostics_.Event("MultiplayerMapStressTravelQueued", detail);
+        return true;
+    }
+
+    bool MapStressAcceptanceDriver::RequestObservedFallback(
+        const PeerMap& local) noexcept
+    {
+        if (travelQueued_.load(std::memory_order_acquire))
+        {
+            ReportTravelRequestFailure("script-teleport-already-pending");
+            return false;
+        }
+
+        std::vector<const PeerMap*> candidates;
+        candidates.reserve(observedStableMaps_.size());
+        for (const auto& observed : observedStableMaps_)
+        {
+            if (observed.id == 0 || observed.id == local.id ||
+                observed.epoch == 0 || !std::isfinite(observed.position.x) ||
+                !std::isfinite(observed.position.y) ||
+                !std::isfinite(observed.position.z) ||
+                !std::isfinite(observed.facing))
+            {
+                continue;
+            }
+            candidates.push_back(&observed);
+        }
+        if (candidates.empty())
+        {
+            ReportTravelRequestFailure("no-observed-safe-map-fallback");
+            return false;
+        }
+
+        const auto* const selected = candidates[SharedChoice(
+            candidates.size(),
+            0xFA11BACCu ^ static_cast<std::uint32_t>(local.id))];
+        destinationPosition_ = selected->position;
+        destinationFacing_ = selected->facing;
+        localDestinationMapId_ = selected->id;
+        travelInvocations_ = 0;
+        nextTravelAttemptAt_ = 0;
+        travelQueued_.store(true, std::memory_order_release);
+        routeDiagnosticReported_ = false;
+
+        char detail[320] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "source_map_id=%u destination_map_id=%u target=(%.3f,%.3f,%.3f) facing=%.3f scheduling=game-thread-idle-observed-fallback reason=no-live-region-exit",
+            static_cast<unsigned int>(local.id),
+            static_cast<unsigned int>(selected->id),
+            destinationPosition_.x,
+            destinationPosition_.y,
+            destinationPosition_.z,
+            destinationFacing_);
+        diagnostics_.Event("MultiplayerMapStressFallbackQueued", detail);
         return true;
     }
 
@@ -464,6 +638,11 @@ namespace fable::automation::multiplayer::transition
         const PeerMap& local,
         const PeerMap& remote) const noexcept
     {
+        if (holdingForReunion_)
+        {
+            return local.id == sourceMapId_ && remote.id == local.id &&
+                multiplayer_->Contexts().players.remotePlayers.ActiveCount() != 0;
+        }
         if (local.id != localDestinationMapId_ ||
             (local.id == sourceMapId_ && local.epoch == sourceMapEpoch_))
         {
@@ -501,6 +680,7 @@ namespace fable::automation::multiplayer::transition
         sourceMapEpoch_ = 0;
         localDestinationMapId_ = 0;
         settledAt_ = 0;
+        holdingForReunion_ = false;
         if (transitionOrdinal_ >= transitionLimit_)
         {
             completed_ = true;
@@ -577,6 +757,35 @@ namespace fable::automation::multiplayer::transition
         return static_cast<std::size_t>(Mix(value) % count);
     }
 
+    void MapStressAcceptanceDriver::RememberStableMap(
+        const PeerMap& map) const noexcept
+    {
+        if (map.id == 0 || map.epoch == 0 || map.name.empty() ||
+            !std::isfinite(map.position.x) ||
+            !std::isfinite(map.position.y) ||
+            !std::isfinite(map.position.z) || !std::isfinite(map.facing))
+        {
+            return;
+        }
+        const auto existing = std::find_if(
+            observedStableMaps_.begin(),
+            observedStableMaps_.end(),
+            [&map](const PeerMap& observed)
+            {
+                return observed.id == map.id && observed.epoch == map.epoch;
+            });
+        if (existing != observedStableMaps_.end())
+        {
+            *existing = map;
+            return;
+        }
+        if (observedStableMaps_.size() >= StableMapHistoryLimit)
+        {
+            observedStableMaps_.erase(observedStableMaps_.begin());
+        }
+        observedStableMaps_.push_back(map);
+    }
+
     void MapStressAcceptanceDriver::Shutdown() noexcept
     {
         entities_ = nullptr;
@@ -601,5 +810,8 @@ namespace fable::automation::multiplayer::transition
         started_ = false;
         completed_ = false;
         failed_ = false;
+        routeDiagnosticReported_ = false;
+        holdingForReunion_ = false;
+        observedStableMaps_.clear();
     }
 }

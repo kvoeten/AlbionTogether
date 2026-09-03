@@ -7,7 +7,7 @@
 namespace
 {
     constexpr std::uint32_t kProtocolMagic = 0x504D5446;
-    constexpr std::uint16_t kProtocolVersion = 38;
+    constexpr std::uint16_t kProtocolVersion = 40;
 
 #pragma pack(push, 1)
     struct WirePacketHeader final

@@ -581,17 +581,8 @@ constexpr UINT kHotkeyPollIntervalMilliseconds = 16;
 
         if (GameplayContext().runtime.IsLoaded())
         {
-            GameplayContext().runtime.Tick(
-                static_cast<float>(kHotkeyPollIntervalMilliseconds) / 1000.0f);
-            // The window timer keeps firing for local multiplayer instances
-            // even when UE3 throttles an unfocused creature update. Drive all
-            // replicated actors through their physics components here as a
-            // background-safe fallback; focused creature frames still own
-            // their normal animation update path.
-            if (GetForegroundWindow() != UiContext().gameWindow)
-            {
-                GameplayContext().runtime.DriveReplicatedMovement();
-            }
+            GameplayContext().runtime.QueueWindowTick(
+                GetForegroundWindow() != UiContext().gameWindow);
         }
 
         if (CoreContext().configuration.Mode() != ClientMode::TransformProbe &&

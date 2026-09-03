@@ -218,10 +218,34 @@ namespace fable::multiplayer::entities
             return false;
         }
 
+        if (intent.lowSimulationRevision != 0 &&
+            current.hasLowSimulation &&
+            (intent.lowSimulationRevision < current.lowSimulationRevision ||
+                (intent.lowSimulationRevision ==
+                    current.lowSimulationRevision &&
+                    intent.lowSimulation != current.lowSimulation)))
+        {
+            return false;
+        }
+
         current.mapId = intent.mapId;
         current.mapName = destinationMapName;
         current.simulationOwnerActorId = destinationOwnerActorId;
         current.mapEpoch = destinationMapEpoch;
+        if (intent.lowSimulationRevision != 0 &&
+            (!current.hasLowSimulation ||
+                intent.lowSimulationRevision > current.lowSimulationRevision))
+        {
+            game::npc::simulation::DummyVillagerState merged =
+                intent.lowSimulation;
+            if (current.hasLowSimulation)
+            {
+                merged.creatureUid = current.lowSimulation.creatureUid;
+            }
+            current.hasLowSimulation = true;
+            current.lowSimulation = merged;
+            current.lowSimulationRevision = intent.lowSimulationRevision;
+        }
         if ((intent.flags &
                 protocol::entity_lifecycle_flag::HasTransform) != 0)
         {
@@ -352,6 +376,7 @@ namespace fable::multiplayer::entities
 
     bool WorldEntityDirectory::HostCompleteMapRoster(
         const std::string& mapName,
+        std::uint16_t mapId,
         std::uint64_t simulationOwnerActorId,
         std::uint32_t mapEpoch,
         protocol::EntityLifecycleMessage& authoritative,
@@ -359,16 +384,18 @@ namespace fable::multiplayer::entities
     {
         authoritative = {};
         changed = false;
-        if (mapName.empty() || simulationOwnerActorId == 0 || mapEpoch == 0)
+        if (mapName.empty() || mapId == 0 ||
+            simulationOwnerActorId == 0 || mapEpoch == 0)
         {
             return false;
         }
 
-        const auto existing = completedMapRosters_.find(mapName);
+        const auto existing = completedMapRosters_.find(mapId);
         if (existing != completedMapRosters_.end() &&
             existing->second.simulationOwnerActorId ==
                 simulationOwnerActorId &&
-            existing->second.mapEpoch == mapEpoch)
+            existing->second.mapEpoch == mapEpoch &&
+            existing->second.mapName == mapName)
         {
             return true;
         }
@@ -377,14 +404,16 @@ namespace fable::multiplayer::entities
         completion.simulationOwnerActorId = simulationOwnerActorId;
         completion.worldRevision = NextWorldRevision();
         completion.mapEpoch = mapEpoch;
+        completion.mapId = mapId;
         completion.mapName = mapName;
-        completedMapRosters_[mapName] = completion;
+        completedMapRosters_[mapId] = completion;
 
         authoritative.operation = protocol::EntityLifecycleOperation::
             AuthoritativeMapRosterComplete;
         authoritative.worldRevision = completion.worldRevision;
         authoritative.simulationOwnerActorId = simulationOwnerActorId;
         authoritative.mapEpoch = mapEpoch;
+        authoritative.mapId = mapId;
         authoritative.mapName = mapName;
         changed = true;
         return true;
@@ -406,13 +435,17 @@ namespace fable::multiplayer::entities
             {
                 return true;
             }
+            if (records_.size() >= MaximumRecords)
+            {
+                return false;
+            }
             WorldEntityRecord created = observed;
             // Once a canonical roster has been completed, a newly observed
             // live creature is a runtime birth rather than a member expected
             // from retail saved-map construction. Every same-map observer must
             // reconstruct it just like an explicit cross-map arrival.
             created.awaitingMaterialization = present && created.creature &&
-                HasMapRoster(created.mapName);
+                HasMapRoster(created.mapId);
             created.generation = NextGeneration();
             created.worldRevision = NextWorldRevision();
             records_.emplace(created.thingUid, created);
@@ -524,12 +557,12 @@ namespace fable::multiplayer::entities
         if (message.operation ==
             EntityLifecycleOperation::AuthoritativeMapRosterSeedAllowed)
         {
-            if (completedMapRosters_.find(message.mapName) !=
+            if (completedMapRosters_.find(message.mapId) !=
                 completedMapRosters_.end())
             {
                 return false;
             }
-            const auto existing = mapSeedPermissions_.find(message.mapName);
+            const auto existing = mapSeedPermissions_.find(message.mapId);
             if (existing != mapSeedPermissions_.end() &&
                 (existing->second.mapEpoch > message.mapEpoch ||
                     (existing->second.mapEpoch == message.mapEpoch &&
@@ -542,15 +575,20 @@ namespace fable::multiplayer::entities
             permission.simulationOwnerActorId =
                 message.simulationOwnerActorId;
             permission.mapEpoch = message.mapEpoch;
-            mapSeedPermissions_[message.mapName] = permission;
+            mapSeedPermissions_[message.mapId] = permission;
             return true;
         }
         if (message.operation ==
             EntityLifecycleOperation::AuthoritativeMapRosterComplete)
         {
-            const auto existing = completedMapRosters_.find(message.mapName);
+            const auto existing = completedMapRosters_.find(message.mapId);
             if (existing != completedMapRosters_.end() &&
-                existing->second.mapEpoch > message.mapEpoch)
+                (existing->second.mapEpoch > message.mapEpoch ||
+                    (existing->second.mapEpoch == message.mapEpoch &&
+                        (existing->second.simulationOwnerActorId !=
+                                message.simulationOwnerActorId ||
+                            existing->second.worldRevision >=
+                                message.worldRevision))))
             {
                 return false;
             }
@@ -559,10 +597,11 @@ namespace fable::multiplayer::entities
                 message.simulationOwnerActorId;
             completion.worldRevision = message.worldRevision;
             completion.mapEpoch = message.mapEpoch;
+            completion.mapId = message.mapId;
             completion.mapName = message.mapName;
-            completedMapRosters_[message.mapName] =
+            completedMapRosters_[message.mapId] =
                 std::move(completion);
-            mapSeedPermissions_.erase(message.mapName);
+            mapSeedPermissions_.erase(message.mapId);
             nextWorldRevision_ = (std::max)(
                 nextWorldRevision_, message.worldRevision);
             return true;
@@ -618,6 +657,18 @@ namespace fable::multiplayer::entities
             return true;
         }
 
+        if (existing == records_.end() && records_.size() >= MaximumRecords)
+        {
+            return false;
+        }
+
+        // Ordinary lifecycle messages can omit the separately replicated
+        // CTCDummyVillager row, while handoff snapshots carry it explicitly.
+        // Preserve the typed overlay only when the incoming structural record
+        // has no newer row for this host-issued incarnation.
+        const bool preserveLowSimulation = existing != records_.end() &&
+            existing->second.generation == message.entityGeneration &&
+            existing->second.hasLowSimulation;
         WorldEntityRecord record;
         record.thingUid = message.entityUid;
         record.villageUid = message.villageUid;
@@ -650,6 +701,25 @@ namespace fable::multiplayer::entities
         record.hasVillageMembership =
             (message.flags & protocol::entity_lifecycle_flag::
                 HasVillageMembership) != 0;
+        if (message.lowSimulationRevision != 0 &&
+            (!preserveLowSimulation ||
+                message.lowSimulationRevision >=
+                    existing->second.lowSimulationRevision))
+        {
+            record.hasLowSimulation = true;
+            record.lowSimulation = message.lowSimulation;
+            record.lowSimulationRevision = message.lowSimulationRevision;
+        }
+        if (preserveLowSimulation &&
+            (message.lowSimulationRevision == 0 ||
+                existing->second.lowSimulationRevision >=
+                    message.lowSimulationRevision))
+        {
+            record.hasLowSimulation = existing->second.hasLowSimulation;
+            record.lowSimulation = existing->second.lowSimulation;
+            record.lowSimulationRevision =
+                existing->second.lowSimulationRevision;
+        }
         record.mapName = message.mapName;
         record.definitionName = message.definitionName;
         record.scriptName = message.scriptName;
@@ -679,9 +749,77 @@ namespace fable::multiplayer::entities
         {
             return false;
         }
-        existing->second.position = message.position;
-        existing->second.facing = message.facing;
-        existing->second.hasTransform = true;
+        WorldEntityRecord& current = existing->second;
+        const bool changed = !current.hasTransform ||
+            current.position.x != message.position.x ||
+            current.position.y != message.position.y ||
+            current.position.z != message.position.z ||
+            current.facing != message.facing;
+        current.position = message.position;
+        current.facing = message.facing;
+        current.hasTransform = true;
+        if (changed)
+        {
+            // Transform-only movement is still a canonical world mutation.
+            // Advance the same revision consumed by save projection and future
+            // lifecycle baselines.
+            current.worldRevision = NextWorldRevision();
+        }
+        return true;
+    }
+
+    bool WorldEntityDirectory::HostApplyLowSimulation(
+        std::uint64_t thingUid,
+        std::uint32_t generation,
+        const std::string& mapName,
+        std::uint64_t simulationOwnerActorId,
+        std::uint32_t mapEpoch,
+        const game::npc::simulation::DummyVillagerState& state,
+        std::uint32_t revision,
+        bool& changed) noexcept
+    {
+        changed = false;
+        const auto existing = records_.find(thingUid);
+        if (thingUid == 0 || generation == 0 || mapName.empty() ||
+            simulationOwnerActorId == 0 || mapEpoch == 0 || revision == 0 ||
+            !state.componentPresent || existing == records_.end())
+        {
+            return false;
+        }
+
+        WorldEntityRecord& current = existing->second;
+        if (!current.available || !current.live ||
+            current.generation != generation || current.mapName != mapName ||
+            current.simulationOwnerActorId != simulationOwnerActorId ||
+            current.mapEpoch != mapEpoch)
+        {
+            return false;
+        }
+
+        // The wire message intentionally omits the native CreatureUID. Keep
+        // the identity learned from the local component while merging the
+        // mutable schedule fields from the map owner.
+        game::npc::simulation::DummyVillagerState merged = state;
+        if (current.hasLowSimulation)
+        {
+            merged.creatureUid = current.lowSimulation.creatureUid;
+        }
+        if (current.hasLowSimulation && revision <
+                current.lowSimulationRevision)
+        {
+            return false;
+        }
+        if (current.hasLowSimulation && revision ==
+                current.lowSimulationRevision)
+        {
+            return current.lowSimulation == merged;
+        }
+
+        current.hasLowSimulation = true;
+        current.lowSimulation = merged;
+        current.lowSimulationRevision = revision;
+        current.worldRevision = NextWorldRevision();
+        changed = true;
         return true;
     }
 
@@ -802,34 +940,33 @@ namespace fable::multiplayer::entities
             [](const MapRosterCompletion& left,
                 const MapRosterCompletion& right)
             {
-                return left.mapName < right.mapName;
+                return left.mapId < right.mapId;
             });
         return result;
     }
 
     bool WorldEntityDirectory::IsMapRosterComplete(
-        const std::string& mapName,
+        std::uint16_t mapId,
         std::uint32_t mapEpoch) const noexcept
     {
-        const auto completion = completedMapRosters_.find(mapName);
+        const auto completion = completedMapRosters_.find(mapId);
         return completion != completedMapRosters_.end() && mapEpoch != 0 &&
             completion->second.mapEpoch == mapEpoch;
     }
 
     bool WorldEntityDirectory::HasMapRoster(
-        const std::string& mapName) const noexcept
+        std::uint16_t mapId) const noexcept
     {
-        return !mapName.empty() &&
-            completedMapRosters_.find(mapName) !=
+        return mapId != 0 && completedMapRosters_.find(mapId) !=
                 completedMapRosters_.end();
     }
 
     bool WorldEntityDirectory::IsMapSeedAllowed(
-        const std::string& mapName,
+        std::uint16_t mapId,
         std::uint64_t simulationOwnerActorId,
         std::uint32_t mapEpoch) const noexcept
     {
-        const auto permission = mapSeedPermissions_.find(mapName);
+        const auto permission = mapSeedPermissions_.find(mapId);
         return permission != mapSeedPermissions_.end() &&
             simulationOwnerActorId != 0 && mapEpoch != 0 &&
             permission->second.simulationOwnerActorId ==
@@ -950,6 +1087,14 @@ namespace fable::multiplayer::entities
         message.mapName = record.mapName;
         message.definitionName = record.definitionName;
         message.scriptName = record.scriptName;
+        if (record.hasLowSimulation)
+        {
+            message.lowSimulationRevision = record.lowSimulationRevision;
+            message.lowSimulation = record.lowSimulation;
+            message.lowSimulationFlags =
+                (record.lowSimulation.respawnable ? 0x01u : 0u) |
+                (record.lowSimulation.guard ? 0x02u : 0u) | 0x04u;
+        }
         return message;
     }
 }

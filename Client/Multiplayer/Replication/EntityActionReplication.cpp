@@ -224,7 +224,7 @@ namespace fable::multiplayer::replication
                 const bool canPublishAbility = source != nullptr &&
                     source->live && source->available && source->creature &&
                     source->mapName == localMap && source->mapEpoch != 0 &&
-                    authority_->IsEntityPublisher(
+                    authority_->IsEntityActionPublisher(
                         {source->thingUid, source->generation},
                         source->mapName,
                         localActorId_,
@@ -260,7 +260,7 @@ namespace fable::multiplayer::replication
             const bool canPublish = ownerRosterReady && entity != nullptr &&
                 entity->live && entity->available && entity->creature &&
                 entity->mapName == localMap && entity->mapEpoch != 0 &&
-                authority_->IsEntityPublisher(
+                authority_->IsEntityActionPublisher(
                     {entity->thingUid, entity->generation},
                     entity->mapName,
                     localActorId_,

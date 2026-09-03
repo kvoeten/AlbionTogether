@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Game/Math/Vector3.h"
 #include "Multiplayer/Runtime/MultiplayerSession.h"
 
 #include <cstdint>
@@ -41,6 +42,10 @@ namespace fable::automation::multiplayer::transition
         std::uint64_t armedAt_ = 0;
         std::uint64_t spawnedAt_ = 0;
         std::uint64_t targetUid_ = 0;
+        std::uint16_t sourceMapId_ = 0;
+        std::uint16_t destinationMapId_ = 0;
+        game::Vector3 destinationPosition_ = {};
+        float destinationFacing_ = 0.0f;
         bool scriptRetained_ = false;
         bool enabled_ = false;
         bool completed_ = false;

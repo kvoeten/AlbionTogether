@@ -52,6 +52,8 @@ namespace fable::multiplayer::transport_codec
             type == PacketType::PlayerAction ||
             type == PacketType::PopulationState ||
             type == PacketType::SavedEntityMapBaseline ||
+            type == PacketType::QuestStateSnapshot ||
+            type == PacketType::WorldSectionSnapshot ||
             type == PacketType::PlayerActorState ||
             type == PacketType::CombatHit ||
             type == PacketType::ReliableFragment;

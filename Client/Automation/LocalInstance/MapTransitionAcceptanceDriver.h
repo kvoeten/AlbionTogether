@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Core/Diagnostics/Diagnostics.h"
+#include "Game/Math/Vector3.h"
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -10,9 +12,9 @@ namespace fable::game
     class EntityService;
 }
 
-namespace fable::game::creature::locomotion
+namespace fable::multiplayer
 {
-    class CreatureLocomotionService;
+    class MultiplayerRuntimeGraph;
 }
 
 namespace fable::automation::local_instance
@@ -27,21 +29,30 @@ namespace fable::automation::local_instance
             bool enabled,
             bool returnToSource,
             game::EntityService& entities,
-            game::creature::locomotion::CreatureLocomotionService& locomotion,
+            ::fable::multiplayer::MultiplayerRuntimeGraph& multiplayer,
             const core::Diagnostics& diagnostics) noexcept;
-        void Tick(float deltaSeconds, bool remotePresentationReady);
+        void Tick(bool remotePresentationReady) noexcept;
+        bool ProcessGameThreadIdle() noexcept;
         void Shutdown() noexcept;
 
     private:
         game::EntityService* entities_ = nullptr;
-        game::creature::locomotion::CreatureLocomotionService* locomotion_ =
-            nullptr;
+        ::fable::multiplayer::MultiplayerRuntimeGraph* multiplayer_ = nullptr;
         core::Diagnostics diagnostics_ = {};
         std::string sourceMap_;
         std::string destinationMap_;
+        game::Vector3 travelPosition_ = {};
+        float travelFacing_ = 0.0f;
         std::uint64_t phaseStartedAt_ = 0;
+        std::uint64_t nextTravelAttemptAt_ = 0;
         unsigned int requestCount_ = 0;
         unsigned int outboundRequestCount_ = 0;
+        unsigned int travelInvocationCount_ = 0;
+        std::uint16_t sourceMapId_ = 0;
+        std::uint16_t destinationMapId_ = 0;
+        std::uint16_t requestedDestinationMapId_ = 0;
+        std::atomic_bool travelQueued_{false};
+        bool routeRequested_ = false;
         bool returnToSource_ = false;
         bool enabled_ = false;
         bool completed_ = false;

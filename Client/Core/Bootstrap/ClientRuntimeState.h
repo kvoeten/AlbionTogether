@@ -226,9 +226,9 @@ namespace fable::core::bootstrap
         std::atomic<ULONGLONG> saveListLastTickAt{0};
         std::atomic_uint saveListTickCount{0};
         std::atomic_uint saveListLastLoggedPhase{0xFFFFFFFFu};
-        std::atomic_bool autoSaveSelected{false};
-        std::atomic_uint autoSaveIdentity{0xFFFFFFFFu};
-        std::atomic<ULONGLONG> autoSaveSelectedAt{0};
+        std::atomic_bool fixtureSaveSelected{false};
+        std::atomic_uint fixtureSaveIdentity{0xFFFFFFFFu};
+        std::atomic<ULONGLONG> fixtureSaveSelectedAt{0};
         std::atomic_bool fixtureStartInvoked{false};
         std::atomic<ULONGLONG> fixtureStartInvokedAt{0};
         std::atomic_bool mainMenuReleased{false};

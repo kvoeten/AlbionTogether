@@ -116,6 +116,15 @@ namespace fable::multiplayer::replication
         }
     }
 
+    void LocalPlayerActionCapture::DiscardPending() noexcept
+    {
+        eventQueue_.Clear();
+        unmatchedAbilities_.clear();
+        unmatchedActions_.clear();
+        pendingWeaponTransitions_.clear();
+        pendingMessages_.clear();
+    }
+
     bool LocalPlayerActionCapture::CaptureLocal(
         const game::creature::combat::CreatureAbilityEvent& event,
         const game::creature::actions::CreatureActionLifecycleEvent*
@@ -172,20 +181,12 @@ namespace fable::multiplayer::replication
         const bool rangedAttack = resolvedAction != nullptr &&
             player_action_semantics::IsRangedFire(
                 resolvedAction->actionType);
-        if (rangedAttack &&
-            message.requiredWeapons.rangedDefinitionIndex > 0)
-        {
-            message.weaponFamily =
-                game::creature::equipment::CreatureWeaponFamily::Ranged;
-        }
-        else if (event.attackCommand &&
-            message.weaponFamily ==
-                game::creature::equipment::CreatureWeaponFamily::None &&
-            message.requiredWeapons.meleeDefinitionIndex > 0)
-        {
-            message.weaponFamily =
-                game::creature::equipment::CreatureWeaponFamily::Melee;
-        }
+        message.weaponFamily =
+            player_action_semantics::ResolveCapturedWeaponFamily(
+                message.weaponFamily,
+                event.attackCommand,
+                resolvedAction != nullptr ? resolvedAction->actionType : nullptr,
+                message.requiredWeapons.rangedDefinitionIndex > 0);
         message.targetPlayerActorId = combatants_ != nullptr
             ? combatants_->FindActor(event.targetCreature)
             : 0;
@@ -887,11 +888,7 @@ namespace fable::multiplayer::replication
             abilities_->RemoveEventSink(
                 &LocalPlayerActionCapture::CaptureHeroAbility, this);
         }
-        eventQueue_.Clear();
-        unmatchedAbilities_.clear();
-        unmatchedActions_.clear();
-        pendingWeaponTransitions_.clear();
-        pendingMessages_.clear();
+        DiscardPending();
         transport_ = nullptr;
         localHero_ = nullptr;
         combatants_ = nullptr;

@@ -48,7 +48,18 @@ namespace
     {
         Peer& host = *state.host;
         Peer& guest = *state.guest;
-        return peers.WaitEventDetailCount(guest, "MultiplayerLocalWeaponTransitionCaptured",
+        return peers.WaitEvent(guest,
+                "MultiplayerCombatNativeUnarmedAttackSubmitted") &&
+            peers.WaitEventDetail(guest,
+                "MultiplayerLocalPlayerActionCaptured",
+                "weapon=0 melee=") &&
+            peers.WaitEventDetail(host,
+                "MultiplayerRemoteNativeAttackSubmitted",
+                "weapon_family=0") &&
+            peers.WaitEventDetail(host,
+                "MultiplayerRemoteNativeAttackSubmitted",
+                "route=native-hero-auto-turn-action submitted=true") &&
+            peers.WaitEventDetailCount(guest, "MultiplayerLocalWeaponTransitionCaptured",
                 "native_action=CCreatureAction_", 3, state.timeoutSeconds) &&
             peers.WaitEventDetailCount(host, "MultiplayerRemoteWeaponTransitionSubmitted",
                 "animation_id=", 3, state.timeoutSeconds) &&

@@ -56,6 +56,7 @@ namespace fable::game
             bool requireRegionEntrance = false,
             const char** failure = nullptr);
         bool SetAttackable(bool enabled);
+        bool SetPersistent(bool enabled);
         bool SetDamageable(bool enabled);
         bool SetCollidable(bool enabled);
         bool SetDrawable(bool enabled);

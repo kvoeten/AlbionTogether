@@ -4,6 +4,8 @@
 #include "Game/Entity/Persistence/Native/SavedEntityMapRecordInstaller.h"
 #include "Multiplayer/Authority/MapAuthorityBaselineGate.h"
 #include "Multiplayer/Persistence/SavedEntityMapBlobDirectory.h"
+#include "Multiplayer/Persistence/SavedEntityCollectionBaselineTransfer.h"
+#include "Multiplayer/Persistence/GuestHeroSaveBoundary.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 #include "Multiplayer/Protocol/SavedEntityMapBaselineMessage.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
@@ -55,6 +57,10 @@ namespace fable::multiplayer::persistence
         authority::MapBaselinePreparationResult PrepareHostGrant(
             std::uint16_t mapId,
             std::uint64_t& baselineRevision) override;
+        authority::MapBaselinePreparationResult PrepareHostCollection(
+            std::uint64_t peerSetRevision) override;
+        [[nodiscard]] bool IsGuestCollectionReady() const noexcept override;
+        bool CompleteInitialGuestHeroConstruction() noexcept;
         [[nodiscard]] bool IsGuestGrantReady(
             std::uint16_t mapId,
             std::uint64_t baselineRevision) const noexcept override;
@@ -66,13 +72,19 @@ namespace fable::multiplayer::persistence
             const noexcept;
 
     private:
-        enum class OutboundStage : std::uint8_t
+        struct GuestBaseline final
         {
-            Begin,
-            Chunks,
-            Commit,
+            game::entity::persistence::SavedEntityMapBlobFormat format =
+                game::entity::persistence::SavedEntityMapBlobFormat::Binary;
+            std::uint64_t revision = 0;
+            std::uint64_t hash = 0;
+            std::uint32_t metadata = 0;
+            bool present = false;
+            bool appliedToCurrentCollection = false;
+            bool guestHeroBootstrapOnly = false;
+            std::vector<std::uint8_t> bytes;
         };
-
+        enum class OutboundStage : std::uint8_t { Begin, Chunks, Commit };
         struct OutboundTransfer final
         {
             game::entity::persistence::SavedEntityMapBlobFormat format =
@@ -89,25 +101,6 @@ namespace fable::multiplayer::persistence
             bool present = false;
             bool active = false;
         };
-
-        struct PublishedBaseline final
-        {
-            std::uint64_t baselineRevision = 0;
-            std::uint64_t peerSetRevision = 0;
-        };
-
-        struct GuestBaseline final
-        {
-            game::entity::persistence::SavedEntityMapBlobFormat format =
-                game::entity::persistence::SavedEntityMapBlobFormat::Binary;
-            std::uint64_t revision = 0;
-            std::uint64_t hash = 0;
-            std::uint32_t metadata = 0;
-            bool present = false;
-            bool appliedToCurrentCollection = false;
-            std::vector<std::uint8_t> bytes;
-        };
-
         struct InboundTransfer final
         {
             GuestBaseline baseline;
@@ -116,6 +109,11 @@ namespace fable::multiplayer::persistence
             std::uint32_t totalBytes = 0;
             std::uint32_t receivedBytes = 0;
             bool active = false;
+        };
+        struct PublishedBaseline final
+        {
+            std::uint64_t baselineRevision = 0;
+            std::uint64_t peerSetRevision = 0;
         };
 
         static void ObserveCollection(
@@ -146,10 +144,12 @@ namespace fable::multiplayer::persistence
         bool AcceptGuestBaseline(
             std::uint16_t mapId,
             GuestBaseline baseline);
+        bool ConsumeCommittedCollection();
+        bool PrepareGuestCollection();
+        bool ApplyGuestCollection() noexcept;
         bool ApplyGuestBaseline(
             std::uint16_t mapId,
             GuestBaseline& baseline) noexcept;
-        void ApplyGuestBaselines() noexcept;
         void ResetInbound() noexcept;
         void ReportTransfer(
             const char* eventName,
@@ -166,12 +166,19 @@ namespace fable::multiplayer::persistence
         core::Diagnostics diagnostics_ = {};
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
+        SavedEntityCollectionBaselineTransfer collectionTransfer_;
+        GuestHeroSaveBoundary guestHeroBoundary_;
         std::uint64_t nextTransferId_ = 0;
         OutboundTransfer outbound_;
         InboundTransfer inbound_;
         std::map<std::uint16_t, PublishedBaseline> published_;
         std::map<std::uint16_t, GuestBaseline> guestBaselines_;
         std::size_t guestBaselineBytes_ = 0;
+        std::uint64_t guestCollectionRevision_ = 0;
+        bool guestCollectionApplied_ = false;
+        bool guestCollectionPrepared_ = false;
+        bool preparedCollectionIncludesGuestHero_ = false;
+        bool initialGuestHeroConstructionPending_ = false;
         void* nativeSavedEntities_ = nullptr;
         game::entity::persistence::SavedEntityMapBlobFormat
             nativeCollectionFormat_ = game::entity::persistence::

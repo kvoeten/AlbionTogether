@@ -49,6 +49,7 @@ namespace
             fable::multiplayer::protocol::MaximumReliableMessageBytes);
 
     constexpr std::uint32_t kMaximumPresentationDurationMs = 120'000;
+    constexpr std::uint32_t kHeroAttackAbilityId = 1101;
 
     template <std::size_t Size>
     bool IsTerminated(const char (&value)[Size]) noexcept
@@ -96,6 +97,15 @@ namespace
             ? message.heroAbilityProgressionState >= 0 &&
                 message.heroAbilityProgressionState <= 3
             : message.heroAbilityProgressionState == -1;
+        // A weaponless Hero attack is only valid when it carries the native
+        // auto-turn action observed from the owner. Without that semantic
+        // action the receiver would incorrectly fall through to the generic
+        // ability path and lose Fable's fist-attack animation and hit flow.
+        const bool saneUnarmedAttack =
+            !(ability && message.abilityId == kHeroAttackAbilityId &&
+                message.weaponFamily == CreatureWeaponFamily::None) ||
+            message.resolvedActionType.find(
+                "InterruptableMidAttackAutoTurn") != std::string::npos;
         const auto saneAttachment = [](std::int32_t definitionIndex,
                                        std::uint32_t attachmentSlot)
         {
@@ -109,6 +119,7 @@ namespace
                 rangedAimEnd || expression) &&
             saneFamily &&
             saneProgressionState &&
+            saneUnarmedAttack &&
             saneExpressionTiming &&
             sanePresentationTiming &&
             message.requiredWeapons.IsSane() &&

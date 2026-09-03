@@ -63,7 +63,7 @@ namespace fable::multiplayer::entities
         }
 
         const authority::MapAuthorityLease* const lease =
-            authority.FindMapLease(localMap);
+            authority.FindMapLease(localMapId);
         if (lease == nullptr || lease->actorId == 0 || lease->epoch == 0)
         {
             SetRosterReady(localMap, 0, false);
@@ -73,13 +73,13 @@ namespace fable::multiplayer::entities
         const bool ownsMap = lease->actorId == localActorId_;
         const bool baselineReady = role_ == PeerRole::Host ||
             directory.HasAuthoritativeBaseline();
-        const bool canonicalRosterKnown = directory.HasMapRoster(localMap);
+        const bool canonicalRosterKnown = directory.HasMapRoster(localMapId);
         const bool canonicalRosterCurrent = directory.IsMapRosterComplete(
-            localMap,
+            localMapId,
             lease->epoch);
         const bool seedAllowed = role_ == PeerRole::Host ||
             directory.IsMapSeedAllowed(
-                localMap,
+                localMapId,
                 localActorId_,
                 lease->epoch);
         if (ownsMap && (!baselineReady ||

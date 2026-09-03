@@ -57,6 +57,8 @@ namespace fable::multiplayer::entities
             LiveEntityChange& change);
         [[nodiscard]] const LiveEntityRecord* Find(
             std::uint64_t thingUid) const noexcept;
+        [[nodiscard]] const LiveEntityRecord* FindByThing(
+            const void* thing) const noexcept;
         [[nodiscard]] std::uint64_t Revision() const noexcept;
         bool Remap(
             std::uint64_t localUid,
@@ -74,6 +76,10 @@ namespace fable::multiplayer::entities
         void MarkChanged() noexcept;
 
         std::unordered_map<std::uint64_t, LiveEntityRecord> records_;
+        // Remote presentation reconciliation asks whether its native Thing is
+        // still registered. Keep that lookup O(1); scanning the full NPC
+        // population for every remote player snapshot would scale poorly.
+        std::unordered_map<const void*, std::uint64_t> uidByThing_;
         std::uint32_t nextIncarnation_ = 0;
         std::uint64_t revision_ = 0;
     };

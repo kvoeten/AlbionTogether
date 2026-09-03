@@ -8,7 +8,11 @@
 #include "Multiplayer/Protocol/PacketEnvelope.h"
 #include "Multiplayer/Protocol/PlayerActionMessage.h"
 #include "Multiplayer/Protocol/PlayerMovementCodec.h"
+#include "DeveloperTools/DeveloperToolBackend.h"
+#include "Multiplayer/Protocol/QuestStateSnapshotMessage.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
+#include "Game/HeroPawn/Combat/RemoteHeroCombatController.h"
+#include "Game/HeroPawn/Remote/RemoteHeroVisibilityPolicy.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Combat/CombatActionLedger.h"
@@ -24,6 +28,7 @@
 #include "Multiplayer/Replication/LocalHeroReplication.h"
 #include "Multiplayer/Replication/PlayerActionReplication.h"
 #include "Multiplayer/Replication/PlayerActionEventQueue.h"
+#include "Multiplayer/Replication/PlayerActionSemantics.h"
 #include "Multiplayer/Replication/PlayerActorLifecycleReducer.h"
 #include "Multiplayer/Replication/PlayerActorLifecycleLimits.h"
 #include "Multiplayer/Replication/PlayerActorStatePublicationQueue.h"
@@ -50,6 +55,8 @@
 #include <thread>
 #include <unordered_set>
 
+int RunQuestStateSnapshotTests();
+
 namespace fable::multiplayer::replication::testing
 {
     void SetLocalHeroState(const PlayerState* state) noexcept;
@@ -64,9 +71,18 @@ extern "C" std::uint32_t LastPerformedAnimationIdForTest() noexcept;
 
 int RunCombatHitReplicationTests();
 int RunCodePatchTests();
+int RunGameplayFrameMailboxTests();
+int RunSimulationFrameHookTests();
 int RunSessionClockTests();
 int RunReliableStreamWindowTests();
 int RunEquipmentTransitionTimingTests();
+int RunSavedEntityMapBaselineTests();
+int RunWorldEntityDirectoryTests();
+int RunHeroSavedEntityRecordTests();
+int RunEntityFlagFunctionTests();
+int RunDiagnosticLogTests();
+int RunDeveloperToolsTests();
+int RunWorldSectionSnapshotTests();
 
 namespace
 {
@@ -1657,6 +1673,96 @@ namespace
         host.Shutdown();
     }
 
+    void TestLocalMapChangePublishesInPlaceTransition()
+    {
+        constexpr const char* test = "local map change preserves actor lifecycle";
+        constexpr std::uint16_t port = 39211;
+        constexpr std::uint64_t hostActorId = 1001;
+
+        UdpPeer host;
+        CHECK(test, host.StartHost(port, hostActorId, TestDiagnostics()));
+        fable::multiplayer::replication::LocalHeroReplication localHero;
+        RemotePlayerChannels remoteChannels;
+        fable::multiplayer::replication::PlayerActorStateReplication service;
+        service.Initialize(
+            PeerRole::Host,
+            hostActorId,
+            host,
+            700,
+            localHero,
+            remoteChannels,
+            TestDiagnostics());
+
+        PlayerState local = StateFromConstruct(Construct(
+            700, 1, 1, 1, kMapId, "HeroGuildComplex", hostActorId));
+        actor_state_testing::SetLocalHeroState(&local);
+        CHECK(test, service.Process());
+
+        UdpPeer guest;
+        CHECK(test, guest.StartGuest(
+            "127.0.0.1", port, 2002, TestDiagnostics()));
+        CHECK(test, WaitFor([&host]
+        {
+            return host.ConnectedPeerCount() == 1;
+        }));
+        CHECK(test, service.Process());
+        TransportMessage incoming;
+        CHECK(test, ReceiveReliable(guest, incoming));
+        PlayerActorStateMessage decoded;
+        CHECK(test, DecodePlayerActorStateMessage(
+            incoming.payload.data(), incoming.payloadSize, decoded));
+        CHECK(test, decoded.operation == PlayerActorStateOperation::Construct);
+
+        local.actorGeneration = 2;
+        local.mapEpoch = 2;
+        local.mapId = 84;
+        local.mapName = "LookoutPoint";
+        local.position.x += 15.0f;
+        actor_state_testing::SetLocalHeroState(&local);
+        CHECK(test, service.Process());
+        CHECK(test, ReceiveReliable(guest, incoming));
+        decoded = {};
+        CHECK(test, DecodePlayerActorStateMessage(
+            incoming.payload.data(), incoming.payloadSize, decoded));
+        CHECK(test, decoded.operation ==
+            PlayerActorStateOperation::MapTransition);
+        CHECK(test, decoded.actorGeneration == 2);
+        CHECK(test, decoded.mapEpoch == 2);
+        CHECK(test, decoded.mapName == "LookoutPoint");
+        CHECK(test, service.IsLifecycleActive(hostActorId, 2, 2));
+
+        // The retail script label can remain stale after the numeric Mapwho
+        // identity has changed.  A label disagreement for the same nonzero
+        // map ID must not publish a second transition or churn the actor
+        // incarnation.
+        local.mapName = "HeroGuildComplex";
+        actor_state_testing::SetLocalHeroState(&local);
+        CHECK(test, service.Process());
+        CHECK(test, service.IsLifecycleActive(hostActorId, 2, 2));
+        const PlayerActorStateMessage* current =
+            service.Lifecycle(hostActorId, 2, 2);
+        CHECK(test, current != nullptr);
+        CHECK(test, current != nullptr && current->mapId == 84);
+        CHECK(test, current != nullptr && current->mapName == "LookoutPoint");
+
+        // The same stale label must not poison a real structural patch.
+        // Preserve the acknowledged map label while accepting the appearance
+        // mutation on the current incarnation.
+        local.heroMorph.strength = 0.73f;
+        actor_state_testing::SetLocalHeroState(&local);
+        CHECK(test, service.Process());
+        current = service.Lifecycle(hostActorId, 2, 2);
+        CHECK(test, current != nullptr);
+        CHECK(test, current != nullptr && current->mapName == "LookoutPoint");
+        CHECK(test, current != nullptr &&
+            current->heroMorph.strength == local.heroMorph.strength);
+
+        actor_state_testing::SetLocalHeroState(nullptr);
+        service.Shutdown();
+        guest.Shutdown();
+        host.Shutdown();
+    }
+
     void TestDelayedRetireCannotEraseReplacementSession()
     {
         constexpr const char* test = "delayed Retire session fence";
@@ -2000,46 +2106,47 @@ namespace
         CHECK(test,
             LastPerformedAnimationIdForTest() == 128);
 
-        // A delayed reliable semantic event remains ordered, but an action
-        // whose presentation window has already elapsed must not restart a
-        // stale animation after the latest current action has played.
-        TransportMessage expired = MakePlayerActionTransportMessage(
+        // Author timing is presentation metadata only. A current ordered
+        // action executes immediately even when network delay puts its
+        // authored duration in the past.
+        TransportMessage delayed = MakePlayerActionTransportMessage(
             actorId, connectionNonce, 500);
-        PlayerActionMessage expiredAction;
+        PlayerActionMessage delayedAction;
         CHECK(test, fable::multiplayer::protocol::DecodePlayerActionMessage(
-            expired.payload.data(), expired.payloadSize, expiredAction));
+            delayed.payload.data(), delayed.payloadSize, delayedAction));
         const auto sessionNow = fable::multiplayer::protocol::ToSessionTime(
             transport.SessionTimeMilliseconds());
-        expiredAction.startedAtSessionTimeMs = sessionNow - 1'000;
-        expiredAction.expectedDurationMs = 100;
-        expiredAction.presentationRevision = 500;
+        delayedAction.startedAtSessionTimeMs = sessionNow - 1'000;
+        delayedAction.expectedDurationMs = 100;
+        delayedAction.presentationRevision = 500;
         CHECK(test, fable::multiplayer::protocol::EncodePlayerActionMessage(
-            expiredAction,
-            expired.payload.data(),
-            expired.payload.size(),
-            expired.payloadSize));
-        CHECK(test, actions.HandleReliableMessage(expired));
+            delayedAction,
+            delayed.payload.data(),
+            delayed.payload.size(),
+            delayed.payloadSize));
+        CHECK(test, actions.HandleReliableMessage(delayed));
         CHECK(test, actions.ReplayRemotePending());
-        CHECK(test, PerformedAbilityCountForTest() == 1);
+        CHECK(test, PerformedAbilityCountForTest() == 2);
+        CHECK(test,
+            LastPerformedAnimationIdForTest() == 500);
 
-        // Still inside the authored duration, but too late to restart a
-        // finite native action from frame zero after the reliable-path grace.
-        TransportMessage late = MakePlayerActionTransportMessage(
+        // An equal revision is still stale regardless of its timestamp.
+        TransportMessage duplicate = MakePlayerActionTransportMessage(
             actorId, connectionNonce, 500);
-        PlayerActionMessage lateAction;
+        PlayerActionMessage duplicateAction;
         CHECK(test, fable::multiplayer::protocol::DecodePlayerActionMessage(
-            late.payload.data(), late.payloadSize, lateAction));
-        lateAction.startedAtSessionTimeMs = sessionNow - 500;
-        lateAction.expectedDurationMs = 1'200;
-        lateAction.presentationRevision = 500;
+            duplicate.payload.data(), duplicate.payloadSize, duplicateAction));
+        duplicateAction.startedAtSessionTimeMs = sessionNow - 500;
+        duplicateAction.expectedDurationMs = 1'200;
+        duplicateAction.presentationRevision = 500;
         CHECK(test, fable::multiplayer::protocol::EncodePlayerActionMessage(
-            lateAction,
-            late.payload.data(),
-            late.payload.size(),
-            late.payloadSize));
-        CHECK(test, actions.HandleReliableMessage(late));
+            duplicateAction,
+            duplicate.payload.data(),
+            duplicate.payload.size(),
+            duplicate.payloadSize));
+        CHECK(test, actions.HandleReliableMessage(duplicate));
         CHECK(test, actions.ReplayRemotePending());
-        CHECK(test, PerformedAbilityCountForTest() == 1);
+        CHECK(test, PerformedAbilityCountForTest() == 2);
 
         TransportMessage current = MakePlayerActionTransportMessage(
             actorId, connectionNonce, 501);
@@ -2056,12 +2163,13 @@ namespace
             current.payloadSize));
         CHECK(test, actions.HandleReliableMessage(current));
         CHECK(test, actions.ReplayRemotePending());
-        CHECK(test, PerformedAbilityCountForTest() == 2);
+        CHECK(test, PerformedAbilityCountForTest() == 3);
         CHECK(test,
             LastPerformedAnimationIdForTest() == 501);
 
-        // Clock correction can place an otherwise current action slightly in
-        // the future. Keep it pending instead of presenting it early.
+        // Clock correction can place a current action in the future. It still
+        // executes now; the timestamp may later select a seek offset but may
+        // never become an admission gate.
         TransportMessage future = MakePlayerActionTransportMessage(
             actorId, connectionNonce, 502);
         PlayerActionMessage futureAction;
@@ -2077,39 +2185,20 @@ namespace
             future.payloadSize));
         CHECK(test, actions.HandleReliableMessage(future));
         CHECK(test, actions.ReplayRemotePending());
-        CHECK(test, PerformedAbilityCountForTest() == 2);
+        CHECK(test, PerformedAbilityCountForTest() == 4);
         CHECK(test,
-            LastPerformedAnimationIdForTest() == 501);
+            LastPerformedAnimationIdForTest() == 502);
 
         ConfigureRemoteActionPresentationForTest(
             false, nullptr, false);
         actions.Shutdown();
     }
 
-    void TestTimedPresentationReplayPolicy()
+    void TestPresentationRevisionPolicy()
     {
-        constexpr const char* test = "timed presentation replay policy";
+        constexpr const char* test = "presentation revision policy";
         using Presentation =
             fable::multiplayer::presentation::RemotePlayerActionPresentation;
-
-        CHECK(test, Presentation::IsReplayEligible(
-            PlayerActionKind::AbilityRequest, 0, 1'200));
-        CHECK(test, Presentation::IsReplayEligible(
-            PlayerActionKind::AbilityRequest, 250, 1'200));
-        CHECK(test, !Presentation::IsReplayEligible(
-            PlayerActionKind::AbilityRequest, 251, 1'200));
-        CHECK(test, Presentation::IsReplayEligible(
-            PlayerActionKind::Expression, 50, 200));
-        CHECK(test, !Presentation::IsReplayEligible(
-            PlayerActionKind::Expression, 51, 200));
-        CHECK(test, !Presentation::IsReplayEligible(
-            PlayerActionKind::HeroAbility, 1'201, 1'200));
-        CHECK(test, Presentation::IsReplayEligible(
-            PlayerActionKind::RangedAim, 10'000, 0));
-        CHECK(test, Presentation::IsReplayEligible(
-            PlayerActionKind::RangedAimEnd, 250, 250));
-        CHECK(test, Presentation::IsReplayEligible(
-            PlayerActionKind::RangedAimEnd, 10'000, 250));
 
         // Revisions use serial-number arithmetic, so wrap-around remains
         // newer without allowing equality or the reverse direction through.
@@ -4335,6 +4424,78 @@ namespace
             aim, bytes.data(), bytes.size(), encodedSize));
     }
 
+    void TestUnarmedAttackUsesNativeAutoTurnRoute()
+    {
+        constexpr const char* test = "unarmed attack uses native auto-turn route";
+        using fable::game::creature::equipment::CreatureWeaponFamily;
+        using fable::game::hero_pawn::combat::RemoteHeroCombatController;
+        using namespace fable::multiplayer::protocol;
+
+        CHECK(test, RemoteHeroCombatController::UsesNativeAutoTurnAttack(
+            CreatureWeaponFamily::None,
+            "CCreatureAction_InterruptableMidAttackAutoTurn"));
+        CHECK(test, RemoteHeroCombatController::UsesNativeAutoTurnAttack(
+            CreatureWeaponFamily::Melee,
+            "CCreatureAction_InterruptableMidAttackAutoTurn"));
+        CHECK(test, !RemoteHeroCombatController::UsesNativeAutoTurnAttack(
+            CreatureWeaponFamily::Ranged,
+            "CCreatureAction_InterruptableMidAttackAutoTurn"));
+        CHECK(test, !RemoteHeroCombatController::UsesNativeAutoTurnAttack(
+            CreatureWeaponFamily::None,
+            "CCreatureAction_HeroAbility"));
+        CHECK(test,
+            fable::multiplayer::replication::player_action_semantics::
+                ResolveCapturedWeaponFamily(
+                    CreatureWeaponFamily::None,
+                    true,
+                    "CCreatureAction_InterruptableMidAttackAutoTurn",
+                    false) == CreatureWeaponFamily::None);
+        CHECK(test,
+            fable::multiplayer::replication::player_action_semantics::
+                ResolveCapturedWeaponFamily(
+                    CreatureWeaponFamily::None,
+                    true,
+                    "CCreatureAction_InterruptableMidAttackAutoTurn",
+                    true) == CreatureWeaponFamily::None);
+        CHECK(test,
+            fable::multiplayer::replication::player_action_semantics::
+                ResolveCapturedWeaponFamily(
+                    CreatureWeaponFamily::None,
+                    true,
+                    "CCreatureAction_FireMissileWeapon",
+                    true) == CreatureWeaponFamily::Ranged);
+
+        PlayerActionMessage attack;
+        attack.phase = PlayerActionPhase::Perform;
+        attack.kind = PlayerActionKind::AbilityRequest;
+        attack.ownerActorId = 1001;
+        attack.actionId = 9;
+        attack.authorityEpoch = 3;
+        attack.actorGeneration = 4;
+        attack.mapEpoch = 5;
+        attack.abilityId = 1101;
+        attack.weaponFamily = CreatureWeaponFamily::None;
+        attack.resolvedAnimationId = 2800;
+        attack.mapName = "LookoutPoint";
+        attack.semanticName = "AttackAbility";
+        attack.resolvedActionType =
+            "CCreatureAction_InterruptableMidAttackAutoTurn";
+        std::array<std::uint8_t, 1472> bytes = {};
+        std::size_t encodedSize = 0;
+        CHECK(test, EncodePlayerActionMessage(
+            attack, bytes.data(), bytes.size(), encodedSize));
+        PlayerActionMessage decoded;
+        CHECK(test, DecodePlayerActionMessage(
+            bytes.data(), encodedSize, decoded));
+        CHECK(test, decoded.weaponFamily == CreatureWeaponFamily::None);
+        CHECK(test, decoded.requiredWeapons.meleeDefinitionIndex == -1);
+        CHECK(test, decoded.resolvedActionType == attack.resolvedActionType);
+
+        attack.resolvedActionType.clear();
+        CHECK(test, !EncodePlayerActionMessage(
+            attack, bytes.data(), bytes.size(), encodedSize));
+    }
+
     void TestRangedAimEndUsesDedicatedOrderedActionKind()
     {
         constexpr const char* test =
@@ -4711,6 +4872,26 @@ namespace
             newerDelta, &PlayerActorLifecycleReducer::CoalesceDelta));
         CHECK(test, queue.Size() == 3);
     }
+
+    void TestRemoteHeroActivePresentationRepairCadence()
+    {
+        constexpr const char* test =
+            "remote Hero active presentation repair cadence";
+        using fable::game::hero_pawn::remote::
+            IsActivePresentationRepairDue;
+        using fable::game::hero_pawn::remote::
+            kActivePresentationRepairCadenceMilliseconds;
+
+        CHECK(test, IsActivePresentationRepairDue(1'000, 0));
+        CHECK(test, !IsActivePresentationRepairDue(
+            1'000 + kActivePresentationRepairCadenceMilliseconds - 1,
+            1'000));
+        CHECK(test, IsActivePresentationRepairDue(
+            1'000 + kActivePresentationRepairCadenceMilliseconds,
+            1'000));
+        // A tick counter reset/wrap must not suppress the next repair.
+        CHECK(test, IsActivePresentationRepairDue(10, 20));
+    }
 }
 
 int main()
@@ -4722,6 +4903,7 @@ int main()
     TestRemoteEntityHealthProtectionFencesLifecycle();
     TestReplicaHealthProtectionRevisionGatesUnchangedTicks();
     TestRangedFireActionEntersOrderedPlayerStream();
+    TestUnarmedAttackUsesNativeAutoTurnRoute();
     TestRangedAimUsesDedicatedOrderedActionKind();
     TestRangedAimEndUsesDedicatedOrderedActionKind();
     TestExpressionUsesSemanticOrderedActionKind();
@@ -4734,6 +4916,7 @@ int main()
     TestMapHandoff();
     TestActorLifecycleAdmissionLimit();
     TestActorLifecyclePublicationDoesNotCrossBoundary();
+    TestRemoteHeroActivePresentationRepairCadence();
     TestReliableActorTransportLifecycle();
     TestGuestMovementKeepaliveUsesLastValidSnapshot();
     TestReliableControlIncarnationAndAcknowledgementRoundTrip();
@@ -4741,6 +4924,7 @@ int main()
     TestActorStateServiceFencingAndReadiness();
     TestLateJoinReceivesCompleteActorBaseline();
     TestSameMapHeroRebindReopensActorLifecycle();
+    TestLocalMapChangePublishesInPlaceTransition();
     TestDelayedRetireCannotEraseReplacementSession();
     TestMandatoryComponentRemovalIsRejected();
     TestConstructionRetransmissionOrdersBaselineBeforeAction();
@@ -4748,7 +4932,7 @@ int main()
     TestQueuedActionAndVitalsAreFencedByReplacementSession();
     TestActionQueueClearsAcrossRetirementAndMapHandoff();
     TestRapidActionsKeepOnlyLatestCurrentPresentation();
-    TestTimedPresentationReplayPolicy();
+    TestPresentationRevisionPolicy();
     TestActionAndVitalsProducersStayFairUnderActorBackpressure();
     TestReliableActorStreamsAreIndependent();
     TestHostFanoutOwnsEveryPeerBeforeReportingSuccess();
@@ -4776,11 +4960,26 @@ int main()
     failures += runFocused(
         "combat hit replication", RunCombatHitReplicationTests());
     failures += runFocused("code patch", RunCodePatchTests());
+    failures += runFocused("entity flag ABI", RunEntityFlagFunctionTests());
+    failures += runFocused("diagnostic file lifecycle", RunDiagnosticLogTests());
+    failures += runFocused("simulation frame mailbox and ABI", RunGameplayFrameMailboxTests());
+    failures += runFocused("simulation hook native dispatch and detach", RunSimulationFrameHookTests());
     failures += runFocused("session clock", RunSessionClockTests());
     failures += runFocused(
         "reliable stream window", RunReliableStreamWindowTests());
     failures += runFocused(
         "equipment transition timing", RunEquipmentTransitionTimingTests());
+    failures += runFocused(
+        "saved entity map baseline", RunSavedEntityMapBaselineTests());
+    failures += runFocused(
+        "world entity directory", RunWorldEntityDirectoryTests());
+    failures += runFocused(
+        "quest state snapshot", RunQuestStateSnapshotTests());
+    failures += runFocused(
+        "hero saved entity record", RunHeroSavedEntityRecordTests());
+    failures += runFocused("developer tools", RunDeveloperToolsTests());
+    failures += runFocused(
+        "world section snapshot", RunWorldSectionSnapshotTests());
 
     if (failures != 0)
     {

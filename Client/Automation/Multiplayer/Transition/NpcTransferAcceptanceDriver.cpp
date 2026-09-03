@@ -3,6 +3,7 @@
 #include "Game/Entity/Entity.h"
 #include "Game/Entity/EntityService.h"
 #include "Game/NPC/NpcService.h"
+#include "NativeRegionRoute.h"
 #include "Multiplayer/Runtime/MultiplayerSession.h"
 
 #include <Windows.h>
@@ -15,13 +16,6 @@ namespace
     constexpr char TargetDefinition[] = "CREATURE_BS_GUARD";
     constexpr char TargetScriptName[] =
         "SCRIPT_NAME_ALBION_TOGETHER_TRANSFER_TARGET";
-    constexpr std::uint16_t DestinationMapId = 76; // BowerstoneJail fixture exit.
-    constexpr fable::game::Vector3 DestinationPosition = {
-        3266.0f,
-        4365.4f,
-        20.4f,
-    };
-    constexpr float DestinationFacing = 0.496185f;
     constexpr float SpawnOffset = 2.0f;
     constexpr std::uint64_t SpawnDelayMilliseconds = 500;
     constexpr std::uint64_t SourceRosterSettleMilliseconds = 1'000;
@@ -53,7 +47,7 @@ namespace fable::automation::multiplayer::transition
     void NpcTransferAcceptanceDriver::Tick(bool remotePresentationReady)
     {
         if (!enabled_ || completed_ || !remotePresentationReady ||
-            entities_ == nullptr || npcs_ == nullptr)
+            entities_ == nullptr || npcs_ == nullptr || multiplayer_ == nullptr)
         {
             return;
         }
@@ -83,7 +77,14 @@ namespace fable::automation::multiplayer::transition
             const float facing = hero->GetFacing();
             const std::string mapName = hero->GetCurrentMapName();
             hero->Release();
-            if (mapName != "BowerstonePosh" ||
+            sourceMapId_ = multiplayer_->Contexts().players.localHero.MapId();
+            native_route::Descriptor route;
+            if (sourceMapId_ == 0 ||
+                !native_route::SelectFirst(
+                    *entities_,
+                    *multiplayer_,
+                    sourceMapId_,
+                    route) ||
                 !std::isfinite(heroPosition.x) ||
                 !std::isfinite(heroPosition.y) ||
                 !std::isfinite(heroPosition.z) ||
@@ -91,6 +92,9 @@ namespace fable::automation::multiplayer::transition
             {
                 return;
             }
+            destinationMapId_ = route.exit.destinationMapId;
+            destinationPosition_ = route.destinationPosition;
+            destinationFacing_ = route.destinationFacing;
             const game::Vector3 spawnPosition = {
                 heroPosition.x + SpawnOffset,
                 heroPosition.y,
@@ -125,7 +129,7 @@ namespace fable::automation::multiplayer::transition
                 TargetDefinition,
                 TargetScriptName,
                 mapName.c_str(),
-                static_cast<unsigned int>(DestinationMapId),
+                static_cast<unsigned int>(destinationMapId_),
                 scriptRetained_ ? "true" : "false");
             diagnostics_.Event("MultiplayerNpcTransferTargetSpawned", detail);
             return;
@@ -161,12 +165,11 @@ namespace fable::automation::multiplayer::transition
                 "stage=script-handle-invalid");
             return false;
         }
-        const std::uint16_t sourceMapId = 64;
         if (!multiplayer_->TransferOwnedEntity(
                 targetUid_,
-                DestinationMapId,
-                DestinationPosition,
-                DestinationFacing))
+                destinationMapId_,
+                destinationPosition_,
+                destinationFacing_))
         {
             diagnostics_.Event(
                 "MultiplayerNpcTransferSourceTeardownFailed",
@@ -185,8 +188,8 @@ namespace fable::automation::multiplayer::transition
             sizeof(detail),
             "thing_uid=%016llX source_map_id=%u destination_map_id=%u teardown=requested",
             static_cast<unsigned long long>(targetUid_),
-            static_cast<unsigned int>(sourceMapId),
-            static_cast<unsigned int>(DestinationMapId));
+            static_cast<unsigned int>(sourceMapId_),
+            static_cast<unsigned int>(destinationMapId_));
         diagnostics_.Event("MultiplayerNpcTransferSourceTeardownRequested", detail);
         return true;
     }
@@ -209,6 +212,10 @@ namespace fable::automation::multiplayer::transition
         armedAt_ = 0;
         spawnedAt_ = 0;
         targetUid_ = 0;
+        sourceMapId_ = 0;
+        destinationMapId_ = 0;
+        destinationPosition_ = {};
+        destinationFacing_ = 0.0f;
         scriptRetained_ = false;
         enabled_ = false;
         completed_ = false;

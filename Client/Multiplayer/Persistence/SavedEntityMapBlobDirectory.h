@@ -46,6 +46,7 @@ namespace fable::multiplayer::persistence
 
         [[nodiscard]] const SavedEntityMapBlob* Find(
             std::uint32_t mapId) const noexcept;
+        [[nodiscard]] std::vector<std::uint16_t> PopulatedMapIds() const;
         [[nodiscard]] bool IsComplete() const noexcept;
         [[nodiscard]] std::size_t Size() const noexcept;
         [[nodiscard]] std::size_t TotalBytes() const noexcept;

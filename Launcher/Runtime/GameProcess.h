@@ -26,6 +26,7 @@ struct GameLaunchSpec final
     std::filesystem::path clientLog;
     std::filesystem::path eventPath;
     std::filesystem::path fixtureDocuments;
+    std::wstring fixtureSaveName;
     std::filesystem::path characterSnapshot;
     std::filesystem::path scriptData;
     std::wstring clientMode;

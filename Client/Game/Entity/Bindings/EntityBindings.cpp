@@ -85,6 +85,10 @@ namespace fable::scripting::bindings
             : result;
         result = result >= 0
             ? engine.RegisterObjectMethod(
+                "Entity", "bool SetPersistent(bool)", asMETHOD(game::Entity, SetPersistent), asCALL_THISCALL)
+            : result;
+        result = result >= 0
+            ? engine.RegisterObjectMethod(
                 "Entity", "bool SetDamageable(bool)", asMETHOD(game::Entity, SetDamageable), asCALL_THISCALL)
             : result;
         result = result >= 0

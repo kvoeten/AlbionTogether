@@ -50,6 +50,8 @@ namespace fable::multiplayer::authority
         bool TakePending(protocol::AuthorityMessage& message);
         void RestorePending(protocol::AuthorityMessage message);
         [[nodiscard]] const MapAuthorityLease* Find(
+            std::uint16_t mapId) const noexcept;
+        [[nodiscard]] const MapAuthorityLease* Find(
             const std::string& mapName) const noexcept;
         [[nodiscard]] std::vector<MapAuthorityLease> Snapshot() const;
         void Clear() noexcept;
@@ -86,6 +88,7 @@ namespace fable::multiplayer::authority
             std::uint32_t epoch);
         void ReportChange(
             const std::string& mapName,
+            std::uint16_t mapId,
             std::uint64_t actorId,
             std::uint32_t epoch,
             const char* operation);
@@ -93,8 +96,8 @@ namespace fable::multiplayer::authority
         PeerRole localRole_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
         core::Diagnostics diagnostics_ = {};
-        std::unordered_map<std::string, MapAuthorityLease> leases_;
-        std::unordered_map<std::string, std::uint32_t> epochCounters_;
+        std::unordered_map<std::uint16_t, MapAuthorityLease> leases_;
+        std::unordered_map<std::uint16_t, std::uint32_t> epochCounters_;
         std::unordered_map<std::uint64_t, ActorOccupancy> actorOccupancy_;
         std::unordered_map<std::uint64_t, MapRequest> actorRequests_;
         std::deque<protocol::AuthorityMessage> pending_;

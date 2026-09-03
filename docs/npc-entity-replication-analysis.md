@@ -7,7 +7,9 @@ important refinement: map simulation authority and action authority must be
 separate leases.
 
 - The host owns persistent NPC truth: identity, current map, availability,
-  schedule state, inventory, health, and final conflict resolution.
+  schedule state, shared combat state, health, and final conflict resolution.
+  Shopping and merchant economy are local exceptions; see the proposed
+  [local NPC interaction integration](local-npc-interactions.md).
 - One peer receives a fenced simulation lease for each populated map.
 - An entity can temporarily receive a narrower action lease, such as dialogue
   ownership or combat ownership, without transferring the host's persistent
@@ -47,6 +49,17 @@ When the serialized value is not used, it initializes the same field from the
 current map manager. The same loader reads `ThingGamePersistent` and
 `ThingLevelPersistent` into flag bits at `CThing +0x9E`: game persistence is
 bit `0x20`, and level persistence is bit `0x10`.
+
+The current Anniversary interface uses slot 496 (`+0x7C0`, function RVA
+`0x0188AE90`) to toggle both persistence bits. Combat engagement is a separate
+setter at slot 477 (`+0x774`, RVA `0x0188EA20`), confirmed by the game's own
+`.SetAttackable` cutscene command at RVA `0x0136097A`. Both take a ScriptThing
+and a bool and return with `ret 8`. Historical FSE interface slot numbers are
+not interchangeable: slot 469 in this executable takes six arguments and
+returns with `ret 24`. Calling it as a flag setter caused the September 2
+remote-Hero setup/suspend faults at RVA `0x018A3D1F` and could corrupt the
+caller's stack. `EntityFlagFunction` now verifies each flag's current target,
+entry bytes, and stack cleanup before calling it.
 
 The audited writers of `CThing +0x9A` are construction, level-script load, and
 native reinitialization paths. There is no evidence of a safe general-purpose
@@ -202,7 +215,7 @@ Albion low-detail pass and resolves empty-map records to dormant state.
 ### Host save and player saves
 
 The host's world save is the durable authority for shared world state. NPC
-presence and schedules, quests, doors, stores, property ownership, shared
+presence and schedules, quests, doors, store availability, property ownership, shared
 cutscene outcomes, and other world flags are accepted by the host and written
 through the host's normal live/save state. A guest that owns a map publishes
 only the mutations caused while it held the fenced map or action lease. The
@@ -215,7 +228,10 @@ backing. This avoids racing whole-file snapshots and allows immediate action,
 combat, dialogue, and map-transition replication.
 
 Each player's selected Hero save remains authoritative for personal inventory,
-stats, progression, appearance, and equipment. A feature may deliberately
+stats, progression, appearance, and equipment. Shopping transactions and
+merchant economy are also intended to stay local; the readiness/save integration
+is planned in [local NPC interactions](local-npc-interactions.md), not complete.
+A feature may deliberately
 promote a personal mutation into shared world state, such as spending an item
 in a server-owned trade, but that requires an explicit validated transaction.
 
@@ -274,11 +290,13 @@ not yet persisted independently.
 The session therefore uses three ownership domains:
 
 - **Shared world:** the host save owns NPC placement/availability, quests,
-  doors, properties, stores, shared cutscene outcomes, and other world flags.
+  doors, properties, store availability, shared cutscene outcomes, and other
+  world flags.
 - **Local Hero:** each player save owns inventory, stats, progression,
-  appearance, equipment, and other personal character state.
+  appearance, equipment, personal shopping/merchant economy, and other
+  personal character state.
 - **Validated transaction:** operations that touch both domains, such as a
-  store purchase or property trade, commit only after the host accepts the
+  property trade, commit only after the host accepts the
   world mutation and the initiating client applies the matching Hero mutation.
 
 A guest never writes directly into the canonical host save. It submits a typed

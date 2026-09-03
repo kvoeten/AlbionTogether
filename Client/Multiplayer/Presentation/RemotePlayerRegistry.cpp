@@ -87,7 +87,9 @@ namespace fable::multiplayer::presentation
     void RemotePlayerRegistry::Reconcile(
         const std::vector<replication::RemotePlayerSnapshot>& snapshots,
         const std::string& localMap,
-        game::Entity* localHero)
+        const std::uint16_t localMapId,
+        game::Entity* localHero,
+        const entities::LiveEntityRegistry* liveEntities)
     {
         if (!initialized_)
         {
@@ -126,12 +128,27 @@ namespace fable::multiplayer::presentation
                 diagnostics_.Event(
                     "MultiplayerRemotePlayerRegistered", detail);
             }
+            replication::RemotePlayerSnapshot effectiveSnapshot = snapshot;
+            if (localMapId != 0 && state.mapId == localMapId &&
+                !localMap.empty() && state.mapName != localMap)
+            {
+                // Native Mapwho identity changes before the script Thing's
+                // current-map string during travel. Numeric map identity is
+                // stable; normalize the transient stale label so locomotion
+                // sampling does not reject an otherwise current actor.
+                effectiveSnapshot.state.mapName = localMap;
+            }
             // The actor owns incarnation retirement and phase transitions;
             // passing the bounded lifecycle snapshot keeps generation/map
             // changes coupled to presentation teardown.
-            iterator->second->Reconcile(snapshot, localMap, localHero);
+            iterator->second->Reconcile(
+                effectiveSnapshot,
+                localMap,
+                localMapId,
+                localHero,
+                liveEntities);
         }
-        // Cross-map actors remain in the channel and therefore stay dormant.
+        // Cross-map actors keep their logical channel, not a hidden body.
         // Reliable Retire removes the channel; prune its native presentation
         // in the same reconciliation pass so disconnects cannot leave ghosts.
         for (auto iterator = presentations_.begin();

@@ -184,6 +184,8 @@ int wmain(int argc, wchar_t** argv)
         context.fixtureDocumentsSource = plan.fixtureDocumentsSource;
         context.sessionRoot = plan.artifactRoot;
         context.sessionId = plan.runId;
+        context.hostFixtureSave = options.hostFixtureSave;
+        context.guestFixtureSave = options.guestFixtureSave;
         context.port = options.multiplayerPort;
         context.timeoutSeconds = options.automationTimeoutSeconds;
         if (scenario == MultiplayerScenario::MapStress)

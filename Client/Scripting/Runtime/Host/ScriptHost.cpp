@@ -102,6 +102,7 @@ namespace fable::scripting
         asIScriptFunction* onUnload = nullptr;
         asIScriptFunction* onKeyPressed = nullptr;
         asIScriptFunction* onWorldReady = nullptr;
+        asIScriptFunction* onGui = nullptr;
         asIScriptFunction* onTick = nullptr;
         bool enabled = true;
     };
@@ -116,6 +117,7 @@ namespace fable::scripting
 
     ScriptHost::~ScriptHost()
     {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
         Shutdown();
     }
 
@@ -340,6 +342,7 @@ namespace fable::scripting
         result->onUnload = module->GetFunctionByDecl("void OnUnload()");
         result->onKeyPressed = module->GetFunctionByDecl("void OnKeyPressed(uint, bool)");
         result->onWorldReady = module->GetFunctionByDecl("void OnWorldReady()");
+        result->onGui = module->GetFunctionByDecl("void OnGui()");
         result->onTick = module->GetFunctionByDecl("void OnTick(float)");
         return result;
     }
@@ -372,6 +375,7 @@ namespace fable::scripting
 
     void ScriptHost::DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed)
     {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
         if (!loaded_)
         {
             return;
@@ -408,6 +412,7 @@ namespace fable::scripting
 
     void ScriptHost::DispatchWorldReady()
     {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
         if (!loaded_)
         {
             return;
@@ -429,6 +434,7 @@ namespace fable::scripting
 
     void ScriptHost::Tick(float deltaSeconds)
     {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
         if (!loaded_)
         {
             return;
@@ -464,8 +470,31 @@ namespace fable::scripting
         }
     }
 
+    void ScriptHost::DispatchGui()
+    {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
+        if (!loaded_)
+        {
+            return;
+        }
+
+        for (const auto& module : modules_)
+        {
+            if (!module->enabled || module->onGui == nullptr)
+            {
+                continue;
+            }
+            if (!Execute(module->onGui))
+            {
+                module->enabled = false;
+                diagnostics_.Event("ScriptModuleDisabled", module->name.c_str());
+            }
+        }
+    }
+
     bool ScriptHost::Reload()
     {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
         if (engine_ == nullptr || scriptsRoot_.empty())
         {
             return false;
@@ -526,6 +555,7 @@ namespace fable::scripting
 
     void ScriptHost::Shutdown()
     {
+        std::lock_guard<std::recursive_mutex> lock(executionMutex_);
         if (loaded_)
         {
             for (auto iterator = modules_.rbegin(); iterator != modules_.rend(); ++iterator)

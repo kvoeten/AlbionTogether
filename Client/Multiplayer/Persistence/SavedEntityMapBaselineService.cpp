@@ -65,7 +65,9 @@ namespace fable::multiplayer::persistence
         localActorId_ = localActorId;
         transport_ = &transport;
         diagnostics_ = diagnostics;
+        initialGuestHeroConstructionPending_ = role == PeerRole::Guest;
         directory_.Initialize(diagnostics);
+        collectionTransfer_.Initialize(role, transport, directory_, diagnostics);
     }
 
     bool SavedEntityMapBaselineService::Attach(
@@ -73,24 +75,24 @@ namespace fable::multiplayer::persistence
     {
         observer_ = &observer;
         if (!observer_->IsInstalled() ||
-            !installer_.Initialize(GetModuleHandleW(nullptr), diagnostics_))
+            !installer_.Initialize(GetModuleHandleW(nullptr), diagnostics_) ||
+            (role_ == PeerRole::Guest &&
+                !guestHeroBoundary_.Initialize(
+                    GetModuleHandleW(nullptr), diagnostics_)))
         {
             return false;
         }
         observer_->SetCollectionSink(
             &SavedEntityMapBaselineService::ObserveCollection,
             this);
-        if (role_ == PeerRole::Host)
-        {
-            observer_->SetSnapshotSink(
-                &SavedEntityMapBaselineService::ObserveSnapshot,
-                this);
-        }
+        observer_->SetSnapshotSink(
+            &SavedEntityMapBaselineService::ObserveSnapshot,
+            this);
         diagnostics_.Event(
             "MultiplayerSavedEntityMapBaselineReady",
             role_ == PeerRole::Host
                 ? "host captures one bounded current record per native map ID and orders it ahead of grants"
-                : "guest stages validated host map records and re-applies them after local save loading");
+                : "guest captures its selected-save Hero and merges it into the host world before retail construction");
         return true;
     }
 
@@ -208,6 +210,53 @@ namespace fable::multiplayer::persistence
         return MapBaselinePreparationResult::Deferred;
     }
 
+    authority::MapBaselinePreparationResult
+    SavedEntityMapBaselineService::PrepareHostCollection(
+        const std::uint64_t peerSetRevision)
+    {
+        return collectionTransfer_.PrepareHost(peerSetRevision);
+    }
+
+    bool SavedEntityMapBaselineService::IsGuestCollectionReady() const noexcept
+    {
+        return role_ == PeerRole::Guest && guestCollectionRevision_ != 0 &&
+            guestCollectionApplied_;
+    }
+
+    bool SavedEntityMapBaselineService::CompleteInitialGuestHeroConstruction()
+        noexcept
+    {
+        if (role_ != PeerRole::Guest ||
+            !initialGuestHeroConstructionPending_)
+        {
+            return true;
+        }
+        if (!guestCollectionApplied_ || !nativeCollectionReady_ ||
+            nativeSavedEntities_ == nullptr ||
+            !guestHeroBoundary_.IsHeroCaptured())
+        {
+            return false;
+        }
+
+        // The initial local Hero is now leaving its source map. Retire that one
+        // source-scoped exception before a later revisit can construct a
+        // duplicate Hero. Keeping it pinned for the whole initial incarnation
+        // lets Fable finish any lazy inventory/ability reads from the selected
+        // save; every record retained after departure is host-owned world state.
+        initialGuestHeroConstructionPending_ = false;
+        guestCollectionPrepared_ = false;
+        if (!ApplyGuestCollection())
+        {
+            initialGuestHeroConstructionPending_ = true;
+            guestCollectionPrepared_ = false;
+            return false;
+        }
+        diagnostics_.Event(
+            "MultiplayerGuestHeroInitialRecordRetired",
+            "selected-save Hero departed its initial map; future map loads retain only host world records");
+        return true;
+    }
+
     bool SavedEntityMapBaselineService::IsGuestGrantReady(
         std::uint16_t mapId,
         std::uint64_t baselineRevision) const noexcept
@@ -223,8 +272,11 @@ namespace fable::multiplayer::persistence
         {
             return false;
         }
-        return !nativeCollectionReady_ ||
-            baseline->second.appliedToCurrentCollection;
+        // A staged packet is not enough once the guest has loaded a native
+        // collection. The map grant must observe the installer having
+        // applied (or explicitly cleared) the host record first; otherwise
+        // retail construction would consume the guest's stale save.
+        return baseline->second.appliedToCurrentCollection;
     }
 
     bool SavedEntityMapBaselineService::HandleReliableMessage(
@@ -254,6 +306,11 @@ namespace fable::multiplayer::persistence
                 "invalid saved-map baseline packet");
             return true;
         }
+        if (message.collection)
+        {
+            return collectionTransfer_.Handle(message) &&
+                ConsumeCommittedCollection();
+        }
         if (message.operation ==
             protocol::SavedEntityMapBaselineOperation::Begin)
         {
@@ -276,6 +333,8 @@ namespace fable::multiplayer::persistence
         }
         observer_ = nullptr;
         installer_.Shutdown();
+        guestHeroBoundary_.Shutdown();
+        collectionTransfer_.Shutdown();
         directory_.Clear();
         transport_ = nullptr;
         diagnostics_ = {};
@@ -287,6 +346,11 @@ namespace fable::multiplayer::persistence
         published_.clear();
         guestBaselines_.clear();
         guestBaselineBytes_ = 0;
+        guestCollectionRevision_ = 0;
+        guestCollectionApplied_ = false;
+        guestCollectionPrepared_ = false;
+        preparedCollectionIncludesGuestHero_ = false;
+        initialGuestHeroConstructionPending_ = false;
         nativeSavedEntities_ = nullptr;
         nativeCollectionFormat_ = game::entity::persistence::
             SavedEntityMapBlobFormat::Binary;
@@ -319,11 +383,18 @@ namespace fable::multiplayer::persistence
             {
                 entry.second.appliedToCurrentCollection = false;
             }
+            service->guestCollectionApplied_ = false;
+            if (service->role_ == PeerRole::Guest)
+            {
+                service->guestHeroBoundary_.BeginGuestCollection();
+            }
             if (service->role_ == PeerRole::Host)
             {
                 service->directory_.BeginCapture(
                     event.format,
                     event.recordCount);
+                service->collectionTransfer_.InvalidateHostCapture();
+                service->guestCollectionRevision_ = 0;
             }
             return;
         }
@@ -345,7 +416,20 @@ namespace fable::multiplayer::persistence
         service->nativeCollectionReady_ = event.savedEntities != nullptr;
         if (service->role_ == PeerRole::Guest)
         {
-            service->ApplyGuestBaselines();
+            if (!service->guestHeroBoundary_.CompleteGuestCollection(true))
+            {
+                service->diagnostics_.Event(
+                    "MultiplayerGuestHeroSaveRecordMissing",
+                    "the selected save did not contain exactly one supported Hero record");
+                return;
+            }
+            if (!service->ApplyGuestCollection() &&
+                service->guestCollectionRevision_ != 0)
+            {
+                service->diagnostics_.Event(
+                    "MultiplayerGuestHostWorldMergeDeferred",
+                    "the complete host collection could not yet be rewritten and installed");
+            }
         }
     }
 
@@ -356,9 +440,17 @@ namespace fable::multiplayer::persistence
     {
         auto* const service = static_cast<SavedEntityMapBaselineService*>(
             context);
-        if (service != nullptr && service->role_ == PeerRole::Host)
+        if (service == nullptr)
+        {
+            return;
+        }
+        if (service->role_ == PeerRole::Host)
         {
             service->directory_.Capture(snapshot);
+        }
+        else
+        {
+            service->guestHeroBoundary_.ObserveGuestRecord(snapshot);
         }
     }
 
@@ -367,6 +459,13 @@ namespace fable::multiplayer::persistence
         std::uint64_t baselineRevision,
         std::uint64_t peerSetRevision)
     {
+        // The host map record is authoritative for map-scoped shared state:
+        // NPC rows, doors, shops, and dormant/low-sim state. Global quest
+        // state has its own host-authoritative stream. Never
+        // replace it with an empty "preserve local player" marker. The local
+        // SCRIPT_NAME_HERO save boundary must be preserved by the native
+        // Hero/TNG seam; this service intentionally does not suppress or
+        // merge the host world record.
         const SavedEntityMapBlob* const blob = directory_.Find(mapId);
         if (blob != nullptr &&
             blob->format != game::entity::persistence::
@@ -414,10 +513,7 @@ namespace fable::multiplayer::persistence
         const std::uint8_t* chunk,
         std::size_t chunkSize)
     {
-        if (transport_ == nullptr || !outbound_.active)
-        {
-            return false;
-        }
+        if (transport_ == nullptr || !outbound_.active) return false;
         protocol::SavedEntityMapBaselineMessage message;
         message.operation = operation;
         message.format = outbound_.format;
@@ -510,6 +606,8 @@ namespace fable::multiplayer::persistence
         const protocol::SavedEntityMapBaselineMessage& message)
     {
         if (!MatchesInbound(message) ||
+            message.offset != inbound_.totalBytes ||
+            message.chunkSize != 0 ||
             inbound_.receivedBytes != inbound_.totalBytes ||
             HashBytes(
                 inbound_.baseline.bytes.data(),
@@ -522,9 +620,7 @@ namespace fable::multiplayer::persistence
         const std::uint64_t revision = inbound_.baseline.revision;
         GuestBaseline baseline = std::move(inbound_.baseline);
         ResetInbound();
-        const bool accepted = AcceptGuestBaseline(
-            mapId,
-            std::move(baseline));
+        const bool accepted = AcceptGuestBaseline(mapId, std::move(baseline));
         ReportTransfer(
             accepted
                 ? "MultiplayerSavedEntityMapBaselineAccepted"
@@ -534,6 +630,57 @@ namespace fable::multiplayer::persistence
             accepted
                 ? "validated current host baseline is staged or installed"
                 : "guest baseline bounds or native installation failed");
+        return true;
+    }
+
+    bool SavedEntityMapBaselineService::ConsumeCommittedCollection()
+    {
+        std::uint64_t revision = 0;
+        std::map<std::uint16_t, SavedEntityCollectionRecord> records;
+        if (!collectionTransfer_.TakeCommitted(revision, records))
+        {
+            return true;
+        }
+        try
+        {
+            std::map<std::uint16_t, GuestBaseline> replacement;
+            std::size_t replacementBytes = 0;
+            for (auto& entry : records)
+            {
+                if (entry.second.bytes.size() > MaximumGuestBaselineBytes -
+                        replacementBytes)
+                {
+                    return false;
+                }
+                GuestBaseline baseline;
+                baseline.format = entry.second.format;
+                baseline.revision = entry.second.revision;
+                baseline.hash = entry.second.hash;
+                baseline.metadata = entry.second.metadata;
+                baseline.present = true;
+                baseline.bytes = std::move(entry.second.bytes);
+                replacementBytes += baseline.bytes.size();
+                replacement.emplace(entry.first, std::move(baseline));
+            }
+            guestBaselines_.swap(replacement);
+            guestBaselineBytes_ = replacementBytes;
+            guestCollectionRevision_ = revision;
+            guestCollectionApplied_ = false;
+            guestCollectionPrepared_ = false;
+        }
+        catch (...)
+        {
+            return false;
+        }
+        if (nativeCollectionReady_)
+        {
+            if (!ApplyGuestCollection())
+            {
+                diagnostics_.Event(
+                    "MultiplayerGuestHostWorldMergeDeferred",
+                    "the committed host collection could not be rewritten and installed");
+            }
+        }
         return true;
     }
 
@@ -547,7 +694,8 @@ namespace fable::multiplayer::persistence
             message.present == inbound_.baseline.present &&
             message.metadata == inbound_.baseline.metadata &&
             message.totalBytes == inbound_.totalBytes &&
-            message.hash == inbound_.baseline.hash;
+            message.hash == inbound_.baseline.hash &&
+            !message.collection;
     }
 
     bool SavedEntityMapBaselineService::AcceptGuestBaseline(
@@ -569,6 +717,8 @@ namespace fable::multiplayer::persistence
             return false;
         }
         baseline.appliedToCurrentCollection = false;
+        guestCollectionApplied_ = false;
+        guestCollectionPrepared_ = false;
         guestBaselineBytes_ = guestBaselineBytes_ - previousBytes +
             baseline.bytes.size();
         if (existing == guestBaselines_.end())
@@ -585,7 +735,120 @@ namespace fable::multiplayer::persistence
         {
             return true;
         }
-        return ApplyGuestBaseline(mapId, existing->second);
+        return ApplyGuestCollection();
+    }
+
+    bool SavedEntityMapBaselineService::PrepareGuestCollection()
+    {
+        if (role_ != PeerRole::Guest || guestCollectionRevision_ == 0 ||
+            !guestHeroBoundary_.IsHeroCaptured())
+        {
+            return false;
+        }
+        const bool includeGuestHero = initialGuestHeroConstructionPending_;
+        if (guestCollectionPrepared_ &&
+            preparedCollectionIncludesGuestHero_ == includeGuestHero)
+        {
+            return true;
+        }
+
+        try
+        {
+            // Rewrite a copy so allocation or compression failure cannot
+            // corrupt the last complete authoritative collection.
+            std::map<std::uint16_t, SavedEntityCollectionRecord> records;
+            for (const auto& [mapId, baseline] : guestBaselines_)
+            {
+                if (!baseline.present)
+                {
+                    continue;
+                }
+                SavedEntityCollectionRecord record;
+                record.format = baseline.format;
+                record.mapId = mapId;
+                record.metadata = baseline.metadata;
+                record.hash = baseline.hash;
+                record.revision = baseline.revision;
+                record.bytes = baseline.bytes;
+                record.guestHeroBootstrapOnly = baseline.guestHeroBootstrapOnly;
+                records.emplace(mapId, std::move(record));
+            }
+            if (!guestHeroBoundary_.RewriteHostCollection(
+                    guestCollectionRevision_, records, includeGuestHero))
+            {
+                return false;
+            }
+
+            std::map<std::uint16_t, GuestBaseline> rewritten;
+            std::size_t rewrittenBytes = 0;
+            for (const auto& [mapId, baseline] : guestBaselines_)
+            {
+                if (!baseline.present)
+                {
+                    rewritten.emplace(mapId, baseline);
+                }
+            }
+            for (auto& [mapId, record] : records)
+            {
+                if (record.bytes.size() > MaximumGuestBaselineBytes -
+                        rewrittenBytes)
+                {
+                    return false;
+                }
+                GuestBaseline baseline;
+                baseline.format = record.format;
+                baseline.revision = record.revision != 0
+                    ? record.revision
+                    : guestCollectionRevision_;
+                baseline.hash = record.hash;
+                baseline.metadata = record.metadata;
+                baseline.present = true;
+                baseline.bytes = std::move(record.bytes);
+                baseline.guestHeroBootstrapOnly = record.guestHeroBootstrapOnly;
+                rewrittenBytes += baseline.bytes.size();
+                rewritten.insert_or_assign(mapId, std::move(baseline));
+            }
+            guestBaselines_ = std::move(rewritten);
+            guestBaselineBytes_ = rewrittenBytes;
+            guestCollectionPrepared_ = true;
+            preparedCollectionIncludesGuestHero_ = includeGuestHero;
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    bool SavedEntityMapBaselineService::ApplyGuestCollection() noexcept
+    {
+        if (role_ != PeerRole::Guest || guestCollectionRevision_ == 0 ||
+            !nativeCollectionReady_ || nativeSavedEntities_ == nullptr ||
+            nativeCollectionFormat_ != game::entity::persistence::
+                SavedEntityMapBlobFormat::Binary)
+        {
+            return false;
+        }
+        if (!PrepareGuestCollection())
+        {
+            return false;
+        }
+        if (!installer_.ClearAll(nativeSavedEntities_))
+        {
+            return false;
+        }
+        diagnostics_.Event(
+            "MultiplayerSavedEntityCollectionAbsentApplied",
+            "cleared every guest-native record before installing the committed host-populated set");
+        for (auto& [mapId, baseline] : guestBaselines_)
+        {
+            if (!ApplyGuestBaseline(mapId, baseline))
+            {
+                return false;
+            }
+        }
+        guestCollectionApplied_ = true;
+        return true;
     }
 
     bool SavedEntityMapBaselineService::ApplyGuestBaseline(
@@ -619,14 +882,6 @@ namespace fable::multiplayer::persistence
         }
         baseline.appliedToCurrentCollection = applied;
         return applied;
-    }
-
-    void SavedEntityMapBaselineService::ApplyGuestBaselines() noexcept
-    {
-        for (auto& entry : guestBaselines_)
-        {
-            ApplyGuestBaseline(entry.first, entry.second);
-        }
     }
 
     void SavedEntityMapBaselineService::ResetInbound() noexcept

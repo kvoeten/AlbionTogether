@@ -165,11 +165,13 @@ namespace fable::multiplayer::replication
         void* const currentNative = entities_->ResolveNative(
             currentHero->NativeHandle());
         const std::string currentMap = currentHero->GetCurrentMapName();
+        const std::uint16_t currentMapId = ReadNativeThingMapId(currentNative);
         if (!game::creature::native::CreatureFrameFunctions::ValidatePlayerCreature(
                 entities_->GameModule(), currentNative) ||
             currentMap.empty() ||
             (transitionActive_ && currentNative == departingNativeHero_ &&
-                currentMap == departingMapName_))
+                (currentMap == departingMapName_ ||
+                    currentMapId == departingMapId_)))
         {
             currentHero->Release();
             return false;
@@ -182,7 +184,7 @@ namespace fable::multiplayer::replication
         nativeHero_ = currentNative;
         nativeHeroForMutation_.store(nativeHero_, std::memory_order_release);
         mapName_ = currentMap;
-        mapId_ = ReadNativeThingMapId(nativeHero_);
+        mapId_ = currentMapId;
         if (mapId_ == 0)
         {
             currentHero->Release();
@@ -249,6 +251,66 @@ namespace fable::multiplayer::replication
             // or inventory graph is still settling.
             return false;
         }
+        if (transitionActive_ && ownedStateRestorer_.HasPendingState() &&
+            !destinationBaselineOpened_)
+        {
+            const PlayerState* const preserved =
+                ownedStateRestorer_.PreservedState();
+            if (preserved == nullptr)
+            {
+                return false;
+            }
+
+            // Actor construction describes durable owner state, not the
+            // readiness of this process's native weapon graph. Publish the
+            // destination incarnation as soon as the new Hero/map exists so
+            // peers can materialize it immediately. Local actions remain
+            // gated by worldReady_ until Reconcile has restored that snapshot
+            // into the destination Hero.
+            const std::uint64_t capturedAt = GetTickCount64();
+            {
+                std::lock_guard<std::mutex> lock(ownerStateMutex_);
+                channel_->Open(
+                    actorId_, authorityEpoch_, role_, playerId_,
+                    appearanceDefinition_, preserved->heroMorph,
+                    preserved->heroClothing, preserved->heroBoneScales,
+                    preserved->heroAppearanceModifiers,
+                    preserved->heroEquipment, mapName_, mapId_, position,
+                    facing, capturedAt,
+                    protocol::ToSessionTime(
+                        transport_->LocalToSessionTimeMilliseconds(
+                            capturedAt)));
+            }
+            destinationBaselineOpened_ = true;
+            diagnostics_.Event(
+                "MultiplayerLocalHeroDestinationBaselineOpened",
+                "preserved owner state published before asynchronous native equipment restoration");
+        }
+        if (transitionActive_ && ownedStateRestorer_.HasPendingState())
+        {
+            const LocalHeroRestoreResult restored =
+                ownedStateRestorer_.Reconcile(
+                    *entities_,
+                    nativeHero_,
+                    heroMorph,
+                    heroClothing,
+                    heroBoneScales,
+                    modifiers,
+                    equipment,
+                    diagnostics_);
+            if (restored != LocalHeroRestoreResult::Ready)
+            {
+                if (restored == LocalHeroRestoreResult::Failed &&
+                    GetTickCount64() >= nextBindDiagnosticAt_)
+                {
+                    nextBindDiagnosticAt_ = GetTickCount64() + 5'000;
+                    diagnostics_.Event(
+                        "MultiplayerLocalHeroOwnedStateRestorePending",
+                        "native destination Hero graph has not yet accepted the preserved player-owned state");
+                }
+                return false;
+            }
+        }
         if (scalesReady && morphSelfTest_ &&
             !game::hero_pawn::appearance::native::HeroMorphComponent::
                 ApplyBoneScaleState(nativeHero_, heroBoneScales))
@@ -267,14 +329,28 @@ namespace fable::multiplayer::replication
 
         {
             std::lock_guard<std::mutex> lock(ownerStateMutex_);
-            const std::uint64_t capturedAt = GetTickCount64();
-            channel_->Open(
-                actorId_, authorityEpoch_, role_, playerId_,
-                appearanceDefinition_,
-                heroMorph, heroClothing, heroBoneScales, modifiers, equipment,
-                mapName_, mapId_, position, facing, capturedAt,
-                protocol::ToSessionTime(
-                    transport_->LocalToSessionTimeMilliseconds(capturedAt)));
+            if (!destinationBaselineOpened_)
+            {
+                const std::uint64_t capturedAt = GetTickCount64();
+                channel_->Open(
+                    actorId_, authorityEpoch_, role_, playerId_,
+                    appearanceDefinition_, heroMorph, heroClothing,
+                    heroBoneScales, modifiers, equipment, mapName_, mapId_,
+                    position, facing, capturedAt,
+                    protocol::ToSessionTime(
+                        transport_->LocalToSessionTimeMilliseconds(
+                            capturedAt)));
+            }
+            else
+            {
+                // Reconcile should converge on the exact state used for the
+                // early Construct. Refresh in place defensively without
+                // creating a second actor generation.
+                (void)channel_->CaptureAppearance(
+                    appearanceDefinition_, heroMorph, heroClothing,
+                    heroBoneScales, modifiers);
+                (void)channel_->CaptureEquipment(equipment);
+            }
         }
 
         if (!combatants_->Bind(actorId_, nativeHero_))
@@ -295,8 +371,10 @@ namespace fable::multiplayer::replication
         equipmentReady_ = equipmentReady;
         transitionCompleted_ = transitionActive_;
         transitionActive_ = false;
+        destinationBaselineOpened_ = false;
         departingNativeHero_ = nullptr;
         departingMapName_.clear();
+        departingMapId_ = 0;
 
         char detail[448] = {};
         std::snprintf(
@@ -849,6 +927,12 @@ namespace fable::multiplayer::replication
         if (live != nullptr && live->thing == nativeHero_)
         {
             nativePresenceObserved_ = true;
+            // CTCMapwho can transiently associate the persistent Hero with an
+            // adjacent streaming region while the retail script map is still
+            // unchanged. That is not an actor-lifecycle boundary. Connected
+            // exits are observed explicitly by WorldTravelObserver, and a
+            // completed non-exit travel is detected by WorldIsCurrent below;
+            // keep this fallback limited to genuine native disappearance.
             return false;
         }
 
@@ -865,6 +949,14 @@ namespace fable::multiplayer::replication
         {
             return false;
         }
+        const std::uint16_t currentMapId = ReadNativeThingMapId(nativeHero_);
+        if (currentMapId != 0 && mapId_ != 0)
+        {
+            // Native Mapwho identity advances before the script Thing's map
+            // label and remains the stable lifecycle key. A delayed label
+            // correction must not be mistaken for another world transition.
+            return currentMapId == mapId_;
+        }
         const std::string currentMap = hero_->GetCurrentMapName();
         return !currentMap.empty() && currentMap == mapName_;
     }
@@ -878,8 +970,16 @@ namespace fable::multiplayer::replication
         if (!transitionActive_)
         {
             transitionActive_ = true;
+            destinationBaselineOpened_ = false;
             departingNativeHero_ = nativeHero_;
             departingMapName_ = mapName_;
+            departingMapId_ = mapId_;
+            {
+                std::lock_guard<std::mutex> lock(ownerStateMutex_);
+                ownedStateRestorer_.Preserve(
+                    channel_ != nullptr ? channel_->CurrentState() : nullptr,
+                    diagnostics_);
+            }
             diagnostics_.Event(
                 "MultiplayerWorldTransitionStarted",
                 "local selected-save Hero left its bound map; remote routing detached before UE3 level teardown");
@@ -937,6 +1037,7 @@ namespace fable::multiplayer::replication
         carryingObserver_.Shutdown();
         equipmentObserver_.Shutdown();
         appearanceObserver_.Shutdown();
+        ownedStateRestorer_.Clear();
         ReleaseHero();
         entities_ = nullptr;
         locomotion_ = nullptr;
@@ -951,9 +1052,11 @@ namespace fable::multiplayer::replication
         appearanceDefinition_.clear();
         departingNativeHero_ = nullptr;
         departingMapName_.clear();
+        departingMapId_ = 0;
         initialized_ = false;
         transitionActive_ = false;
         transitionCompleted_ = false;
+        destinationBaselineOpened_ = false;
         exchangeReported_ = false;
         transportFailureReported_ = false;
         morphSelfTest_ = false;

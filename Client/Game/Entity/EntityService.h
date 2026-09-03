@@ -78,6 +78,7 @@ namespace fable::game
             bool requireRegionEntrance = false,
             const char** failure = nullptr);
         bool SetAttackable(const native::ScriptThing& handle, bool enabled);
+        bool SetPersistent(const native::ScriptThing& handle, bool enabled);
         bool SetDamageable(const native::ScriptThing& handle, bool enabled);
         bool SetCollidable(const native::ScriptThing& handle, bool enabled);
         bool SetDrawable(const native::ScriptThing& handle, bool enabled);

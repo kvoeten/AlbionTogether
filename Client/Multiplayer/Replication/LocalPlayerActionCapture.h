@@ -90,11 +90,16 @@ namespace fable::multiplayer::replication
         {
             return pendingMessages_.size();
         }
+        void DiscardPending() noexcept;
         void Shutdown() noexcept;
 
     private:
         static constexpr std::size_t PendingEventCapacity = 1024;
         static constexpr std::size_t PendingMessageCapacity = 256;
+        // Local-only correlation window between Fable's ability request and
+        // its accepted native action. Once paired, the replicated action has
+        // no age expiry and remains presentable until a newer revision
+        // supersedes it. An unmatched callback this late is treated as stale.
         static constexpr std::uint64_t ActionPairWindowMilliseconds = 250;
         static constexpr std::uint64_t
             WeaponTransitionCaptureWindowMilliseconds = 1'500;

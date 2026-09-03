@@ -16,8 +16,10 @@
 #include "Multiplayer/Movement/EntityMovementReplication.h"
 #include "Multiplayer/Population/PopulationSimulationAuthority.h"
 #include "Multiplayer/Persistence/HostWorldStateProjection.h"
+#include "Multiplayer/Persistence/QuestStateAuthorityService.h"
 #include "Multiplayer/Persistence/SavedEntityConstructionGate.h"
 #include "Multiplayer/Persistence/SavedEntityMapBaselineService.h"
+#include "Multiplayer/Persistence/WorldSectionAuthorityService.h"
 #include "Multiplayer/Presentation/RemotePlayerRegistry.h"
 #include "Multiplayer/Replication/EntityActionReplication.h"
 #include "Multiplayer/Replication/EntityLowSimulationReplication.h"
@@ -57,6 +59,8 @@ namespace fable::multiplayer
         authority::EntitySimulationAuthority entitySimulation;
         world::MapTransitionAuthorityService mapTransitionAuthority;
         persistence::HostWorldStateProjection hostWorldState;
+        persistence::QuestStateAuthorityService questState;
+        persistence::WorldSectionAuthorityService worldSections;
         persistence::SavedEntityMapBaselineService savedEntityMapBaseline;
         persistence::SavedEntityConstructionGate savedEntityConstructionGate;
         population::PopulationSimulationAuthority populationSimulation;

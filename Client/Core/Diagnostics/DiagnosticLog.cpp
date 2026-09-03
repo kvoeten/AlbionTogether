@@ -5,6 +5,50 @@
 
 namespace fable::core
 {
+    DiagnosticLog::~DiagnosticLog()
+    {
+        Shutdown();
+    }
+
+    void DiagnosticLog::Shutdown() noexcept
+    {
+        AcquireSRWLockExclusive(&lock_);
+        initialized_ = false;
+        for (HANDLE* file : {&logFile_, &eventFile_})
+        {
+            if (*file != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(*file);
+                *file = INVALID_HANDLE_VALUE;
+            }
+        }
+        consoleOutput_ = nullptr;
+        ReleaseSRWLockExclusive(&lock_);
+    }
+
+    void DiagnosticLog::WriteLine(
+        HANDLE& file, const std::wstring& path,
+        const char* line, const DWORD size) noexcept
+    {
+        if (path.empty()) return;
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            file = CreateFileW(path.c_str(), FILE_APPEND_DATA,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        }
+        if (file == INVALID_HANDLE_VALUE) return;
+
+        // Windows buffers these append writes. Keep no user-space backlog:
+        // the first native fault must remain readable if the process crashes.
+        DWORD written = 0;
+        if (!WriteFile(file, line, size, &written, nullptr))
+        {
+            CloseHandle(file);
+            file = INVALID_HANDLE_VALUE;
+        }
+    }
+
     void DiagnosticLog::Initialize(
         HMODULE clientModule,
         const wchar_t* logPath,
@@ -13,10 +57,12 @@ namespace fable::core
         const wchar_t* runId,
         const wchar_t* scenario)
     {
+        Shutdown();
         eventPath_ = eventPath != nullptr ? eventPath : L"";
         runId_ = runId != nullptr ? runId : L"";
         scenario_ = scenario != nullptr ? scenario : L"";
         logPath_ = writeFile && logPath != nullptr ? logPath : L"";
+        initialized_ = true;
 
         if (!writeFile || !logPath_.empty())
         {
@@ -83,6 +129,11 @@ namespace fable::core
         }
 
         AcquireSRWLockExclusive(&lock_);
+        if (!initialized_)
+        {
+            ReleaseSRWLockExclusive(&lock_);
+            return;
+        }
         OutputDebugStringA(line);
 
         const DWORD bytesToWrite = static_cast<DWORD>(
@@ -93,23 +144,7 @@ namespace fable::core
             WriteFile(consoleOutput_, line, bytesToWrite, &bytesWritten, nullptr);
         }
 
-        if (!logPath_.empty())
-        {
-            const HANDLE file = CreateFileW(
-                logPath_.c_str(),
-                FILE_APPEND_DATA,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                nullptr,
-                OPEN_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL,
-                nullptr);
-            if (file != INVALID_HANDLE_VALUE)
-            {
-                DWORD bytesWritten = 0;
-                WriteFile(file, line, bytesToWrite, &bytesWritten, nullptr);
-                CloseHandle(file);
-            }
-        }
+        WriteLine(logFile_, logPath_, line, bytesToWrite);
         ReleaseSRWLockExclusive(&lock_);
     }
 
@@ -153,21 +188,11 @@ namespace fable::core
         }
 
         AcquireSRWLockExclusive(&lock_);
-        const HANDLE file = CreateFileW(
-            eventPath_.c_str(),
-            FILE_APPEND_DATA,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            nullptr,
-            OPEN_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-        if (file != INVALID_HANDLE_VALUE)
+        if (initialized_)
         {
             const DWORD bytesToWrite = static_cast<DWORD>(
                 (std::min)(static_cast<std::size_t>(length), std::size(line) - 1));
-            DWORD bytesWritten = 0;
-            WriteFile(file, line, bytesToWrite, &bytesWritten, nullptr);
-            CloseHandle(file);
+            WriteLine(eventFile_, eventPath_, line, bytesToWrite);
         }
         ReleaseSRWLockExclusive(&lock_);
     }

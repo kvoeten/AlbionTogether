@@ -26,6 +26,8 @@ struct Options
     std::wstring multiplayerAddress;
     std::wstring multiplayerPlayerId;
     std::wstring multiplayerAppearance;
+    std::wstring hostFixtureSave = L"AutoSave";
+    std::wstring guestFixtureSave = L"AutoSave";
     unsigned short multiplayerPort = 38171;
     unsigned int automationTimeoutSeconds = 120;
     unsigned int dualInstanceHoldSeconds = 10;

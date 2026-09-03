@@ -11,7 +11,7 @@ namespace fable::scripting::bindings
 {
     namespace
     {
-        constexpr std::size_t kExpectedBindingGroupCount = 17;
+        constexpr std::size_t kExpectedBindingGroupCount = 19;
     }
 
     bool RegisterDiscoveredBindings(

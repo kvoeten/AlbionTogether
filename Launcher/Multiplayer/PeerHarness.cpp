@@ -6,8 +6,11 @@
 #include "../Platform/Win32Error.h"
 
 #include <Windows.h>
+#include <array>
 #include <filesystem>
 #include <iostream>
+#include <string>
+#include <utility>
 
 namespace fable::launcher::multiplayer
 {
@@ -149,6 +152,107 @@ bool ActivateWindow(HWND window)
     return GetForegroundWindow() == window;
 }
 
+bool ResolveFixtureAutoSave(Peer &peer)
+{
+    if (std::filesystem::is_regular_file(peer.autoSave))
+    {
+        return true;
+    }
+
+    const std::filesystem::path saveRoot = peer.root / L"Documents" /
+        L"My Games" / L"FableHD" / L"Saves";
+    std::error_code error;
+    std::filesystem::path resolved;
+    for (std::filesystem::directory_iterator iterator(saveRoot, error), end;
+         !error && iterator != end;
+         iterator.increment(error))
+    {
+        if (!iterator->is_directory(error))
+        {
+            continue;
+        }
+        const std::filesystem::path candidate =
+            iterator->path() / L"AutoSave";
+        const std::filesystem::path profile =
+            iterator->path() / L"Profile.bin";
+        if (!std::filesystem::is_regular_file(candidate, error) ||
+            !std::filesystem::is_regular_file(profile, error))
+        {
+            continue;
+        }
+        if (!resolved.empty())
+        {
+            return false;
+        }
+        resolved = candidate;
+    }
+    if (error || resolved.empty())
+    {
+        return false;
+    }
+    peer.autoSave = std::move(resolved);
+    return true;
+}
+
+bool ResolveFixtureSave(
+    const Peer& peer,
+    std::filesystem::path& resolved)
+{
+    resolved.clear();
+    const std::filesystem::path saveRoot = peer.root / L"Documents" /
+        L"My Games" / L"FableHD" / L"Saves";
+    std::error_code error;
+    for (std::filesystem::directory_iterator iterator(saveRoot, error), end;
+         !error && iterator != end;
+         iterator.increment(error))
+    {
+        if (!iterator->is_directory(error))
+        {
+            continue;
+        }
+        const std::filesystem::path candidate =
+            iterator->path() / peer.fixtureSaveName;
+        if (!std::filesystem::is_regular_file(candidate, error))
+        {
+            continue;
+        }
+        if (!resolved.empty())
+        {
+            return false;
+        }
+        resolved = candidate;
+    }
+    return !error && !resolved.empty();
+}
+
+std::wstring DigestText(const std::array<std::uint8_t, 32>& digest)
+{
+    constexpr wchar_t digits[] = L"0123456789ABCDEF";
+    std::wstring result;
+    result.reserve(digest.size() * 2);
+    for (const std::uint8_t byte : digest)
+    {
+        result.push_back(digits[byte >> 4]);
+        result.push_back(digits[byte & 0x0F]);
+    }
+    return result;
+}
+
+std::filesystem::path ResolvePeerFixtureDocuments(
+    const MultiplayerTestContext& context,
+    const Peer& peer)
+{
+    const wchar_t* const side = peer.role == L"host" ? L"host" : L"guest";
+    const std::filesystem::path paired =
+        context.fixtureDocumentsSource / side / L"Documents";
+    std::error_code error;
+    if (std::filesystem::is_directory(paired, error) && !error)
+    {
+        return paired;
+    }
+    return context.fixtureDocumentsSource;
+}
+
 const wchar_t *ScenarioName(const MultiplayerTestContext &context, bool host)
 {
     const wchar_t *prefix = host ? L"multiplayer_host" : L"multiplayer_guest";
@@ -191,6 +295,9 @@ Peer PeerHarness::MakePeer(const wchar_t *instance, const wchar_t *player, const
     peer.player = player;
     peer.role = role;
     peer.scenario = scenario;
+    peer.fixtureSaveName = peer.role == L"host"
+        ? context_.hostFixtureSave
+        : context_.guestFixtureSave;
     peer.root = context_.sessionRoot / instance;
     peer.events = peer.root / L"events.jsonl";
     peer.autoSave = peer.root / L"Documents" / L"My Games" /
@@ -208,12 +315,32 @@ bool PeerHarness::PreparePeer(Peer &peer)
     }
     if (!error)
     {
+        const std::filesystem::path fixtureDocuments =
+            ResolvePeerFixtureDocuments(context_, peer);
         std::filesystem::copy(
-            context_.fixtureDocumentsSource, peer.root / L"Documents",
+            fixtureDocuments, peer.root / L"Documents",
             std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
     }
     if (!error)
     {
+        std::filesystem::path selectedSave;
+        std::array<std::uint8_t, 32> selectedDigest = {};
+        if (!ResolveFixtureSave(peer, selectedSave) ||
+            !diagnostics::Sha256File(selectedSave, selectedDigest))
+        {
+            std::wcerr << L"Could not resolve the exact fixture save for "
+                       << peer.instance << L": " << peer.fixtureSaveName
+                       << L".\n";
+            return false;
+        }
+        std::wcout << L"Fixture: role=" << peer.instance
+                   << L" save=\"" << peer.fixtureSaveName
+                   << L"\" sha256=" << DigestText(selectedDigest)
+                   << L" path=" << selectedSave.wstring() << L"\n";
+        if (!ResolveFixtureAutoSave(peer))
+        {
+            return false;
+        }
         peer.initialAutoSaveWriteTime =
             std::filesystem::last_write_time(peer.autoSave, error);
     }
@@ -237,6 +364,7 @@ bool PeerHarness::SpawnPeer(Peer &peer, const wchar_t *address)
     spec.clientLog = peer.root / L"client.log";
     spec.eventPath = peer.events;
     spec.fixtureDocuments = peer.root / L"Documents";
+    spec.fixtureSaveName = peer.fixtureSaveName;
     spec.scriptData = peer.root / L"script-data";
     spec.clientMode = L"observe";
     spec.scenario = peer.scenario;

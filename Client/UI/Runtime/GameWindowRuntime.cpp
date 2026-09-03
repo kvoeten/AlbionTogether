@@ -23,6 +23,7 @@ using namespace fable::automation::transform_probe;
 
     void OnGameWindowDestroyed()
     {
+        GameplayContext().runtime.CloseDeveloperTools();
         Log("Event: Fable game window is being destroyed.");
         LogEvent("ShutdownStarted", "game-window-destroyed");
     }
@@ -45,6 +46,28 @@ using namespace fable::automation::transform_probe;
             down,
             shiftPressed,
             down ? "WM_KEYDOWN" : "WM_KEYUP");
+    }
+
+    bool OnGameWindowDeveloperToolsToggle()
+    {
+        auto& runtime = GameplayContext().runtime;
+        if (!runtime.IsDeveloperToolsAvailable())
+        {
+            return false;
+        }
+        runtime.ToggleDeveloperTools(UiContext().gameWindow);
+        LogEvent("DeveloperToolsToggled", "host F8 request");
+        return true;
+    }
+
+    bool OnGameWindowMessage(
+        HWND window,
+        UINT message,
+        WPARAM wParam,
+        LPARAM lParam)
+    {
+        return GameplayContext().runtime.HandleDeveloperToolsWindowMessage(
+            window, message, wParam, lParam);
     }
 
 }
@@ -109,6 +132,8 @@ namespace
             fable::ui::runtime::OnGameWindowDestroyed,
             fable::ui::runtime::OnGameWindowCloseRequested,
             fable::ui::runtime::OnGameWindowNumberRowOne,
+            fable::ui::runtime::OnGameWindowDeveloperToolsToggle,
+            fable::ui::runtime::OnGameWindowMessage,
         };
         const bool captureOne =
             configuration.Mode() == fable::automation::runtime::ClientMode::TransformProbe ||

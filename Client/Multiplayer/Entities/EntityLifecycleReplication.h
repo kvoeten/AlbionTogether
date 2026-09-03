@@ -65,6 +65,7 @@ namespace fable::multiplayer::entities
             const game::Vector3& destinationPosition,
             float destinationFacing);
 
+        [[nodiscard]] WorldEntityDirectory& Directory() noexcept;
         [[nodiscard]] const WorldEntityDirectory& Directory() const noexcept;
         void Shutdown() noexcept;
 
@@ -83,6 +84,7 @@ namespace fable::multiplayer::entities
             std::uint32_t mapEpoch);
         bool CompleteLocalMapRoster(
             const std::string& localMap,
+            std::uint16_t localMapId,
             std::uint32_t mapEpoch);
         bool HostAcceptTransfer(
             const protocol::EntityLifecycleMessage& intent,
@@ -115,14 +117,14 @@ namespace fable::multiplayer::entities
         std::uint64_t knownPeerRevision_ = 0;
         std::uint32_t nextBaselineId_ = 0;
         std::uint32_t lastOwnedMapEpoch_ = 0;
-        std::string lastOwnedMap_;
+        std::uint16_t lastOwnedMapId_ = 0;
         bool lastOwnedRosterReady_ = false;
         std::deque<protocol::EntityLifecycleMessage> pending_;
         std::unordered_map<
             std::uint64_t,
             protocol::EntityLifecycleMessage> pendingTransfers_;
         std::unordered_map<
-            std::string,
+            std::uint16_t,
             protocol::EntityLifecycleMessage> mapSeedAllowances_;
         bool publishBackpressured_ = false;
         bool initialized_ = false;

@@ -18,16 +18,16 @@ namespace
         std::uint8_t operation = 0;
         std::uint8_t format = 0;
         std::uint8_t present = 0;
-        std::uint8_t reserved = 0;
+        std::uint8_t collection = 0;
         std::uint16_t mapId = 0;
-        std::uint16_t reserved2 = 0;
+        std::uint16_t collectionRecordCount = 0;
         std::uint64_t transferId = 0;
         std::uint64_t baselineRevision = 0;
         std::uint32_t metadata = 0;
         std::uint32_t totalBytes = 0;
         std::uint32_t offset = 0;
         std::uint16_t chunkBytes = 0;
-        std::uint16_t reserved3 = 0;
+        std::uint16_t collectionRecordIndex = 0;
         std::uint64_t hash = 0;
     };
 #pragma pack(pop)
@@ -46,14 +46,46 @@ namespace
         using namespace fable::multiplayer::protocol;
         using Format = fable::game::entity::persistence::
             SavedEntityMapBlobFormat;
-        if ((message.operation != SavedEntityMapBaselineOperation::Begin &&
-                message.operation !=
-                    SavedEntityMapBaselineOperation::Chunk &&
-                message.operation !=
-                    SavedEntityMapBaselineOperation::Commit) ||
+        const bool isCollectionBegin = message.operation ==
+            SavedEntityMapBaselineOperation::CollectionBegin;
+        const bool isCollectionCommit = message.operation ==
+            SavedEntityMapBaselineOperation::CollectionCommit;
+        const bool isMapOperation =
+            message.operation == SavedEntityMapBaselineOperation::Begin ||
+            message.operation == SavedEntityMapBaselineOperation::Chunk ||
+            message.operation == SavedEntityMapBaselineOperation::Commit;
+        if ((!isMapOperation && !isCollectionBegin && !isCollectionCommit) ||
+            (message.collection != (isCollectionBegin || isCollectionCommit) &&
+                !isMapOperation) ||
+            (!message.collection &&
+                (message.collectionRecordCount != 0 ||
+                    message.collectionRecordIndex != 0)) ||
+            (message.collection &&
+                ((isCollectionCommit && message.collectionRecordIndex >
+                        message.collectionRecordCount) ||
+                    (!isCollectionBegin && !isCollectionCommit &&
+                        message.collectionRecordIndex >=
+                            message.collectionRecordCount))) ||
+            (message.collection && !isCollectionBegin &&
+                message.collectionRecordCount == 0) ||
+            (message.collection && message.collectionRecordCount >
+                MaximumMapRecords) ||
+            (isCollectionBegin && message.collectionRecordIndex != 0) ||
+            (isCollectionCommit && message.collectionRecordIndex !=
+                message.collectionRecordCount) ||
+            (isMapOperation && !message.collection && message.mapId == 0) ||
+            (message.collection && (isCollectionBegin || isCollectionCommit) &&
+                message.mapId != 0) ||
+            ((isCollectionBegin || isCollectionCommit) &&
+                (message.format != Format::Binary || !message.present ||
+                    message.metadata != 0 || message.totalBytes != 0 ||
+                    message.offset != 0 || message.hash != EmptyHash ||
+                    message.chunkSize != 0)) ||
+            (isMapOperation && message.collection && message.mapId == 0) ||
             (message.format != Format::Binary &&
                 message.format != Format::Text) ||
-            message.mapId == 0 || message.mapId >= MaximumMapRecords ||
+            ((!message.collection || isMapOperation) &&
+                message.mapId >= MaximumMapRecords) ||
             message.transferId == 0 || message.baselineRevision == 0 ||
             message.totalBytes > MaximumBlobBytes ||
             message.chunkSize > MaximumSavedEntityMapChunkBytes() ||
@@ -68,6 +100,10 @@ namespace
                 message.totalBytes != 0 || message.hash != EmptyHash))
         {
             return false;
+        }
+        if (isCollectionBegin || isCollectionCommit)
+        {
+            return true;
         }
         if (message.operation == SavedEntityMapBaselineOperation::Begin)
         {
@@ -109,13 +145,16 @@ namespace fable::multiplayer::protocol
         wire.operation = static_cast<std::uint8_t>(message.operation);
         wire.format = static_cast<std::uint8_t>(message.format);
         wire.present = message.present ? 1u : 0u;
+        wire.collection = message.collection ? 1u : 0u;
         wire.mapId = message.mapId;
+        wire.collectionRecordCount = message.collectionRecordCount;
         wire.transferId = message.transferId;
         wire.baselineRevision = message.baselineRevision;
         wire.metadata = message.metadata;
         wire.totalBytes = message.totalBytes;
         wire.offset = message.offset;
         wire.chunkBytes = static_cast<std::uint16_t>(message.chunkSize);
+        wire.collectionRecordIndex = message.collectionRecordIndex;
         wire.hash = message.hash;
         std::memcpy(destination, &wire, sizeof(wire));
         if (message.chunkSize != 0)
@@ -142,8 +181,8 @@ namespace fable::multiplayer::protocol
         }
         WireSavedEntityMapBaselineHeader wire;
         std::memcpy(&wire, bytes, sizeof(wire));
-        if (wire.reserved != 0 || wire.reserved2 != 0 ||
-            wire.reserved3 != 0 || wire.present > 1 ||
+        if (wire.collection > 1 ||
+            wire.present > 1 ||
             byteCount != sizeof(wire) + wire.chunkBytes)
         {
             return false;
@@ -154,7 +193,10 @@ namespace fable::multiplayer::protocol
             game::entity::persistence::SavedEntityMapBlobFormat>(
                 wire.format);
         message.present = wire.present != 0;
+        message.collection = wire.collection != 0;
         message.mapId = wire.mapId;
+        message.collectionRecordCount = wire.collectionRecordCount;
+        message.collectionRecordIndex = wire.collectionRecordIndex;
         message.transferId = wire.transferId;
         message.baselineRevision = wire.baselineRevision;
         message.metadata = wire.metadata;

@@ -212,6 +212,20 @@ namespace fable::game::entity::persistence
             return;
         }
 
+        // Remote Heroes are process-local replicated presentations. Their
+        // native persistent bit prevents retail distance culling, but must not
+        // make them part of either player's durable save. The true local Hero
+        // keeps SCRIPT_NAME_HERO and continues through the normal save path.
+        if (std::strcmp(
+                identity.scriptName.data(),
+                "SCRIPT_NAME_ALBION_TOGETHER_REMOTE_PLAYER") == 0)
+        {
+            hook->diagnostics_.Event(
+                "ThingPersistenceSaveFiltered",
+                "skipped process-local remote Hero presentation");
+            return;
+        }
+
         const std::uint16_t originalMapId = identity.mapId;
         std::uint16_t projectedMapId = originalMapId;
         bool projected = false;
