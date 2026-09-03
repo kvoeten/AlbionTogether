@@ -22,6 +22,9 @@ $files = [ordered]@{
     'LICENSE' = Join-Path $repository 'LICENSE'
     'README.md' = Join-Path $repository 'README.md'
     'scripts\debug\appearance_cycle.as' = Join-Path $releaseBuild 'scripts\debug\appearance_cycle.as'
+    'scripts\debug\developer_tools.as' = Join-Path $releaseBuild 'scripts\debug\developer_tools.as'
+    'ThirdParty\ImGui\LICENSE.txt' = Join-Path $repository 'ThirdParty\ImGui\LICENSE.txt'
+    'ThirdParty\AngelScript\LICENSE.dox' = Join-Path $repository 'ThirdParty\AngelScript\LICENSE.dox'
 }
 
 foreach ($source in $files.Values) {
