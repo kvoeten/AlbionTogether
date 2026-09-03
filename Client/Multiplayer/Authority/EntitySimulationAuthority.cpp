@@ -106,9 +106,12 @@ namespace fable::multiplayer::authority
         brainObserver_->SetExecutionSink(
             &EntitySimulationAuthority::ShouldExecuteBrain,
             this);
+        brainObserver_->SetStateGroupExecutionSink(
+            &EntitySimulationAuthority::ShouldExecuteStateGroup,
+            this);
         diagnostics_.Event(
             "MultiplayerEntityBrainAuthorityAttached",
-            "non-publisher CAIBrain updates are suppressed without removing native creature components");
+            "non-publisher CAIBrain and direct state-group decisions are suppressed without removing native creature components");
         return true;
     }
 
@@ -306,6 +309,7 @@ namespace fable::multiplayer::authority
         if (brainObserver_ != nullptr)
         {
             brainObserver_->SetExecutionSink(nullptr, nullptr);
+            brainObserver_->SetStateGroupExecutionSink(nullptr, nullptr);
         }
         if (actionObserver_ != nullptr)
         {
@@ -360,6 +364,19 @@ namespace fable::multiplayer::authority
         }
         const auto* const simulation =
             static_cast<const EntitySimulationAuthority*>(context);
+        return simulation == nullptr || simulation->CanSimulate(creature);
+    }
+
+    bool EntitySimulationAuthority::ShouldExecuteStateGroup(
+        void* context,
+        void* creature,
+        int frameTime,
+        void* nativeProposal) noexcept
+    {
+        const auto* const simulation =
+            static_cast<const EntitySimulationAuthority*>(context);
+        (void)frameTime;
+        (void)nativeProposal;
         return simulation == nullptr || simulation->CanSimulate(creature);
     }
 

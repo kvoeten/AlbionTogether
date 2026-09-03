@@ -45,6 +45,12 @@ namespace fable::game::entity::persistence
 
         [[nodiscard]] bool IsInstalled() const noexcept;
 
+        // Game-thread-only snapshot immediately before replacing a host map
+        // baseline. Does not replay load events or invoke the load barrier.
+        [[nodiscard]] bool ReadBinarySnapshot(
+            void* savedEntities, std::uint32_t mapId,
+            SavedEntityMapBlobSnapshot& snapshot) const noexcept;
+
     private:
         static constexpr std::size_t RecordBytes = 0x1C;
         static constexpr std::size_t MaximumMapRecords = 4'096;

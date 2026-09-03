@@ -213,6 +213,26 @@ namespace
     }
 }
 
+void BindSavedEntityTestCompression(
+    fable::game::entity::persistence::native::SavedEntityCompression& compression)
+{
+    compression.inflateInit_ =
+        reinterpret_cast<fable::game::entity::persistence::native::
+            SavedEntityCompression::InflateInitPointer>(&FakeInflateInit);
+    compression.inflate_ =
+        reinterpret_cast<fable::game::entity::persistence::native::
+            SavedEntityCompression::InflatePointer>(&FakeInflate);
+    compression.inflateEnd_ =
+        reinterpret_cast<fable::game::entity::persistence::native::
+            SavedEntityCompression::InflateEndPointer>(&FakeInflateEnd);
+    compression.compress2_ =
+        reinterpret_cast<fable::game::entity::persistence::native::
+            SavedEntityCompression::Compress2Pointer>(&FakeCompress2);
+    compression.compressBound_ =
+        reinterpret_cast<fable::game::entity::persistence::native::
+            SavedEntityCompression::CompressBoundPointer>(&FakeCompressBound);
+}
+
 int RunSavedEntityMapBaselineTests()
 {
     using namespace fable::multiplayer::protocol;
@@ -334,20 +354,7 @@ int RunSavedEntityMapBaselineTests()
     using fable::multiplayer::persistence::SavedEntityCollectionRecord;
 
     GuestHeroSaveBoundary boundary;
-    boundary.compression_.inflateInit_ =
-        reinterpret_cast<SavedEntityCompression::InflateInitPointer>(
-            &FakeInflateInit);
-    boundary.compression_.inflate_ =
-        reinterpret_cast<SavedEntityCompression::InflatePointer>(&FakeInflate);
-    boundary.compression_.inflateEnd_ =
-        reinterpret_cast<SavedEntityCompression::InflateEndPointer>(
-            &FakeInflateEnd);
-    boundary.compression_.compress2_ =
-        reinterpret_cast<SavedEntityCompression::Compress2Pointer>(
-            &FakeCompress2);
-    boundary.compression_.compressBound_ =
-        reinterpret_cast<SavedEntityCompression::CompressBoundPointer>(
-            &FakeCompressBound);
+    BindSavedEntityTestCompression(boundary.compression_);
     auto guestHero = MakeHero(0x100000001ull);
     AppendName(guestHero, "SCRIPT_NAME_HERO"); // Opaque post-END trailer is Hero-owned.
     const std::vector<std::uint8_t> guestNpc = {'G', 'U', 'E', 'S', 'T', '_', 'N', 'P', 'C'};

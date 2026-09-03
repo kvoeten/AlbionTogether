@@ -6,6 +6,7 @@
 #include "Multiplayer/Persistence/SavedEntityMapBlobDirectory.h"
 #include "Multiplayer/Persistence/SavedEntityCollectionBaselineTransfer.h"
 #include "Multiplayer/Persistence/GuestHeroSaveBoundary.h"
+#include "Multiplayer/Persistence/LocalShopSaveBoundary.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 #include "Multiplayer/Protocol/SavedEntityMapBaselineMessage.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
@@ -168,6 +169,7 @@ namespace fable::multiplayer::persistence
         std::uint64_t localActorId_ = 0;
         SavedEntityCollectionBaselineTransfer collectionTransfer_;
         GuestHeroSaveBoundary guestHeroBoundary_;
+        LocalShopSaveBoundary localShopBoundary_;
         std::uint64_t nextTransferId_ = 0;
         OutboundTransfer outbound_;
         InboundTransfer inbound_;

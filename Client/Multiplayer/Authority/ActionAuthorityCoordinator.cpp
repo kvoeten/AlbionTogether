@@ -80,7 +80,7 @@ namespace fable::multiplayer::authority
             }
             else
             {
-                // Conversation, trade, quest, and combat actions are
+                // Shared conversation, quest, and combat actions are
                 // exclusive at this boundary. Combat handoff is an explicit
                 // release/regrant so its epoch changes and stale attacker
                 // updates are fenced.
@@ -317,6 +317,10 @@ namespace fable::multiplayer::authority
     protocol::ActionLeaseKind ActionAuthorityCoordinator::LeaseKindFor(
         const protocol::EntityActionMessage& intent) noexcept
     {
+        if (!protocol::RequiresSharedEntityAuthority(intent.kind))
+        {
+            return protocol::ActionLeaseKind::None;
+        }
         if (intent.kind == protocol::EntityActionKind::Combat &&
             intent.semanticName == "PlayerAttackEngagement")
         {
@@ -326,7 +330,6 @@ namespace fable::multiplayer::authority
         {
         case protocol::EntityActionKind::Conversation:
         case protocol::EntityActionKind::ConversationAnimation:
-        case protocol::EntityActionKind::Trade:
             return protocol::ActionLeaseKind::Conversation;
         case protocol::EntityActionKind::Combat:
             return protocol::ActionLeaseKind::Combat;

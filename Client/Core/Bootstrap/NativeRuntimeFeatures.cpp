@@ -124,6 +124,7 @@ namespace
             hooks.followCreature.Shutdown();
             hooks.physicsNavigator.Shutdown();
             hooks.aiBrain.Shutdown();
+            hooks.shopSetup.Shutdown();
             hooks.creatureActions.Shutdown();
             hooks.creatureConstructor.Shutdown();
             return false;
@@ -139,6 +140,15 @@ namespace
              !gameplay.AttachCreatureActionObserver(hooks.creatureActions)))
         {
             return rollback();
+        }
+        if (multiplayer && !hooks.shopSetup.Install(core.gameModule, diagnostics))
+        {
+            diagnostics.Event("ShopSetupGuardFailed", "native shop setup signature did not match");
+            return rollback();
+        }
+        if (multiplayer)
+        {
+            diagnostics.Event("ShopSetupGuardReady", "native shop setup checks local component references before use");
         }
         if ((appearance || multiplayer) &&
             (!hooks.aiBrain.Install(core.gameModule, diagnostics) ||
@@ -178,6 +188,7 @@ namespace
         hooks.followCreature.Shutdown();
         hooks.physicsNavigator.Shutdown();
         hooks.aiBrain.Shutdown();
+        hooks.shopSetup.Shutdown();
         hooks.creatureActions.Shutdown();
         hooks.creatureConstructor.Shutdown();
     }

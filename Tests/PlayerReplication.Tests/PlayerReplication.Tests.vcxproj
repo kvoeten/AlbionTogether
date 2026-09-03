@@ -48,6 +48,9 @@
     <ClCompile Include="GameplayFrameMailbox.Tests.cpp" />
     <ClCompile Include="..\..\Client\Core\GameThread\Hooks\SimulationFrameHook.cpp" />
     <ClCompile Include="SimulationFrameHook.Tests.cpp" />
+    <ClCompile Include="AiStateGroupHook.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Game\Creature\AI\Hooks\AiBrainUpdateObserver.cpp" />
+    <ClCompile Include="..\..\Client\Game\Creature\AI\Native\AiBrainFunctions.cpp" />
     <ClCompile Include="..\..\Client\Core\Diagnostics\DiagnosticLog.cpp" />
     <ClCompile Include="DeveloperTools.Tests.cpp" />
     <ClCompile Include="WorldSectionSnapshot.Tests.cpp" />
@@ -93,6 +96,16 @@
     <ClCompile Include="EquipmentTransitionTiming.Tests.cpp" />
     <ClCompile Include="SavedEntityMapBaseline.Tests.cpp" />
     <ClCompile Include="WorldEntityDirectory.Tests.cpp" />
+    <ClCompile Include="LocalShopAuthority.Tests.cpp" />
+    <ClCompile Include="ShopKeeperReadiness.Tests.cpp" />
+    <ClCompile Include="LocalShopEconomy.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Game\NPC\Shop\Native\ShopKeeperReadiness.cpp" />
+    <ClCompile Include="..\..\Client\Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\LocalShopSaveBoundary.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Native\ThingComponentAccess.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Authority\ActionAuthorityCoordinator.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Authority\MapAuthorityCoordinator.cpp" />
     <ClCompile Include="..\..\Client\Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.cpp" />
     <ClCompile Include="..\..\Client\Game\Entity\Persistence\Serialization\SavedEntityCell.cpp" />
     <ClCompile Include="HeroSavedEntityRecord.Tests.cpp" />

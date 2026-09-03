@@ -178,6 +178,10 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClCompile Include="Game\HeroPawn\TransformProbe\Native\HeroTransformCompatibilityFunctions.cpp" />
     <ClCompile Include="Game\Native\GameInterface.cpp" />
     <ClCompile Include="Game\NPC\NpcService.cpp" />
+    <ClCompile Include="Game\NPC\Shop\Native\ShopKeeperReadiness.cpp" />
+    <ClCompile Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.cpp" />
+    <ClCompile Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\LocalShopSaveBoundary.cpp" />
     <ClCompile Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.cpp" />
     <ClCompile Include="Game\NPC\Population\Hooks\PopulationSimulationHook.cpp" />
     <ClCompile Include="Game\NPC\Population\Native\PopulationSimulationFunctions.cpp" />
@@ -471,6 +475,10 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClInclude Include="Game\Native\GameInterface.h" />
     <ClInclude Include="Game\Native\ScriptTypes.h" />
     <ClInclude Include="Game\NPC\NpcService.h" />
+    <ClInclude Include="Game\NPC\Shop\Native\ShopKeeperReadiness.h" />
+    <ClInclude Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.h" />
+    <ClInclude Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.h" />
+    <ClInclude Include="Multiplayer\Persistence\LocalShopSaveBoundary.h" />
     <ClInclude Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.h" />
     <ClInclude Include="Game\NPC\Population\Hooks\PopulationSimulationHook.h" />
     <ClInclude Include="Game\NPC\Population\Native\PopulationSimulationFunctions.h" />

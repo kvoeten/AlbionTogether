@@ -77,8 +77,10 @@ namespace fable::multiplayer::persistence
         if (!observer_->IsInstalled() ||
             !installer_.Initialize(GetModuleHandleW(nullptr), diagnostics_) ||
             (role_ == PeerRole::Guest &&
-                !guestHeroBoundary_.Initialize(
-                    GetModuleHandleW(nullptr), diagnostics_)))
+                (!guestHeroBoundary_.Initialize(
+                    GetModuleHandleW(nullptr), diagnostics_) ||
+                 !localShopBoundary_.Initialize(
+                    GetModuleHandleW(nullptr), diagnostics_))))
         {
             return false;
         }
@@ -334,6 +336,7 @@ namespace fable::multiplayer::persistence
         observer_ = nullptr;
         installer_.Shutdown();
         guestHeroBoundary_.Shutdown();
+        localShopBoundary_.Shutdown();
         collectionTransfer_.Shutdown();
         directory_.Clear();
         transport_ = nullptr;
@@ -384,9 +387,12 @@ namespace fable::multiplayer::persistence
                 entry.second.appliedToCurrentCollection = false;
             }
             service->guestCollectionApplied_ = false;
+            service->guestCollectionPrepared_ = false;
+            service->preparedCollectionIncludesGuestHero_ = false;
             if (service->role_ == PeerRole::Guest)
             {
                 service->guestHeroBoundary_.BeginGuestCollection();
+                service->localShopBoundary_.BeginGuestCollection();
             }
             if (service->role_ == PeerRole::Host)
             {
@@ -451,6 +457,7 @@ namespace fable::multiplayer::persistence
         else
         {
             service->guestHeroBoundary_.ObserveGuestRecord(snapshot);
+            service->localShopBoundary_.ObserveGuestRecord(snapshot);
         }
     }
 
@@ -778,7 +785,6 @@ namespace fable::multiplayer::persistence
             {
                 return false;
             }
-
             std::map<std::uint16_t, GuestBaseline> rewritten;
             std::size_t rewrittenBytes = 0;
             for (const auto& [mapId, baseline] : guestBaselines_)
@@ -829,6 +835,19 @@ namespace fable::multiplayer::persistence
         {
             return false;
         }
+        // Preserve the local merchant payloads just before replacing native
+        // map records. This runs at baseline application, never as a tick
+        // observer, and cannot re-enter the retail load barrier.
+        if (observer_ != nullptr)
+        {
+            for (const auto& [mapId, baseline] : guestBaselines_)
+            {
+                (void)baseline;
+                game::entity::persistence::SavedEntityMapBlobSnapshot snapshot;
+                if (observer_->ReadBinarySnapshot(nativeSavedEntities_, mapId, snapshot))
+                    localShopBoundary_.ObserveGuestRecord(snapshot);
+            }
+        }
         if (!PrepareGuestCollection())
         {
             return false;
@@ -865,15 +884,35 @@ namespace fable::multiplayer::persistence
         bool applied = false;
         if (baseline.present)
         {
+            // Project private shop data only into this installation. Keep the
+            // authoritative baseline free of a previous selected save's stock.
+            SavedEntityCollectionRecord projected;
+            try
+            {
+                projected.format = baseline.format;
+                projected.mapId = mapId;
+                projected.metadata = baseline.metadata;
+                projected.hash = baseline.hash;
+                projected.bytes = baseline.bytes;
+                if (!localShopBoundary_.RewriteHostRecord(projected))
+                {
+                    diagnostics_.Event("MultiplayerLocalShopProjectionSkipped",
+                        "private shop projection unavailable; retaining native host map data");
+                }
+            }
+            catch (...)
+            {
+                return false;
+            }
             game::entity::persistence::SavedEntityMapBlobSnapshot snapshot;
-            snapshot.format = baseline.format;
+            snapshot.format = projected.format;
             snapshot.mapId = mapId;
-            snapshot.bytes = baseline.bytes.empty()
+            snapshot.bytes = projected.bytes.empty()
                 ? nullptr
-                : baseline.bytes.data();
-            snapshot.byteCount = baseline.bytes.size();
-            snapshot.metadata = baseline.metadata;
-            snapshot.hash = baseline.hash;
+                : projected.bytes.data();
+            snapshot.byteCount = projected.bytes.size();
+            snapshot.metadata = projected.metadata;
+            snapshot.hash = projected.hash;
             applied = installer_.Install(nativeSavedEntities_, snapshot);
         }
         else

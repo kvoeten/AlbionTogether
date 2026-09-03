@@ -1,7 +1,11 @@
 # Local NPC interactions
 
-Status: proposed integration, not implemented. The current development
-milestone still has the Bowerstone shopkeeper crash described below.
+Status: crash guards and local-economy isolation implemented; Release Win32
+build and player-replication tests pass. The user confirmed the two-real-save
+manual test was stable on 2026-09-03 (run `20260903-131707-718-9344`).
+Simultaneous shopping/save-economy checks were not separately confirmed.
+Exceptional-arrival shop-link repair is not implemented; missing links remain
+deferred.
 
 ## Ownership
 
@@ -34,7 +38,7 @@ There is also a separate native state-group decision path that bypasses the
 current CAIBrain update hook. A blanket ownership block there would prevent
 legitimate local setup; allowing it unconditionally retains the current risk.
 
-## Smallest implementation
+## Integration contract
 
 1. **Finish native setup before enabling interaction.** Extend the existing
    materialization lifecycle with actor-scoped interaction readiness. Adopt the
@@ -78,6 +82,45 @@ in memory and bounded current merchant deltas, not an event history.
 Use the existing authority, materialization and save-projection components.
 One focused native shop adapter is sufficient if needed; no new networking
 protocol, general rule engine, or all-purpose interaction coordinator.
+
+## Implemented boundaries
+
+- `AiBrainUpdateObserver` covers both the existing brain update and the direct
+  creature state-group dispatcher. Both use `EntitySimulationAuthority`; no
+  second ownership table or blanket SetupWares exemption was added. The full
+  SetupWares group also performs shared wares-placement/action work.
+- `ShopKeeperSetupGuard` validates the current local shopkeeper/shop graph
+  before the native SetupWares predicate runs. Missing components or invalid
+  weak references return not-ready, with bounded diagnostics. Readiness is
+  read afresh on the next native attempt, so no stale actor pointer is cached.
+  Native constructors/OnCreate remain responsible for linking and initial stock;
+  the mod does not synthesize components or repeatedly force OnCreate. An
+  exceptional arrival that retail never links remains deferred, not repaired
+  by a speculative native call.
+- Trade actions stay out of shared action replication and exclusive dialogue
+  leases. Native shopping UI, pricing and Hero inventory/gold are retained;
+  movement, combat and quest consequences keep their existing authority rules.
+- `LocalShopSaveBoundary` preserves only the serialized `CTCShop` component
+  from the selected save and subsequent native map records. Matching requires
+  exact map ID, UID, entity class and definition within that selected-save
+  scope. Other components and opaque entity trailers remain host-owned.
+  Missing local stock starts from the host baseline. No new save sidecar.
+- Private shop data is projected into a temporary installation copy, never
+  retained inside the authoritative host baseline. Capture runs during native
+  save loading and immediately before a host baseline replaces map records,
+  not every frame. Unchanged map data skips decompression. The cache is bounded
+  to 4,096 merchants/16 MiB of components; individual native cells are capped
+  at 8 MiB. Unsupported shop projection logs a diagnostic and leaves the host
+  record unchanged; it cannot hold the whole map load indefinitely.
+- New inline detours use the shared `InlineHook` primitive with validated
+  current-build targets. Their callback DLL and trampolines remain resident;
+  shutdown detaches policy while preserving native passthrough. Authority
+  callback leases drain before their owning service is released.
+
+Validation includes exact extract/reinsert round trips on three real saved-map
+samples (one, zero and three merchants), parser bounds/opaque-trailer tests,
+private-economy isolation tests, authority tests and executable-stub tests of
+the production detours. These do not substitute for retail gameplay acceptance.
 
 ## Acceptance
 

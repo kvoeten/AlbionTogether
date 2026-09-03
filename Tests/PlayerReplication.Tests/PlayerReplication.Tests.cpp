@@ -73,6 +73,7 @@ int RunCombatHitReplicationTests();
 int RunCodePatchTests();
 int RunGameplayFrameMailboxTests();
 int RunSimulationFrameHookTests();
+int RunAiStateGroupHookTests();
 int RunSessionClockTests();
 int RunReliableStreamWindowTests();
 int RunEquipmentTransitionTimingTests();
@@ -83,6 +84,9 @@ int RunEntityFlagFunctionTests();
 int RunDiagnosticLogTests();
 int RunDeveloperToolsTests();
 int RunWorldSectionSnapshotTests();
+int RunLocalShopAuthorityTests();
+int RunShopKeeperReadinessTests();
+int RunLocalShopEconomyTests();
 
 namespace
 {
@@ -4964,6 +4968,7 @@ int main()
     failures += runFocused("diagnostic file lifecycle", RunDiagnosticLogTests());
     failures += runFocused("simulation frame mailbox and ABI", RunGameplayFrameMailboxTests());
     failures += runFocused("simulation hook native dispatch and detach", RunSimulationFrameHookTests());
+    failures += runFocused("AI state-group dispatch and detach", RunAiStateGroupHookTests());
     failures += runFocused("session clock", RunSessionClockTests());
     failures += runFocused(
         "reliable stream window", RunReliableStreamWindowTests());
@@ -4978,6 +4983,9 @@ int main()
     failures += runFocused(
         "hero saved entity record", RunHeroSavedEntityRecordTests());
     failures += runFocused("developer tools", RunDeveloperToolsTests());
+    failures += runFocused("local shop authority", RunLocalShopAuthorityTests());
+    failures += runFocused("native shop readiness", RunShopKeeperReadinessTests());
+    failures += runFocused("local shop saved payloads", RunLocalShopEconomyTests());
     failures += runFocused(
         "world section snapshot", RunWorldSectionSnapshotTests());
 

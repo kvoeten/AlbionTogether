@@ -105,6 +105,9 @@
     <Filter Include="Game\Persistence\Hooks"><UniqueIdentifier>{A4133243-E624-4ECA-9B9A-5271912AF781}</UniqueIdentifier></Filter>
     <Filter Include="Game\Persistence\Native"><UniqueIdentifier>{823D0C5D-6007-4DA8-8114-A437A3F605D7}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC"><UniqueIdentifier>{4AECC3C6-F4D7-4697-B783-FCC451C738F0}</UniqueIdentifier></Filter>
+    <Filter Include="Game\NPC\Shop"><UniqueIdentifier>{E67148C9-7643-46E5-9AD0-54F6B20E383B}</UniqueIdentifier></Filter>
+    <Filter Include="Game\NPC\Shop\Native"><UniqueIdentifier>{39B6FB2B-A5AC-4D7C-9F6D-29416279C5D0}</UniqueIdentifier></Filter>
+    <Filter Include="Game\NPC\Shop\Hooks"><UniqueIdentifier>{3F2C7ED9-7CD8-44A5-9E3F-C2A42B6F4D4E}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Conversation"><UniqueIdentifier>{DC21A4DF-C607-48B2-80C9-E78C92C85384}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Conversation\Native"><UniqueIdentifier>{3D031C54-42BD-450F-854B-E26FA383D9D5}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Population"><UniqueIdentifier>{756B18CD-9187-43C5-B68F-974F3AB3A507}</UniqueIdentifier></Filter>
@@ -304,6 +307,10 @@
     <ClCompile Include="Game\Math\Bindings\MathBindings.cpp"><Filter>Game\Math\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Native\GameInterface.cpp"><Filter>Game\Native</Filter></ClCompile>
     <ClCompile Include="Game\NPC\NpcService.cpp"><Filter>Game\NPC</Filter></ClCompile>
+    <ClCompile Include="Game\NPC\Shop\Native\ShopKeeperReadiness.cpp"><Filter>Game\NPC\Shop\Native</Filter></ClCompile>
+    <ClCompile Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.cpp"><Filter>Game\NPC\Shop\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.cpp"><Filter>Game\Entity\Persistence\Serialization</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\LocalShopSaveBoundary.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.cpp"><Filter>Game\NPC\Conversation\Native</Filter></ClCompile>
     <ClCompile Include="Game\NPC\Population\Hooks\PopulationSimulationHook.cpp"><Filter>Game\NPC\Population\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\NPC\Population\Native\PopulationSimulationFunctions.cpp"><Filter>Game\NPC\Population\Native</Filter></ClCompile>
@@ -597,6 +604,10 @@
     <ClInclude Include="Game\Native\GameInterface.h"><Filter>Game\Native</Filter></ClInclude>
     <ClInclude Include="Game\Native\ScriptTypes.h"><Filter>Game\Native</Filter></ClInclude>
     <ClInclude Include="Game\NPC\NpcService.h"><Filter>Game\NPC</Filter></ClInclude>
+    <ClInclude Include="Game\NPC\Shop\Native\ShopKeeperReadiness.h"><Filter>Game\NPC\Shop\Native</Filter></ClInclude>
+    <ClInclude Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.h"><Filter>Game\NPC\Shop\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.h"><Filter>Game\Entity\Persistence\Serialization</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\LocalShopSaveBoundary.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.h"><Filter>Game\NPC\Conversation\Native</Filter></ClInclude>
     <ClInclude Include="Game\NPC\Population\Hooks\PopulationSimulationHook.h"><Filter>Game\NPC\Population\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\NPC\Population\Native\PopulationSimulationFunctions.h"><Filter>Game\NPC\Population\Native</Filter></ClInclude>

@@ -25,6 +25,13 @@ namespace fable::multiplayer::protocol
         QuestOrCutscene = 7,
     };
 
+    // Retail shopping is private to the local Hero/save. Retain the wire enum
+    // for decoding older peers, but never grant or replay a shared trade lease.
+    constexpr bool RequiresSharedEntityAuthority(EntityActionKind kind) noexcept
+    {
+        return kind != EntityActionKind::Trade;
+    }
+
     enum class EntityActionOutcome : std::uint8_t
     {
         None = 0,
