@@ -40,17 +40,54 @@ namespace fable::multiplayer::authority
         {
             return false;
         }
-        if (!RequestLocalMap(localPlayer))
+        mapIdentities_.Reconcile(localPlayer, remotePlayers);
+        PlayerState canonicalLocalState;
+        const PlayerState* canonicalLocal = localPlayer;
+        if (localPlayer != nullptr)
+        {
+            canonicalLocalState = *localPlayer;
+            const std::string* const canonicalName =
+                mapIdentities_.FindName(localPlayer->mapId);
+            if (canonicalName != nullptr)
+            {
+                canonicalLocalState.mapName = *canonicalName;
+            }
+            canonicalLocal = &canonicalLocalState;
+        }
+        std::vector<replication::RemotePlayerSnapshot> canonicalRemotes =
+            remotePlayers;
+        for (auto& remote : canonicalRemotes)
+        {
+            const std::string* const canonicalName =
+                mapIdentities_.FindName(remote.state.mapId);
+            if (canonicalName != nullptr)
+            {
+                remote.state.mapName = *canonicalName;
+            }
+        }
+        if (!RequestLocalMap(canonicalLocal))
         {
             return false;
         }
-        mapIdentities_.Reconcile(localPlayer, remotePlayers);
         if (role_ != PeerRole::Host)
         {
             return true;
         }
 
         const std::uint64_t peerRevision = transport_->PeerSetRevision();
+        const MapBaselinePreparationResult collection =
+            PrepareHostCollectionForPeers();
+        if (collection == MapBaselinePreparationResult::Failed)
+        {
+            diagnostics_.Event(
+                "MultiplayerAuthorityCollectionFailed",
+                "host world collection could not be ordered ahead of remote map grants");
+            return false;
+        }
+        if (collection == MapBaselinePreparationResult::Deferred)
+        {
+            return true;
+        }
         if (peerRevision != knownPeerRevision_)
         {
             maps_.QueueBaseline();
@@ -59,19 +96,19 @@ namespace fable::multiplayer::authority
         knownPeerRevision_ = peerRevision;
 
         actorMaps_.clear();
-        if (localPlayer != nullptr && localPlayer->actorId != 0 &&
-            !localPlayer->mapName.empty())
+        if (canonicalLocal != nullptr && canonicalLocal->actorId != 0 &&
+            !canonicalLocal->mapName.empty())
         {
-            actorMaps_[localPlayer->actorId] = localPlayer->mapName;
+            actorMaps_[canonicalLocal->actorId] = canonicalLocal->mapName;
         }
-        for (const auto& remote : remotePlayers)
+        for (const auto& remote : canonicalRemotes)
         {
             if (remote.state.actorId != 0 && !remote.state.mapName.empty())
             {
                 actorMaps_[remote.state.actorId] = remote.state.mapName;
             }
         }
-        maps_.HostReconcile(localPlayer, remotePlayers);
+        maps_.HostReconcile(canonicalLocal, canonicalRemotes);
         actions_.HostFenceAgainstMaps(maps_, actorMaps_);
         return PublishHostMessages();
     }
@@ -90,8 +127,13 @@ namespace fable::multiplayer::authority
         {
             return false;
         }
-        const bool sameMap = preparedLocalMapId_ == mapId &&
-            preparedLocalMapName_ == mapName;
+        (void)mapIdentities_.ObserveAuthoritative(mapName, mapId);
+        const std::string* const resolvedName =
+            mapIdentities_.FindName(mapId);
+        const std::string& effectiveMapName = resolvedName != nullptr
+            ? *resolvedName
+            : mapName;
+        const bool sameMap = preparedLocalMapId_ == mapId;
         if (sameMap && role_ == PeerRole::Host)
         {
             return true;
@@ -104,16 +146,12 @@ namespace fable::multiplayer::authority
             return true;
         }
 
-        const std::string* const canonicalName =
-            mapIdentities_.FindName(mapId);
-        const MapAuthorityLease* const observed = canonicalName != nullptr
-            ? maps_.Find(*canonicalName)
-            : nullptr;
+        const MapAuthorityLease* const observed = maps_.Find(mapId);
         if (role_ == PeerRole::Host)
         {
             if (!SubmitMapRequest(
                     protocol::AuthorityOperation::Prepare,
-                    mapName,
+                    effectiveMapName,
                     mapId,
                     observed != nullptr ? observed->epoch : 0))
             {
@@ -121,7 +159,7 @@ namespace fable::multiplayer::authority
             }
             preparedLocalMapId_ = mapId;
             preparedLocalBaselineRevision_ = 0;
-            preparedLocalMapName_ = mapName;
+            preparedLocalMapName_ = effectiveMapName;
             preparationRetry_.Acknowledge();
             return true;
         }
@@ -132,7 +170,7 @@ namespace fable::multiplayer::authority
         {
             preparedLocalMapId_ = mapId;
             preparedLocalBaselineRevision_ = 0;
-            preparedLocalMapName_ = mapName;
+            preparedLocalMapName_ = effectiveMapName;
             preparationRetry_.Acknowledge();
         }
         if (!preparationRetry_.IsDue(now))
@@ -142,7 +180,7 @@ namespace fable::multiplayer::authority
 
         const bool submitted = SubmitMapRequest(
             protocol::AuthorityOperation::Prepare,
-            mapName,
+            effectiveMapName,
             mapId,
             observed != nullptr ? observed->epoch : 0);
         preparationRetry_.RecordAttempt(now);
@@ -164,8 +202,7 @@ namespace fable::multiplayer::authority
         std::uint16_t mapId) const noexcept
     {
         if (!initialized_ || mapName.empty() || mapId == 0 ||
-            preparedLocalMapId_ != mapId ||
-            preparedLocalMapName_ != mapName)
+            preparedLocalMapId_ != mapId)
         {
             return false;
         }
@@ -187,6 +224,19 @@ namespace fable::multiplayer::authority
             return false;
         }
         if (role_ != PeerRole::Host)
+        {
+            return true;
+        }
+        const MapBaselinePreparationResult collection =
+            PrepareHostCollectionForPeers();
+        if (collection == MapBaselinePreparationResult::Failed)
+        {
+            diagnostics_.Event(
+                "MultiplayerAuthorityCollectionFailed",
+                "host world collection could not be ordered ahead of remote map grants");
+            return false;
+        }
+        if (collection == MapBaselinePreparationResult::Deferred)
         {
             return true;
         }
@@ -218,15 +268,20 @@ namespace fable::multiplayer::authority
                 message.scope == protocol::AuthorityScope::MapSimulation &&
                 message.ownerActorId == transportMessage.sourceActorId)
             {
+                const std::string* const canonical =
+                    mapIdentities_.FindName(message.mapId);
+                const std::string& effectiveMapName = canonical != nullptr
+                    ? *canonical
+                    : message.mapName;
                 const bool accepted = message.operation ==
                         protocol::AuthorityOperation::Prepare
                     ? maps_.HostPrepare(
-                        message.mapName,
+                        effectiveMapName,
                         message.mapId,
                         transportMessage.sourceActorId,
                         message.mapEpoch)
                     : maps_.HostRequest(
-                        message.mapName,
+                        effectiveMapName,
                         message.mapId,
                         transportMessage.sourceActorId,
                         message.mapEpoch);
@@ -238,7 +293,7 @@ namespace fable::multiplayer::authority
                 }
                 else if (!QueueHostBaselinePreparation(
                         message.mapId,
-                        message.mapName,
+                        effectiveMapName,
                         transportMessage.sourceActorId,
                         message.operation ==
                             protocol::AuthorityOperation::Prepare))
@@ -259,13 +314,15 @@ namespace fable::multiplayer::authority
         {
             if (message.scope != protocol::AuthorityScope::MapSimulation ||
                 message.ownerActorId != localActorId_ ||
-                message.mapId != preparedLocalMapId_ ||
-                message.mapName != preparedLocalMapName_)
+                message.mapId != preparedLocalMapId_)
             {
                 return true;
             }
             preparedLocalBaselineRevision_ =
                 message.mapBaselineRevision;
+            (void)mapIdentities_.ObserveAuthoritative(
+                message.mapName, message.mapId);
+            preparedLocalMapName_ = message.mapName;
             preparationRetry_.Acknowledge();
             diagnostics_.Event(
                 "MultiplayerMapPreparationAcknowledged",
@@ -283,6 +340,8 @@ namespace fable::multiplayer::authority
         bool applied = false;
         if (message.scope == protocol::AuthorityScope::MapSimulation)
         {
+            (void)mapIdentities_.ObserveAuthoritative(
+                message.mapName, message.mapId);
             if (message.operation == protocol::AuthorityOperation::Grant &&
                 (mapBaselineGate_ == nullptr ||
                     !mapBaselineGate_->IsGuestGrantReady(
@@ -298,7 +357,7 @@ namespace fable::multiplayer::authority
         }
         else if (message.scope == protocol::AuthorityScope::EntityAction)
         {
-            const MapAuthorityLease* const map = maps_.Find(message.mapName);
+            const MapAuthorityLease* const map = maps_.Find(message.mapId);
             if (message.operation == protocol::AuthorityOperation::Release ||
                 (map != nullptr && map->epoch == message.mapEpoch))
             {
@@ -354,13 +413,13 @@ namespace fable::multiplayer::authority
     {
         if (localPlayer == nullptr || localPlayer->actorId != localActorId_ ||
             localPlayer->mapName.empty() || localPlayer->mapId == 0 ||
-            requestedLocalMap_ == localPlayer->mapName)
+            requestedLocalMapId_ == localPlayer->mapId)
         {
             return true;
         }
 
         const MapAuthorityLease* const observed = maps_.Find(
-            localPlayer->mapName);
+            localPlayer->mapId);
         const std::uint32_t observedEpoch = observed != nullptr
             ? observed->epoch
             : 0;
@@ -372,7 +431,7 @@ namespace fable::multiplayer::authority
         {
             return false;
         }
-        requestedLocalMap_ = localPlayer->mapName;
+        requestedLocalMapId_ = localPlayer->mapId;
         if (preparedLocalMapId_ == localPlayer->mapId)
         {
             preparedLocalMapId_ = 0;
@@ -485,6 +544,28 @@ namespace fable::multiplayer::authority
         preparation.acknowledge = acknowledge;
         pendingBaselinePreparations_.push_back(preparation);
         return true;
+    }
+
+    MapBaselinePreparationResult
+    AuthorityReplication::PrepareHostCollectionForPeers()
+    {
+        if (role_ != PeerRole::Host || transport_ == nullptr)
+        {
+            return MapBaselinePreparationResult::Failed;
+        }
+        if (transport_->ConnectedPeerCount() == 0)
+        {
+            // The local host lease has no network consumer. Capturing and
+            // queueing the whole save here can stall startup before a guest
+            // exists, and provides no ordering guarantee to a future peer.
+            return MapBaselinePreparationResult::Ready;
+        }
+        if (mapBaselineGate_ == nullptr)
+        {
+            return MapBaselinePreparationResult::Failed;
+        }
+        return mapBaselineGate_->PrepareHostCollection(
+            transport_->PeerSetRevision());
     }
 
     bool AuthorityReplication::PublishHostBaselinePreparations()
@@ -717,6 +798,12 @@ namespace fable::multiplayer::authority
         return maps_.Find(mapName);
     }
 
+    const MapAuthorityLease* AuthorityReplication::FindMapLease(
+        const std::uint16_t mapId) const noexcept
+    {
+        return maps_.Find(mapId);
+    }
+
     std::vector<MapAuthorityLease> AuthorityReplication::MapLeases() const
     {
         return maps_.Snapshot();
@@ -732,7 +819,35 @@ namespace fable::multiplayer::authority
             lease->actorId == actorId && lease->epoch == mapEpoch;
     }
 
+    bool AuthorityReplication::IsMapPublisher(
+        const std::uint16_t mapId,
+        const std::uint64_t actorId,
+        const std::uint32_t mapEpoch) const noexcept
+    {
+        const MapAuthorityLease* const lease = maps_.Find(mapId);
+        return lease != nullptr && actorId != 0 && mapEpoch != 0 &&
+            lease->actorId == actorId && lease->epoch == mapEpoch;
+    }
+
     bool AuthorityReplication::IsEntityPublisher(
+        const EntityAuthorityKey&,
+        const std::string& mapName,
+        std::uint64_t actorId,
+        std::uint32_t mapEpoch) const noexcept
+    {
+        return IsMapPublisher(mapName, actorId, mapEpoch);
+    }
+
+    bool AuthorityReplication::IsEntityPublisher(
+        const EntityAuthorityKey&,
+        const std::uint16_t mapId,
+        const std::uint64_t actorId,
+        const std::uint32_t mapEpoch) const noexcept
+    {
+        return IsMapPublisher(mapId, actorId, mapEpoch);
+    }
+
+    bool AuthorityReplication::IsEntityActionPublisher(
         const EntityAuthorityKey& entity,
         const std::string& mapName,
         std::uint64_t actorId,
@@ -784,7 +899,7 @@ namespace fable::multiplayer::authority
         role_ = PeerRole::Guest;
         localActorId_ = 0;
         knownPeerRevision_ = 0;
-        requestedLocalMap_.clear();
+        requestedLocalMapId_ = 0;
         preparedLocalMapId_ = 0;
         preparedLocalBaselineRevision_ = 0;
         preparedLocalMapName_.clear();

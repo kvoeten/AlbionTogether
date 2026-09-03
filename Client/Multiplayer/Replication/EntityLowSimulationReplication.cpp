@@ -178,6 +178,23 @@ namespace fable::multiplayer::replication
         if (role_ == PeerRole::Host)
         {
             message.revision = NextHostRevision(canonicalUid);
+            bool merged = false;
+            if (!lifecycle_->Directory().HostApplyLowSimulation(
+                    canonicalUid,
+                    message.entityGeneration,
+                    message.mapName,
+                    message.ownerActorId,
+                    message.mapEpoch,
+                    event.current,
+                    message.revision,
+                    merged))
+            {
+                diagnostics_.Event(
+                    "MultiplayerEntityLowSimulationRejected",
+                    "host could not merge its local map-owner state into the canonical entity record");
+                return false;
+            }
+            (void)merged;
             latest_[canonicalUid] = message;
             RefreshHostProjectionSnapshot();
         }
@@ -349,17 +366,39 @@ namespace fable::multiplayer::replication
             lifecycle_->Directory().Find(message.entityUid);
         if (world == nullptr || !world->live || !world->available ||
             world->generation != message.entityGeneration ||
-            world->mapName != message.mapName ||
             world->mapEpoch != message.mapEpoch ||
             !authority_->IsMapPublisher(
-                message.mapName, sourceActorId, message.mapEpoch))
+                world->mapId, sourceActorId, message.mapEpoch))
         {
             diagnostics_.Event(
                 "MultiplayerEntityLowSimulationRejected",
                 "mutation was fenced by lifecycle or current map ownership");
             return true;
         }
+        // Entity identity, generation, canonical record, and map epoch form
+        // the authority fence. A script-facing map label can lag one load
+        // behind its numeric map identity, so never fork or reject the same
+        // entity solely because that redundant label is stale.
+        message.mapName = world->mapName;
         message.revision = NextHostRevision(message.entityUid);
+        game::npc::simulation::DummyVillagerState state = ToNative(message);
+        bool merged = false;
+        if (!lifecycle_->Directory().HostApplyLowSimulation(
+                message.entityUid,
+                message.entityGeneration,
+                message.mapName,
+                sourceActorId,
+                message.mapEpoch,
+                state,
+                message.revision,
+                merged))
+        {
+            diagnostics_.Event(
+                "MultiplayerEntityLowSimulationRejected",
+                "host could not merge guest state into the canonical entity record");
+            return true;
+        }
+        (void)merged;
         latest_[message.entityUid] = message;
         RefreshHostProjectionSnapshot();
         diagnostics_.Event(
@@ -473,6 +512,39 @@ namespace fable::multiplayer::replication
     void EntityLowSimulationReplication::ApplyLatest(
         const entities::LiveEntityRegistry& liveEntities)
     {
+        // A cross-map lifecycle handoff carries the final low-sim row on the
+        // structural stream. Apply that canonical row directly when the
+        // destination native Thing materializes; waiting for a later typed
+        // low-sim packet would re-open the handoff race this snapshot closes.
+        for (const entities::WorldEntityRecord& world :
+             lifecycle_->Directory().Snapshot())
+        {
+            if (!world.available || !world.live || !world.hasLowSimulation ||
+                authority_->IsMapPublisher(
+                    world.mapName, localActorId_, world.mapEpoch))
+            {
+                continue;
+            }
+            const entities::LiveEntityRecord* const live =
+                liveEntities.Find(world.thingUid);
+            if (live == nullptr || live->thing == nullptr)
+            {
+                continue;
+            }
+            AppliedState& applied = applied_[world.thingUid];
+            if (applied.thing == live->thing &&
+                applied.revision == world.lowSimulationRevision)
+            {
+                continue;
+            }
+            bool changed = false;
+            if (dummyVillagers_->ApplyAuthoritative(
+                    live->thing, world.lowSimulation, changed))
+            {
+                applied.thing = live->thing;
+                applied.revision = world.lowSimulationRevision;
+            }
+        }
         std::vector<std::uint64_t> stale;
         for (const auto& [entityUid, message] : latest_)
         {
@@ -526,7 +598,29 @@ namespace fable::multiplayer::replication
         if (role_ == PeerRole::Host && identities_ != nullptr &&
             lifecycle_ != nullptr)
         {
-            snapshot->reserve(latest_.size() * 2u);
+            const std::vector<entities::WorldEntityRecord> records =
+                lifecycle_->Directory().Snapshot();
+            snapshot->reserve((latest_.size() + records.size()) * 2u);
+            // Directory state is the host's bounded canonical save projection.
+            // Include it even when the native NPC is currently dormant or has
+            // not materialized on the host; serialization can consume it when
+            // the corresponding component is next constructed.
+            for (const entities::WorldEntityRecord& record : records)
+            {
+                if (!record.available || !record.hasLowSimulation)
+                {
+                    continue;
+                }
+                snapshot->insert_or_assign(record.thingUid,
+                    record.lowSimulation);
+                const std::uint64_t localUid = identities_->FindLocal(
+                    record.thingUid);
+                if (localUid != 0)
+                {
+                    snapshot->insert_or_assign(localUid,
+                        record.lowSimulation);
+                }
+            }
             for (const auto& [canonicalUid, message] : latest_)
             {
                 const entities::WorldEntityRecord* const world =
@@ -537,7 +631,9 @@ namespace fable::multiplayer::replication
                     continue;
                 }
                 const game::npc::simulation::DummyVillagerState state =
-                    ToNative(message);
+                    world->hasLowSimulation
+                    ? world->lowSimulation
+                    : ToNative(message);
                 snapshot->insert_or_assign(canonicalUid, state);
                 const std::uint64_t localUid =
                     identities_->FindLocal(canonicalUid);

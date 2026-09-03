@@ -7,6 +7,7 @@
 namespace fable::core::target
 {
     inline constexpr DWORD kExpectedImageSize = 0x035D5000;
+    inline constexpr DWORD kExpectedImageBase = 0x00400000;
     inline constexpr std::uintptr_t kGameScriptInterfaceSlotRva = 0x031BBC34;
     inline constexpr std::uintptr_t kGameScriptInterfaceVtableRva = 0x02AE35C4;
     inline constexpr std::uintptr_t kCharStringConstructorRva = 0x012B7800;
@@ -37,6 +38,16 @@ namespace fable::core::target
     inline constexpr std::uintptr_t kLoadGamePageDoStartPlayRva = 0x01BF56C0;
     inline constexpr std::uintptr_t kLoadGamePageDoOnUIEventRva = 0x01BF5C20;
     inline constexpr std::uintptr_t kLocalSaveManagerSlotRva = 0x0322FC00;
+    inline constexpr std::uintptr_t kQuestManagerGlobalRva = 0x03230360;
+    inline constexpr std::uintptr_t kQuestManagerSaveGameStateRva =
+        0x01BC4270;
+    inline constexpr std::uintptr_t kQuestManagerLoadGameStateRva =
+        0x01BC5200;
+    inline constexpr std::uintptr_t kPersistLoadGameStateRva = 0x01BC5EF0;
+    inline constexpr std::uintptr_t kCStringParserConstructorRva =
+        0x012C0AA0;
+    inline constexpr std::uintptr_t kCStringParserDestructorRva =
+        0x012C0B90;
 
     inline constexpr std::size_t kGetHeroVtableIndex = 70;
     inline constexpr std::size_t kGetThingWithScriptNameVtableIndex = 78;

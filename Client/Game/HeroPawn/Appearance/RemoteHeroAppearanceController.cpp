@@ -142,8 +142,25 @@ namespace fable::game::hero_pawn::appearance
             if (!native::HeroAttachableAppearanceComponent::Apply(
                     nativeHero_, modifiers, &removed, &added))
             {
-                return MutationPending(
+                const RemoteHeroAppearanceResult pending = MutationPending(
                     MutationStage::Modifiers, "modifiers");
+                if (pending != RemoteHeroAppearanceResult::Failed)
+                {
+                    return pending;
+                }
+
+                // Some retail Hero presentations reject attachable modifiers
+                // even after their clothing graph is usable. Keeping the last
+                // native modifier set is safer than destroying and respawning
+                // the entire remote Hero every timeout interval. A fresh actor
+                // incarnation or a changed modifier state will attempt the
+                // mutation again.
+                appliedModifiers_ = modifiers;
+                MutationSucceeded();
+                diagnostics_.Event(
+                    "MultiplayerRemoteAppearanceModifiersDegraded",
+                    "native modifier refresh was unavailable; retained the current actor presentation without rebuilding it");
+                return RemoteHeroAppearanceResult::Pending;
             }
             MutationSucceeded();
             appliedModifiers_ = modifiers;

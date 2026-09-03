@@ -9,27 +9,14 @@
 
 #include <Windows.h>
 
-#include <algorithm>
 #include <cstdio>
+#include <utility>
 
 namespace fable::multiplayer::presentation
 {
     namespace
     {
         using protocol::PlayerActionKind;
-
-        std::uint64_t SessionAge(
-            const protocol::SessionTimeMs now,
-            const protocol::SessionTimeMs started) noexcept
-        {
-            if (!protocol::IsSessionTimeSet(started) ||
-                !protocol::IsSessionTimeAtOrAfter(now, started))
-            {
-                return 0;
-            }
-            return static_cast<std::uint32_t>(now - started);
-        }
-
     }
 
     bool RemotePlayerActionPresentation::Initialize(
@@ -75,33 +62,6 @@ namespace fable::multiplayer::presentation
             return 0; // compatibility-only and never materialized
         }
         return 1'200;
-    }
-
-    bool RemotePlayerActionPresentation::IsReplayEligible(
-        const PlayerActionKind kind,
-        const std::uint64_t sessionAgeMs,
-        const std::uint32_t expectedDurationMs) noexcept
-    {
-        // Aim begin/end are durable mode mutations, not disposable one-shot
-        // animations. A delayed end must still close the held remote mode.
-        if (kind == PlayerActionKind::RangedAim ||
-            kind == PlayerActionKind::RangedAimEnd)
-        {
-            return true;
-        }
-        if (expectedDurationMs == 0 || sessionAgeMs > expectedDurationMs)
-        {
-            return false;
-        }
-        // Keep ordinary reliable-path jitter (up to 250 ms) but never start
-        // a short-lived one-shot from frame zero after most of its window.
-        const std::uint64_t durationBound = std::max<std::uint64_t>(
-            1,
-            static_cast<std::uint64_t>(expectedDurationMs) / 4);
-        const std::uint64_t toleratedLateness = std::min<std::uint64_t>(
-            250,
-            durationBound);
-        return sessionAgeMs <= toleratedLateness;
     }
 
     bool RemotePlayerActionPresentation::IsRevisionNewer(
@@ -357,8 +317,6 @@ namespace fable::multiplayer::presentation
             return false;
         }
         const std::uint64_t nowLocal = GetTickCount64();
-        const protocol::SessionTimeMs nowSession = protocol::ToSessionTime(
-            transport_->SessionTimeMilliseconds());
         for (auto& actor : actors_)
         {
             if (actor.actorId == 0)
@@ -406,38 +364,6 @@ namespace fable::multiplayer::presentation
                 const std::uint64_t localAge = nowLocal >= slot.offeredAtLocalMs
                     ? nowLocal - slot.offeredAtLocalMs
                     : 0;
-                if (!protocol::IsSessionTimeAtOrAfter(
-                        nowSession, message.startedAtSessionTimeMs))
-                {
-                    // A synchronized action must not start before its owner
-                    // timestamp. This is normally only a few milliseconds of
-                    // clock/path skew; retire it if that future never arrives.
-                    if (localAge >= NativeReadinessGraceMs)
-                    {
-                        Retire(slot, "presentation-start-remained-in-future");
-                    }
-                    continue;
-                }
-                const std::uint64_t sessionAge = SessionAge(
-                    nowSession, message.startedAtSessionTimeMs);
-                const std::uint64_t duration = message.expectedDurationMs;
-                if (!IsReplayEligible(
-                        message.kind,
-                        sessionAge,
-                        message.expectedDurationMs) ||
-                    (duration != 0 && localAge >
-                        duration + NativeReadinessGraceMs))
-                {
-                    const bool expired = duration != 0 &&
-                        (sessionAge > duration || localAge >
-                            duration + NativeReadinessGraceMs);
-                    Retire(
-                        slot,
-                        expired
-                            ? "presentation-expired"
-                            : "presentation-too-late");
-                    continue;
-                }
                 if (!localHero_->IsWorldReady() ||
                     localHero_->MapName() != message.mapName)
                 {

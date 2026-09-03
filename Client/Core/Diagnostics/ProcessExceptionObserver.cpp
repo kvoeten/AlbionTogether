@@ -4,12 +4,84 @@
 #include "Core/Target/FableNativeLayout.h"
 
 #include <Windows.h>
+#include <algorithm>
 #include <cstdio>
 
 namespace fable::core::diagnostics
 {
 using namespace fable::core::bootstrap;
 using namespace fable::core::target;
+
+    namespace
+    {
+#if defined(_M_IX86)
+        void LogStackCodeCandidates(const CONTEXT& context)
+        {
+            // Optimized retail frames omit EBP. Save bounded raw return-address
+            // candidates before SEH unwinds the *first* fault; a later Steam
+            // dump may contain only the secondary simulation-thread failure.
+            // These are candidates, not a reconstructed call stack.
+            DWORD words[1'024] = {};
+            MEMORY_BASIC_INFORMATION region = {};
+            const auto stack = static_cast<std::uintptr_t>(context.Esp);
+            if (VirtualQuery(reinterpret_cast<void*>(stack), &region,
+                    sizeof(region)) != sizeof(region) ||
+                region.State != MEM_COMMIT ||
+                (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0)
+            {
+                return;
+            }
+            const auto end = reinterpret_cast<std::uintptr_t>(
+                region.BaseAddress) + region.RegionSize;
+            if (stack >= end) return;
+            const std::size_t bytes = (std::min<std::size_t>)(
+                sizeof(words), end - stack);
+            SIZE_T read = 0;
+            if (!ReadProcessMemory(GetCurrentProcess(),
+                    reinterpret_cast<const void*>(stack), words, bytes, &read))
+            {
+                return;
+            }
+
+            const auto gameBase = reinterpret_cast<std::uintptr_t>(
+                CoreContext().gameModule);
+            const auto clientBase = reinterpret_cast<std::uintptr_t>(
+                CoreContext().clientModule);
+            const auto* const dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(
+                clientBase);
+            const auto* const nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+                clientBase + dos->e_lfanew);
+            const std::size_t clientSize = nt->OptionalHeader.SizeOfImage;
+            unsigned int reported = 0;
+            for (std::size_t index = 0; index < read / sizeof(DWORD) &&
+                    reported < 48; ++index)
+            {
+                const std::uintptr_t address = words[index];
+                const bool game = address >= gameBase &&
+                    address - gameBase < kExpectedImageSize;
+                const bool client = address >= clientBase &&
+                    address - clientBase < clientSize;
+                if (!game && !client) continue;
+                MEMORY_BASIC_INFORMATION code = {};
+                if (VirtualQuery(reinterpret_cast<const void*>(address),
+                        &code, sizeof(code)) != sizeof(code) ||
+                    (code.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) == 0)
+                {
+                    continue; // vtables/global data are not return addresses
+                }
+                LogFormat(
+                    "Process exception code candidate: stack_offset=0x%03X module=%s rva=0x%08lX address=%08lX.",
+                    static_cast<unsigned int>(index * sizeof(DWORD)),
+                    game ? "game" : "client",
+                    static_cast<unsigned long>(
+                        address - (game ? gameBase : clientBase)),
+                    words[index]);
+                ++reported;
+            }
+        }
+#endif
+    }
 
     LONG CaptureNativeFault(
         EXCEPTION_POINTERS* exceptionPointers,
@@ -188,6 +260,7 @@ using namespace fable::core::target;
                     stackWords[10],
                     stackWords[11]);
             }
+            LogStackCodeCandidates(*context);
         }
 #endif
 
@@ -255,6 +328,7 @@ namespace
             RemoveVectoredExceptionHandler(handler);
             DiagnosticsContext().vectoredExceptionHandler = nullptr;
         }
+        CoreContext().diagnosticLog.Shutdown();
     }
 
     FABLE_FEATURE_DESCRIPTOR(

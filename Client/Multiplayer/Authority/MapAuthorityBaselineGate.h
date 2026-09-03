@@ -23,6 +23,9 @@ namespace fable::multiplayer::authority
         virtual MapBaselinePreparationResult PrepareHostGrant(
             std::uint16_t mapId,
             std::uint64_t& baselineRevision) = 0;
+        virtual MapBaselinePreparationResult PrepareHostCollection(
+            std::uint64_t peerSetRevision) = 0;
+        [[nodiscard]] virtual bool IsGuestCollectionReady() const noexcept = 0;
         [[nodiscard]] virtual bool IsGuestGrantReady(
             std::uint16_t mapId,
             std::uint64_t baselineRevision) const noexcept = 0;

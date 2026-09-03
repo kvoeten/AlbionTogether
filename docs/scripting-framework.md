@@ -15,6 +15,26 @@ into typed AngelScript services and makes ABI confidence visible at runtime.
 
 ## Service layout
 
+### Callback threads
+
+`OnTick`, `OnKeyPressed`, and `OnWorldReady` execute after the native simulation
+frame. Window messages enqueue bounded value requests; they do not reconcile
+multiplayer actors or change native movement/components. Developer-tool commands
+use the same simulation dispatch. The native save-load gate retains its control
+message pump while ordinary frames cannot advance.
+
+`OnGui` remains on the DX9 render callback. Use it to draw UI and enqueue
+`DevTools` commands, not to call native gameplay mutation APIs directly. The
+AngelScript execution lock protects the VM; it is not an engine-thread lock.
+Module initialization remains bootstrap work and must not mutate a live world.
+
+The simulation hook is installed before the game resumes. Runtime shutdown
+detaches its consumer and waits for an in-flight callback; its trampoline and
+containing DLL remain resident until process exit. Detachment is not proof that
+all other native/render callbacks are quiescent.
+
+### Native ownership
+
 Native code is organized around the game concept that owns it:
 
 - `Game/World`: world readiness, region/map transitions, lookup, creation, and

@@ -131,11 +131,6 @@
   </ItemGroup>
   <ItemGroup><ProjectReference Include="..\Client\Client.vcxproj"><Project>{EF7DF930-D6E3-47AA-9475-76128B7DBF88}</Project><ReferenceOutputAssembly>false</ReferenceOutputAssembly><LinkLibraryDependencies>false</LinkLibraryDependencies></ProjectReference></ItemGroup>
   <Target Name="DeployAutomationFixture" AfterTargets="Build">
-    <Copy SourceFiles="$(SolutionDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\Profile.bin" DestinationFiles="$(OutDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\Profile.bin" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(SolutionDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\AutoSave" DestinationFiles="$(OutDir)fixtures\adult-town\Documents\My Games\FableHD\Saves\Hero1\AutoSave" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Fable Anniversary" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Fable Anniversary" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Hero3\Profile.bin" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Hero3\Profile.bin" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(SolutionDir)fixtures\candidates\combat-chamber-manual\Documents\My Games\FableHD\Saves\Hero3\AutoSave" DestinationFiles="$(OutDir)fixtures\combat-chamber-hero3\Documents\My Games\FableHD\Saves\Hero3\AutoSave" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(SolutionDir)config\server-character.fixture.json" DestinationFiles="$(OutDir)config\server-character.fixture.json" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="RejectRetailDefinitionFiles" AfterTargets="Build">

@@ -15,6 +15,8 @@ namespace
         L"ALBIONTOGETHER_LOG_FILES_ENABLED";
     constexpr wchar_t kFixtureDocumentsEnvironment[] =
         L"ALBIONTOGETHER_FIXTURE_DOCUMENTS";
+    constexpr wchar_t kFixtureSaveNameEnvironment[] =
+        L"ALBIONTOGETHER_FIXTURE_SAVE_NAME";
     constexpr wchar_t kCharacterSnapshotEnvironment[] =
         L"ALBIONTOGETHER_CHARACTER_SNAPSHOT";
     constexpr wchar_t kScriptDataEnvironment[] = L"ALBIONTOGETHER_SCRIPT_DATA";
@@ -102,6 +104,11 @@ namespace fable::automation::runtime
         generateLogFiles_ =
             ReadEnvironment(kLogFilesEnabledEnvironment) != L"0";
         fixtureDocumentsPath_ = ReadEnvironment(kFixtureDocumentsEnvironment);
+        fixtureSaveName_ = ReadEnvironment(kFixtureSaveNameEnvironment);
+        if (fixtureSaveName_.empty())
+        {
+            fixtureSaveName_ = L"AutoSave";
+        }
         characterSnapshotPath_ = ReadEnvironment(kCharacterSnapshotEnvironment);
         scriptDataPath_ = ReadEnvironment(kScriptDataEnvironment);
         localSessionId_ = ReadEnvironment(kLocalSessionEnvironment);
@@ -169,6 +176,11 @@ namespace fable::automation::runtime
     const std::wstring& RuntimeConfiguration::FixtureDocumentsPath() const noexcept
     {
         return fixtureDocumentsPath_;
+    }
+
+    const std::wstring& RuntimeConfiguration::FixtureSaveName() const noexcept
+    {
+        return fixtureSaveName_;
     }
 
     const std::wstring& RuntimeConfiguration::CharacterSnapshotPath() const noexcept

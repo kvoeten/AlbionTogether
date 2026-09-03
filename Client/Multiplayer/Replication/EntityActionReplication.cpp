@@ -224,7 +224,7 @@ namespace fable::multiplayer::replication
                 const bool canPublishAbility = source != nullptr &&
                     source->live && source->available && source->creature &&
                     source->mapName == localMap && source->mapEpoch != 0 &&
-                    authority_->IsEntityPublisher(
+                    authority_->IsEntityActionPublisher(
                         {source->thingUid, source->generation},
                         source->mapName,
                         localActorId_,
@@ -260,7 +260,7 @@ namespace fable::multiplayer::replication
             const bool canPublish = ownerRosterReady && entity != nullptr &&
                 entity->live && entity->available && entity->creature &&
                 entity->mapName == localMap && entity->mapEpoch != 0 &&
-                authority_->IsEntityPublisher(
+                authority_->IsEntityActionPublisher(
                     {entity->thingUid, entity->generation},
                     entity->mapName,
                     localActorId_,
@@ -364,6 +364,13 @@ namespace fable::multiplayer::replication
         const std::string& localMap,
         std::uint32_t mapEpoch)
     {
+        const protocol::EntityActionKind kind = Classify(event.actionType);
+        if (!protocol::RequiresSharedEntityAuthority(kind))
+        {
+            // Local shopping must not claim the merchant or leak another
+            // player's transaction/interaction into the shared action stream.
+            return true;
+        }
         if (event.thingUid == 0 || event.action == nullptr ||
             localActionIds_.find(event.action) != localActionIds_.end())
         {
@@ -383,7 +390,7 @@ namespace fable::multiplayer::replication
         active.actionId = NextActionId();
         active.ownerActorId = localActorId_;
         active.mapEpoch = mapEpoch;
-        active.kind = Classify(event.actionType);
+        active.kind = kind;
         active.flags = FlagsFor(active.kind);
         active.targetPlayerActorId = combatants_ != nullptr
             ? combatants_->FindActor(event.targetCreature)
@@ -936,6 +943,11 @@ namespace fable::multiplayer::replication
             return true;
         }
 
+        if (!protocol::RequiresSharedEntityAuthority(message.kind))
+        {
+            return true;
+        }
+
         if (role_ == PeerRole::Host)
         {
             if (message.phase == protocol::EntityActionPhase::Intent)
@@ -1071,6 +1083,10 @@ namespace fable::multiplayer::replication
     bool EntityActionReplication::AcceptAuthoritative(
         const protocol::EntityActionMessage& message)
     {
+        if (!protocol::RequiresSharedEntityAuthority(message.kind))
+        {
+            return true;
+        }
         const authority::EntityAuthorityKey key{
             message.entityUid,
             message.entityGeneration,
@@ -1796,7 +1812,6 @@ namespace fable::multiplayer::replication
         {
         case protocol::EntityActionKind::Conversation:
         case protocol::EntityActionKind::ConversationAnimation:
-        case protocol::EntityActionKind::Trade:
             return protocol::entity_action_flag::Exclusive |
                 protocol::entity_action_flag::ObserverNoCamera;
         case protocol::EntityActionKind::Combat:

@@ -327,6 +327,32 @@ namespace fable::game::entity::persistence
         Report(format, summary);
     }
 
+    bool SavedEntityMapBlobObserver::ReadBinarySnapshot(
+        void* savedEntities, std::uint32_t mapId,
+        SavedEntityMapBlobSnapshot& snapshot) const noexcept
+    {
+        snapshot = {};
+        if (savedEntities == nullptr || mapId >= MaximumMapRecords) return false;
+        __try
+        {
+            const auto* object = static_cast<const std::uint8_t*>(savedEntities);
+            const auto begin = *reinterpret_cast<const std::uint8_t* const*>(object + 0x10);
+            const auto end = *reinterpret_cast<const std::uint8_t* const*>(object + 0x14);
+            if (begin == nullptr || end < begin) return false;
+            const std::size_t bytes = static_cast<std::size_t>(end - begin);
+            if (bytes % RecordBytes != 0 || bytes / RecordBytes > MaximumMapRecords ||
+                mapId >= bytes / RecordBytes) return false;
+            const auto* record = begin + mapId * RecordBytes;
+            return record[0x18] != 0 && ReadSnapshot(record, mapId,
+                SavedEntityMapBlobFormat::Binary, snapshot);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            snapshot = {};
+            return false;
+        }
+    }
+
     bool SavedEntityMapBlobObserver::ReadSnapshot(
         const std::uint8_t* record,
         std::uint32_t mapId,

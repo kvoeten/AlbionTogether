@@ -5,6 +5,7 @@
 #include <Windows.h>
 
 #include <memory>
+#include "DeveloperTools/Runtime/DeveloperToolsRuntime.h"
 
 namespace fable::automation::runtime { class RuntimeConfiguration; }
 namespace fable::automation::appearance_cycle { class AppearanceCycleScenario; }
@@ -60,10 +61,19 @@ namespace fable::game
             automation::appearance_cycle::AppearanceCycleScenario& scenario);
         void DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed);
         void DispatchWorldReady();
-        bool ProcessMultiplayerPresentation();
-        bool ProcessAutomationGameThreadIdle();
-        void DriveReplicatedMovement();
-        void Tick(float deltaSeconds);
+        // Window callbacks only enqueue values; native mutation is simulation-owned.
+        bool ConsumeWorldDeparture();
+        void RequestAutomationIdle();
+        void QueueWindowTick(bool background);
+        void ProcessSimulationFrame();
+        void ToggleDeveloperTools(HWND owner) noexcept;
+        void CloseDeveloperTools() noexcept;
+        bool HandleDeveloperToolsWindowMessage(
+            HWND window,
+            UINT message,
+            WPARAM wParam,
+            LPARAM lParam) noexcept;
+        [[nodiscard]] bool IsDeveloperToolsAvailable() const noexcept;
         bool Reload();
         void Shutdown() noexcept;
 

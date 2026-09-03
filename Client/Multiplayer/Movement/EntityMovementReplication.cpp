@@ -574,11 +574,23 @@ namespace fable::multiplayer::movement
     }
 
     bool EntityMovementReplication::Accept(
-        const protocol::EntityMovementMessage& message,
+        const protocol::EntityMovementMessage& incoming,
         std::uint64_t sourceActorId,
         std::uint64_t receivedAt,
         bool relay)
     {
+        protocol::EntityMovementMessage message = incoming;
+        const entities::WorldEntityRecord* const identity =
+            lifecycle_->Directory().Find(message.entityUid);
+        if (identity != nullptr &&
+            identity->generation == message.entityGeneration &&
+            identity->mapEpoch == message.mapEpoch)
+        {
+            // The canonical entity incarnation and lease epoch identify the
+            // map. Normalize the redundant script label before ownership and
+            // relay checks because that label can settle one load late.
+            message.mapName = identity->mapName;
+        }
         const auto reject = [&](const char* reason)
         {
             constexpr std::uint32_t RejectionReportLimit = 32;
@@ -629,7 +641,7 @@ namespace fable::multiplayer::movement
         }
         if (!authority_->IsEntityPublisher(
                 key,
-                message.mapName,
+                identity != nullptr ? identity->mapId : 0,
                 sourceActorId,
                 message.mapEpoch))
         {

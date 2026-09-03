@@ -9,6 +9,7 @@
 #include "Core/Diagnostics/DiagnosticLog.h"
 #include "Core/GameThread/Hooks/GameThreadIdleHook.h"
 #include "Game/Creature/AI/Hooks/AiBrainUpdateObserver.h"
+#include "Game/NPC/Shop/Hooks/ShopKeeperSetupGuard.h"
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Hooks/CreatureConstructorHook.h"
 #include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
@@ -171,6 +172,7 @@ namespace fable::core::bootstrap
         fable::automation::local_instance::UnrealSingletonHook singleton;
         fable::core::game_thread::GameThreadIdleHook gameThreadIdle;
         fable::game::creature::ai::AiBrainUpdateObserver aiBrain;
+        fable::game::npc::shop::native::ShopKeeperSetupGuard shopSetup;
         fable::game::creature::actions::CreatureActionLifecycleObserver creatureActions;
         fable::game::entity::presence::ThingPresenceObserver thingPresence;
         fable::game::entity::persistence::SavedEntityMapBlobObserver savedEntityMap;
@@ -226,9 +228,9 @@ namespace fable::core::bootstrap
         std::atomic<ULONGLONG> saveListLastTickAt{0};
         std::atomic_uint saveListTickCount{0};
         std::atomic_uint saveListLastLoggedPhase{0xFFFFFFFFu};
-        std::atomic_bool autoSaveSelected{false};
-        std::atomic_uint autoSaveIdentity{0xFFFFFFFFu};
-        std::atomic<ULONGLONG> autoSaveSelectedAt{0};
+        std::atomic_bool fixtureSaveSelected{false};
+        std::atomic_uint fixtureSaveIdentity{0xFFFFFFFFu};
+        std::atomic<ULONGLONG> fixtureSaveSelectedAt{0};
         std::atomic_bool fixtureStartInvoked{false};
         std::atomic<ULONGLONG> fixtureStartInvokedAt{0};
         std::atomic_bool mainMenuReleased{false};

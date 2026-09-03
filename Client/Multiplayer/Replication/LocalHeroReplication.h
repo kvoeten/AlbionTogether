@@ -5,6 +5,7 @@
 #include "Game/HeroPawn/Appearance/Hooks/HeroAppearanceMutationObserver.h"
 #include "Game/HeroPawn/Equipment/Hooks/HeroEquipmentMutationObserver.h"
 #include "Multiplayer/Protocol/PlayerState.h"
+#include "Multiplayer/Replication/LocalHeroOwnedStateRestorer.h"
 
 #include <atomic>
 #include <cstdint>
@@ -147,6 +148,7 @@ namespace fable::multiplayer::replication
         std::atomic_uint64_t lastEquipmentMutationAt_{0};
         LocalEquipmentTransition equipmentTransition_;
         std::mutex ownerStateMutex_;
+        LocalHeroOwnedStateRestorer ownedStateRestorer_;
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t actorId_ = 0;
         std::uint32_t authorityEpoch_ = 0;
@@ -155,6 +157,7 @@ namespace fable::multiplayer::replication
         std::string mapName_;
         std::uint16_t mapId_ = 0;
         std::string departingMapName_;
+        std::uint16_t departingMapId_ = 0;
         game::Entity* hero_ = nullptr;
         void* nativeHero_ = nullptr;
         std::atomic<void*> nativeHeroForMutation_{nullptr};
@@ -172,6 +175,7 @@ namespace fable::multiplayer::replication
         bool graphicRuntimeReported_ = false;
         bool transitionActive_ = false;
         bool transitionCompleted_ = false;
+        bool destinationBaselineOpened_ = false;
         bool exchangeReported_ = false;
         bool movingExchangeReported_ = false;
         bool transportFailureReported_ = false;

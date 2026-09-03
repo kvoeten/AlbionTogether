@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="DeveloperTools"><UniqueIdentifier>{D5C67B8A-48C7-49A0-9C26-2E4F2A89AC10}</UniqueIdentifier></Filter>
+    <Filter Include="DeveloperTools\Game"><UniqueIdentifier>{A2A4D6E2-7B8B-4DD0-8E2B-7C0DAA1FDC4B}</UniqueIdentifier></Filter>
+    <Filter Include="DeveloperTools\Scripting"><UniqueIdentifier>{4A2E2D68-AC49-4E25-9F1C-4428D19A6E52}</UniqueIdentifier></Filter>
+    <Filter Include="DeveloperTools\Runtime"><UniqueIdentifier>{E4B6D523-57C6-4AE6-8DD1-3B9BEFEC91B1}</UniqueIdentifier></Filter>
+    <Filter Include="UI\ImGui"><UniqueIdentifier>{AF2C9B7B-155F-423D-A08F-BEC2B83136AF}</UniqueIdentifier></Filter>
+    <Filter Include="UI\ImGui\Bindings"><UniqueIdentifier>{4D2880C9-E335-4F5F-9D11-0C9CA4512D8D}</UniqueIdentifier></Filter>
+    <Filter Include="UI\ImGui\Runtime"><UniqueIdentifier>{E6D13D52-9494-4619-A1AF-A55B80EE9907}</UniqueIdentifier></Filter>
     <Filter Include="Automation\Multiplayer\Abilities"><UniqueIdentifier>{6357F32F-AB43-45AA-8C8D-075C9C7FA88C}</UniqueIdentifier></Filter>
     <Filter Include="Automation"><UniqueIdentifier>{2B101883-4812-449E-B961-083ABEF8D7AB}</UniqueIdentifier></Filter>
     <Filter Include="Automation\AppearanceCycle"><UniqueIdentifier>{A528C059-F0F9-4450-9DD0-A68C699E6C56}</UniqueIdentifier></Filter>
@@ -70,6 +77,7 @@
     <Filter Include="Game\Entity\Persistence"><UniqueIdentifier>{2C1B435C-2D51-4F55-B5D2-86AD3D95B92B}</UniqueIdentifier></Filter>
     <Filter Include="Game\Entity\Persistence\Hooks"><UniqueIdentifier>{533CF25C-1C1E-4C17-A12F-CB6EAC159A98}</UniqueIdentifier></Filter>
     <Filter Include="Game\Entity\Persistence\Native"><UniqueIdentifier>{214A2F3C-1EC2-49A8-BC51-E2A090BE145B}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Entity\Persistence\Serialization"><UniqueIdentifier>{A6CB5F9A-ECFA-49D4-8A8D-6FD7F10D4FD3}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn"><UniqueIdentifier>{D22F844A-F056-4D71-A78C-571064DC5292}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\Abilities"><UniqueIdentifier>{3F8D7E8B-42B2-47C7-94E4-5F91419B1CF0}</UniqueIdentifier></Filter>
     <Filter Include="Game\HeroPawn\Abilities\Hooks"><UniqueIdentifier>{C49EEA58-B2EB-4655-8754-994C9DBA7F9E}</UniqueIdentifier></Filter>
@@ -94,8 +102,12 @@
     <Filter Include="Game\Math\Bindings"><UniqueIdentifier>{011DAC29-96EA-42EA-8170-A86383FA22D4}</UniqueIdentifier></Filter>
     <Filter Include="Game\Native"><UniqueIdentifier>{E34F1CC3-EA47-469E-B56C-A7A7A91272BA}</UniqueIdentifier></Filter>
     <Filter Include="Game\Persistence"><UniqueIdentifier>{E9CA2B12-3FFD-417A-A66A-5356BDD6FD8D}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Persistence\Hooks"><UniqueIdentifier>{A4133243-E624-4ECA-9B9A-5271912AF781}</UniqueIdentifier></Filter>
     <Filter Include="Game\Persistence\Native"><UniqueIdentifier>{823D0C5D-6007-4DA8-8114-A437A3F605D7}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC"><UniqueIdentifier>{4AECC3C6-F4D7-4697-B783-FCC451C738F0}</UniqueIdentifier></Filter>
+    <Filter Include="Game\NPC\Shop"><UniqueIdentifier>{E67148C9-7643-46E5-9AD0-54F6B20E383B}</UniqueIdentifier></Filter>
+    <Filter Include="Game\NPC\Shop\Native"><UniqueIdentifier>{39B6FB2B-A5AC-4D7C-9F6D-29416279C5D0}</UniqueIdentifier></Filter>
+    <Filter Include="Game\NPC\Shop\Hooks"><UniqueIdentifier>{3F2C7ED9-7CD8-44A5-9E3F-C2A42B6F4D4E}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Conversation"><UniqueIdentifier>{DC21A4DF-C607-48B2-80C9-E78C92C85384}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Conversation\Native"><UniqueIdentifier>{3D031C54-42BD-450F-854B-E26FA383D9D5}</UniqueIdentifier></Filter>
     <Filter Include="Game\NPC\Population"><UniqueIdentifier>{756B18CD-9187-43C5-B68F-974F3AB3A507}</UniqueIdentifier></Filter>
@@ -115,6 +127,7 @@
     <Filter Include="Game\Player\Input\Hooks"><UniqueIdentifier>{CBDF97E1-B2A5-4070-9D36-A373B2F577A8}</UniqueIdentifier></Filter>
     <Filter Include="Game\Player\Input\Native"><UniqueIdentifier>{9B2E64D1-BAB5-4946-A88C-ACD315306DE3}</UniqueIdentifier></Filter>
     <Filter Include="Game\Quest"><UniqueIdentifier>{2678A786-DC42-4356-892D-D0A66CAC9F80}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Quest\Persistence"><UniqueIdentifier>{0A5CCF4E-FA17-4E4B-9C7C-7FBD78DB1A8D}</UniqueIdentifier></Filter>
     <Filter Include="Game\Quest\Bindings"><UniqueIdentifier>{9A9F19FD-AA60-4DA1-B37D-28724DD92C20}</UniqueIdentifier></Filter>
     <Filter Include="Game\World"><UniqueIdentifier>{BAD7D7A1-3C6B-4406-A2E8-262A7A2F9201}</UniqueIdentifier></Filter>
     <Filter Include="Game\World\Bindings"><UniqueIdentifier>{A5F01939-1564-4D0A-B4E3-970822F0CC3F}</UniqueIdentifier></Filter>
@@ -156,6 +169,15 @@
     <Filter Include="UI\Runtime"><UniqueIdentifier>{4E13EE90-1D68-469C-8F52-66F64DDC8D0B}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DeveloperTools\DeveloperToolTypes.cpp"><Filter>DeveloperTools</Filter></ClCompile>
+    <ClCompile Include="DeveloperTools\DeveloperCommandQueue.cpp"><Filter>DeveloperTools</Filter></ClCompile>
+    <ClCompile Include="DeveloperTools\DeveloperToolBackend.cpp"><Filter>DeveloperTools</Filter></ClCompile>
+    <ClCompile Include="DeveloperTools\Game\GameDeveloperToolAdapter.cpp"><Filter>DeveloperTools\Game</Filter></ClCompile>
+    <ClCompile Include="DeveloperTools\Game\MultiplayerSaveSectionStatusProvider.cpp"><Filter>DeveloperTools\Game</Filter></ClCompile>
+    <ClCompile Include="DeveloperTools\Scripting\DeveloperToolBindings.cpp"><Filter>DeveloperTools\Scripting</Filter></ClCompile>
+    <ClCompile Include="DeveloperTools\Runtime\DeveloperToolsRuntime.cpp"><Filter>DeveloperTools\Runtime</Filter></ClCompile>
+    <ClCompile Include="UI\ImGui\Bindings\ImGuiBindings.cpp"><Filter>UI\ImGui\Bindings</Filter></ClCompile>
+    <ClCompile Include="UI\ImGui\Runtime\ImGuiDx9Runtime.cpp"><Filter>UI\ImGui\Runtime</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Abilities</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Authority\AuthorityReplication.cpp"><Filter>Multiplayer\Authority</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Authority\ActionAuthorityCoordinator.cpp"><Filter>Multiplayer\Authority</Filter></ClCompile>
@@ -175,11 +197,14 @@
     <ClCompile Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Transition</Filter></ClCompile>
     <ClCompile Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Transition</Filter></ClCompile>
+    <ClCompile Include="Automation\Multiplayer\Transition\OwnerScopedPresentationAcceptanceDriver.cpp"><Filter>Automation\Multiplayer\Transition</Filter></ClCompile>
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp"><Filter>Automation\Runtime</Filter></ClCompile>
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp"><Filter>Core\Capabilities</Filter></ClCompile>
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp"><Filter>Core\Diagnostics</Filter></ClCompile>
     <ClCompile Include="Core\Hooking\CodePatch.cpp"><Filter>Core\Hooking</Filter></ClCompile>
     <ClCompile Include="Core\GameThread\Hooks\GameThreadIdleHook.cpp"><Filter>Core\GameThread\Hooks</Filter></ClCompile>
+    <ClCompile Include="Core\GameThread\Hooks\SimulationFrameHook.cpp"><Filter>Core\GameThread\Hooks</Filter></ClCompile>
+    <ClCompile Include="Core\Bootstrap\SimulationFrameFeature.cpp"><Filter>Core\Bootstrap</Filter></ClCompile>
     <ClCompile Include="Core\GameThread\Native\PeekMessageImport.cpp"><Filter>Core\GameThread\Native</Filter></ClCompile>
     <ClCompile Include="Game\Creature\CreatureService.cpp"><Filter>Game\Creature</Filter></ClCompile>
     <ClCompile Include="Game\Creature\AI\Hooks\AiBrainUpdateObserver.cpp"><Filter>Game\Creature\AI\Hooks</Filter></ClCompile>
@@ -243,8 +268,11 @@
     <ClCompile Include="Game\Entity\Persistence\Hooks\SavedEntityMapBlobObserver.cpp"><Filter>Game\Entity\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Hooks\ThingSaveProjectionHook.cpp"><Filter>Game\Entity\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Native\SavedEntityMapRecordInstaller.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Persistence\Native\SavedEntityCompression.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Native\SavedEntitiesFunctions.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\Entity\Persistence\Native\ThingSaveFunctions.cpp"><Filter>Game\Entity\Persistence\Native</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.cpp"><Filter>Game\Entity\Persistence\Serialization</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Persistence\Serialization\SavedEntityCell.cpp"><Filter>Game\Entity\Persistence\Serialization</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\HeroPawnService.cpp"><Filter>Game\HeroPawn</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Travel\Hooks\GuildTeleportSafetyHook.cpp"><Filter>Game\HeroPawn\Travel\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Travel\Hooks\MapTransitionUiActionSafetyHook.cpp"><Filter>Game\HeroPawn\Travel\Hooks</Filter></ClCompile>
@@ -279,6 +307,10 @@
     <ClCompile Include="Game\Math\Bindings\MathBindings.cpp"><Filter>Game\Math\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\Native\GameInterface.cpp"><Filter>Game\Native</Filter></ClCompile>
     <ClCompile Include="Game\NPC\NpcService.cpp"><Filter>Game\NPC</Filter></ClCompile>
+    <ClCompile Include="Game\NPC\Shop\Native\ShopKeeperReadiness.cpp"><Filter>Game\NPC\Shop\Native</Filter></ClCompile>
+    <ClCompile Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.cpp"><Filter>Game\NPC\Shop\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.cpp"><Filter>Game\Entity\Persistence\Serialization</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\LocalShopSaveBoundary.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.cpp"><Filter>Game\NPC\Conversation\Native</Filter></ClCompile>
     <ClCompile Include="Game\NPC\Population\Hooks\PopulationSimulationHook.cpp"><Filter>Game\NPC\Population\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\NPC\Population\Native\PopulationSimulationFunctions.cpp"><Filter>Game\NPC\Population\Native</Filter></ClCompile>
@@ -295,6 +327,8 @@
     <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp"><Filter>Game\Player\Input\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp"><Filter>Game\Player\Input\Native</Filter></ClCompile>
     <ClCompile Include="Game\Quest\QuestService.cpp"><Filter>Game\Quest</Filter></ClCompile>
+    <ClCompile Include="Game\Persistence\Hooks\GameStateSectionLoadHook.cpp"><Filter>Game\Persistence\Hooks</Filter></ClCompile>
+    <ClCompile Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.cpp"><Filter>Game\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Persistence\Native\AutoSaveFunction.cpp"><Filter>Game\Persistence\Native</Filter></ClCompile>
     <ClCompile Include="Game\Quest\Bindings\QuestBindings.cpp"><Filter>Game\Quest\Bindings</Filter></ClCompile>
     <ClCompile Include="Game\World\WorldService.cpp"><Filter>Game\World</Filter></ClCompile>
@@ -310,7 +344,13 @@
     <ClCompile Include="Multiplayer\Movement\ReplicatedActorMovement.cpp"><Filter>Multiplayer\Movement</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Movement\EntityMovementReplication.cpp"><Filter>Multiplayer\Movement</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\HostWorldStateProjection.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\QuestStateAuthorityService.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\WorldSectionAuthorityService.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.cpp"><Filter>Game\Quest\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBaselineService.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\GuestHeroSaveBoundary.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\SavedEntityConstructionGate.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBlobDirectory.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Population\PopulationSimulationAuthority.cpp"><Filter>Multiplayer\Population</Filter></ClCompile>
@@ -332,11 +372,15 @@
     <ClCompile Include="Multiplayer\Protocol\PlayerMovementCodec.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Protocol\QuestStateSnapshotMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp"><Filter>Game\HeroPawn\Remote</Filter></ClCompile>
+    <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroNativeLifecycle.cpp"><Filter>Game\HeroPawn\Remote</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerActionPresentation.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerPartyHud.cpp"><Filter>Multiplayer\Presentation</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Replication\LocalHeroOwnedStateRestorer.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\LocalPlayerActionCapture.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp"><Filter>Multiplayer\Replication</Filter></ClCompile>
@@ -391,6 +435,7 @@
     <ClCompile Include="Core\Target\ExecutableValidator.cpp"><Filter>Core\Target</Filter></ClCompile>
     <ClCompile Include="Game\Runtime\GameServiceRuntime.cpp"><Filter>Game\Runtime</Filter></ClCompile>
     <ClCompile Include="Game\Runtime\GameplayRuntime.cpp"><Filter>Game\Runtime</Filter></ClCompile>
+    <ClCompile Include="Game\Runtime\GameplayRuntimeDispatch.cpp"><Filter>Game\Runtime</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Runtime\MultiplayerRuntimeGraph.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Runtime\PresentationLifecycleCoordinator.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.cpp"><Filter>Multiplayer\Runtime</Filter></ClCompile>
@@ -399,6 +444,15 @@
     <ClCompile Include="UI\Runtime\GameWindowRuntime.cpp"><Filter>UI\Runtime</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DeveloperTools\DeveloperToolTypes.h"><Filter>DeveloperTools</Filter></ClInclude>
+    <ClInclude Include="DeveloperTools\DeveloperCommandQueue.h"><Filter>DeveloperTools</Filter></ClInclude>
+    <ClInclude Include="DeveloperTools\DeveloperToolBackend.h"><Filter>DeveloperTools</Filter></ClInclude>
+    <ClInclude Include="DeveloperTools\Game\GameDeveloperToolAdapter.h"><Filter>DeveloperTools\Game</Filter></ClInclude>
+    <ClInclude Include="DeveloperTools\Game\MultiplayerSaveSectionStatusProvider.h"><Filter>DeveloperTools\Game</Filter></ClInclude>
+    <ClInclude Include="DeveloperTools\Scripting\DeveloperToolBindings.h"><Filter>DeveloperTools\Scripting</Filter></ClInclude>
+    <ClInclude Include="DeveloperTools\Runtime\DeveloperToolsRuntime.h"><Filter>DeveloperTools\Runtime</Filter></ClInclude>
+    <ClInclude Include="UI\ImGui\Bindings\ImGuiBindings.h"><Filter>UI\ImGui\Bindings</Filter></ClInclude>
+    <ClInclude Include="UI\ImGui\Runtime\ImGuiDx9Runtime.h"><Filter>UI\ImGui\Runtime</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.h"><Filter>Automation\Multiplayer\Abilities</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Authority\AuthorityReplication.h"><Filter>Multiplayer\Authority</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Authority\ActionAuthorityCoordinator.h"><Filter>Multiplayer\Authority</Filter></ClInclude>
@@ -418,13 +472,17 @@
     <ClInclude Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.h"><Filter>Automation\Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.h"><Filter>Automation\Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
+    <ClInclude Include="Automation\Multiplayer\Transition\NativeRegionRoute.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
     <ClInclude Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
+    <ClInclude Include="Automation\Multiplayer\Transition\OwnerScopedPresentationAcceptanceDriver.h"><Filter>Automation\Multiplayer\Transition</Filter></ClInclude>
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h"><Filter>Automation\Runtime</Filter></ClInclude>
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h"><Filter>Core\Capabilities</Filter></ClInclude>
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h"><Filter>Core\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Core\Diagnostics\Diagnostics.h"><Filter>Core\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Core\Hooking\CodePatch.h"><Filter>Core\Hooking</Filter></ClInclude>
     <ClInclude Include="Core\GameThread\Hooks\GameThreadIdleHook.h"><Filter>Core\GameThread\Hooks</Filter></ClInclude>
+    <ClInclude Include="Core\GameThread\Hooks\SimulationFrameHook.h"><Filter>Core\GameThread\Hooks</Filter></ClInclude>
+    <ClInclude Include="Core\GameThread\Native\SimulationFrameFunction.h"><Filter>Core\GameThread\Native</Filter></ClInclude>
     <ClInclude Include="Core\GameThread\Native\PeekMessageImport.h"><Filter>Core\GameThread\Native</Filter></ClInclude>
     <ClInclude Include="Game\Creature\CreatureService.h"><Filter>Game\Creature</Filter></ClInclude>
     <ClInclude Include="Game\Creature\AI\Hooks\AiBrainUpdateObserver.h"><Filter>Game\Creature\AI\Hooks</Filter></ClInclude>
@@ -487,6 +545,7 @@
     <ClInclude Include="Game\Entity\EntityService.h"><Filter>Game\Entity</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Bindings\EntityBindings.h"><Filter>Game\Entity\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Native\ThingComponentAccess.h"><Filter>Game\Entity\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Native\EntityFlagFunction.h"><Filter>Game\Entity\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Native\ThingComponentProvisioner.h"><Filter>Game\Entity\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Native\ScriptedUseActionFunctions.h"><Filter>Game\Entity\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Presence\Hooks\ThingPresenceObserver.h"><Filter>Game\Entity\Presence\Hooks</Filter></ClInclude>
@@ -495,9 +554,12 @@
     <ClInclude Include="Game\Entity\Persistence\Hooks\SavedEntityMapBlobObserver.h"><Filter>Game\Entity\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Hooks\ThingSaveProjectionHook.h"><Filter>Game\Entity\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Native\SavedEntityMapRecordInstaller.h"><Filter>Game\Entity\Persistence\Native</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Persistence\Native\SavedEntityCompression.h"><Filter>Game\Entity\Persistence\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Native\SavedEntitiesFunctions.h"><Filter>Game\Entity\Persistence\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\Native\ThingSaveFunctions.h"><Filter>Game\Entity\Persistence\Native</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Persistence\SavedEntityMapBlobSnapshot.h"><Filter>Game\Entity\Persistence</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.h"><Filter>Game\Entity\Persistence\Serialization</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Persistence\Serialization\SavedEntityCell.h"><Filter>Game\Entity\Persistence\Serialization</Filter></ClInclude>
     <ClInclude Include="Game\Entity\Presence\ThingPresenceEvent.h"><Filter>Game\Entity\Presence</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\HeroPawnService.h"><Filter>Game\HeroPawn</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Travel\Hooks\GuildTeleportSafetyHook.h"><Filter>Game\HeroPawn\Travel\Hooks</Filter></ClInclude>
@@ -542,6 +604,10 @@
     <ClInclude Include="Game\Native\GameInterface.h"><Filter>Game\Native</Filter></ClInclude>
     <ClInclude Include="Game\Native\ScriptTypes.h"><Filter>Game\Native</Filter></ClInclude>
     <ClInclude Include="Game\NPC\NpcService.h"><Filter>Game\NPC</Filter></ClInclude>
+    <ClInclude Include="Game\NPC\Shop\Native\ShopKeeperReadiness.h"><Filter>Game\NPC\Shop\Native</Filter></ClInclude>
+    <ClInclude Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.h"><Filter>Game\NPC\Shop\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.h"><Filter>Game\Entity\Persistence\Serialization</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\LocalShopSaveBoundary.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.h"><Filter>Game\NPC\Conversation\Native</Filter></ClInclude>
     <ClInclude Include="Game\NPC\Population\Hooks\PopulationSimulationHook.h"><Filter>Game\NPC\Population\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\NPC\Population\Native\PopulationSimulationFunctions.h"><Filter>Game\NPC\Population\Native</Filter></ClInclude>
@@ -561,6 +627,8 @@
     <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h"><Filter>Game\Player\Input\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h"><Filter>Game\Player\Input\Native</Filter></ClInclude>
     <ClInclude Include="Game\Quest\QuestService.h"><Filter>Game\Quest</Filter></ClInclude>
+    <ClInclude Include="Game\Persistence\Hooks\GameStateSectionLoadHook.h"><Filter>Game\Persistence\Hooks</Filter></ClInclude>
+    <ClInclude Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.h"><Filter>Game\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Persistence\Native\AutoSaveFunction.h"><Filter>Game\Persistence\Native</Filter></ClInclude>
     <ClInclude Include="Game\Quest\Bindings\QuestBindings.h"><Filter>Game\Quest\Bindings</Filter></ClInclude>
     <ClInclude Include="Game\World\WorldService.h"><Filter>Game\World</Filter></ClInclude>
@@ -577,7 +645,13 @@
     <ClInclude Include="Multiplayer\Movement\ReplicatedActorMovement.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Movement\EntityMovementReplication.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\HostWorldStateProjection.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\QuestStateAuthorityService.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\WorldSectionAuthorityService.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.h"><Filter>Game\Quest\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBaselineService.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\GuestHeroSaveBoundary.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\SavedEntityConstructionGate.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBlobDirectory.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Population\PopulationSimulationAuthority.h"><Filter>Multiplayer\Population</Filter></ClInclude>
@@ -591,6 +665,8 @@
     <ClInclude Include="Multiplayer\Combat\PlayerDeathPolicy.h"><Filter>Multiplayer\Combat</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroNativeLifecycle.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
+    <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroVisibilityPolicy.h"><Filter>Game\HeroPawn\Remote</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerActionPresentation.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerPartyHud.h"><Filter>Multiplayer\Presentation</Filter></ClInclude>
@@ -615,7 +691,10 @@
     <ClInclude Include="Multiplayer\Protocol\PlayerMovementMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\PopulationStateMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\QuestStateSnapshotMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Replication\LocalHeroOwnedStateRestorer.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalPlayerActionCapture.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
@@ -677,6 +756,8 @@
     <ClInclude Include="Core\Target\FableNativeLayout.h"><Filter>Core\Target</Filter></ClInclude>
     <ClInclude Include="Game\Runtime\GameServiceRuntime.h"><Filter>Game\Runtime</Filter></ClInclude>
     <ClInclude Include="Game\Runtime\GameplayRuntime.h"><Filter>Game\Runtime</Filter></ClInclude>
+    <ClInclude Include="Game\Runtime\GameplayRuntimeState.h"><Filter>Game\Runtime</Filter></ClInclude>
+    <ClInclude Include="Game\Runtime\GameplayFrameMailbox.h"><Filter>Game\Runtime</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Runtime\MultiplayerRuntimeGraph.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Runtime\MultiplayerSessionContexts.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Runtime\PresentationLifecycleCoordinator.h"><Filter>Multiplayer\Runtime</Filter></ClInclude>
@@ -687,5 +768,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Scripts\Debug\AppearanceCycle.as"><Filter>Scripts\Debug</Filter></None>
+    <None Include="Scripts\Debug\DeveloperTools.as"><Filter>Scripts\Debug</Filter></None>
   </ItemGroup>
 </Project>

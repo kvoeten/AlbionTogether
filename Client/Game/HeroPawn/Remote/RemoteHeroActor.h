@@ -14,6 +14,7 @@
 #include "Multiplayer/Protocol/PlayerState.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace fable::game
@@ -59,8 +60,15 @@ namespace fable::multiplayer::combat
     class PlayerCombatantDirectory;
 }
 
+namespace fable::multiplayer::entities
+{
+    class LiveEntityRegistry;
+}
+
 namespace fable::game::hero_pawn::remote
 {
+    class RemoteHeroNativeLifecycle;
+
     using multiplayer::PlayerState;
     namespace movement = multiplayer::movement;
 
@@ -68,7 +76,7 @@ namespace fable::game::hero_pawn::remote
     {
         Constructing,
         NativeReady,
-        BaselineApplied,
+        AppearanceApplied,
         Active,
     };
 
@@ -85,6 +93,9 @@ namespace fable::game::hero_pawn::remote
     class RemoteHeroActor final
     {
     public:
+        RemoteHeroActor();
+        ~RemoteHeroActor();
+
         bool Initialize(
             game::EntityService& entities,
             game::NpcService& npcs,
@@ -104,7 +115,10 @@ namespace fable::game::hero_pawn::remote
         void Reconcile(
             const multiplayer::replication::RemotePlayerSnapshot& snapshot,
             const std::string& localMap,
-            game::Entity* localHero);
+            std::uint16_t localMapId,
+            game::Entity* localHero,
+            const multiplayer::entities::LiveEntityRegistry* liveEntities =
+                nullptr);
         // Compatibility overload for callers that only have a legacy
         // snapshot. New lifecycle-aware callers must use the overload above.
         void Reconcile(
@@ -168,22 +182,8 @@ namespace fable::game::hero_pawn::remote
             std::uint32_t mapEpoch) const noexcept;
 
     private:
-        bool Spawn(const PlayerState& state);
-        RemoteHeroActivationResult ActivateSpawnedPresentation(
-            const PlayerState& state,
-            const std::string& localMap,
-            game::Entity* localHero,
-            std::uint64_t receivedAt);
-        void Suspend(
-            const PlayerState& state,
-            const std::string& localMap) noexcept;
-        bool Resume(
-            const PlayerState& state,
-            const std::string& localMap,
-            game::Entity* localHero,
-            std::uint64_t receivedAt);
-        void DetachForWorldTransition() noexcept;
-        void Retire() noexcept;
+        friend class RemoteHeroNativeLifecycle;
+
         static bool ReadMovement(
             void* context,
             void* creature,
@@ -224,14 +224,20 @@ namespace fable::game::hero_pawn::remote
         std::uint64_t nextSpawnAttemptAt_ = 0;
         bool initialized_ = false;
         bool presentationStateReported_ = false;
-        bool avatarSuspended_ = false;
+        bool worldTransitionActive_ = false;
         bool separationReported_ = false;
         bool companionRegistered_ = false;
+        // Presence is observed asynchronously after Spawn. Only retire a
+        // wrapper after it was present once and then disappears.
+        bool nativePresenceObserved_ = false;
+        std::uint64_t lastPresentationRepairAt_ = 0;
+        bool presentationRepairFailureReported_ = false;
         RemoteHeroLifecyclePhase lifecyclePhase_ =
             RemoteHeroLifecyclePhase::Constructing;
         std::uint32_t actorGeneration_ = 0;
         std::uint32_t mapEpoch_ = 0;
         bool appearanceBaselineApplied_ = false;
         bool equipmentBaselineApplied_ = false;
+        std::unique_ptr<RemoteHeroNativeLifecycle> lifecycle_;
     };
 }

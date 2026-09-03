@@ -124,6 +124,8 @@ namespace fable::multiplayer::authority
             std::uint32_t actionEpoch) noexcept;
         [[nodiscard]] const MapAuthorityLease* FindMapLease(
             const std::string& mapName) const noexcept;
+        [[nodiscard]] const MapAuthorityLease* FindMapLease(
+            std::uint16_t mapId) const noexcept;
         [[nodiscard]] std::vector<MapAuthorityLease>
             MapLeases() const;
         [[nodiscard]] const ActionAuthorityLease* FindActionLease(
@@ -132,7 +134,23 @@ namespace fable::multiplayer::authority
             const std::string& mapName,
             std::uint64_t actorId,
             std::uint32_t mapEpoch) const noexcept;
+        [[nodiscard]] bool IsMapPublisher(
+            std::uint16_t mapId,
+            std::uint64_t actorId,
+            std::uint32_t mapEpoch) const noexcept;
         [[nodiscard]] bool IsEntityPublisher(
+            const EntityAuthorityKey& entity,
+            const std::string& mapName,
+            std::uint64_t actorId,
+            std::uint32_t mapEpoch) const noexcept;
+        [[nodiscard]] bool IsEntityPublisher(
+            const EntityAuthorityKey& entity,
+            std::uint16_t mapId,
+            std::uint64_t actorId,
+            std::uint32_t mapEpoch) const noexcept;
+        // Action leases serialize an interaction with one entity. They never
+        // transfer that entity's movement or native simulation ownership.
+        [[nodiscard]] bool IsEntityActionPublisher(
             const EntityAuthorityKey& entity,
             const std::string& mapName,
             std::uint64_t actorId,
@@ -169,6 +187,7 @@ namespace fable::multiplayer::authority
             const std::string& mapName,
             std::uint64_t requesterActorId,
             bool acknowledge);
+        MapBaselinePreparationResult PrepareHostCollectionForPeers();
         bool PublishHostBaselinePreparations();
         bool PublishHostMessages();
 
@@ -181,7 +200,7 @@ namespace fable::multiplayer::authority
         PeerRole role_ = PeerRole::Guest;
         std::uint64_t localActorId_ = 0;
         std::uint64_t knownPeerRevision_ = 0;
-        std::string requestedLocalMap_;
+        std::uint16_t requestedLocalMapId_ = 0;
         std::uint16_t preparedLocalMapId_ = 0;
         std::uint64_t preparedLocalBaselineRevision_ = 0;
         std::string preparedLocalMapName_;

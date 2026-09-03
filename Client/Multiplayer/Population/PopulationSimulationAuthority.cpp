@@ -224,10 +224,10 @@ namespace fable::multiplayer::population
         {
             return false;
         }
-        const std::string& mapName = policy->localHero_->MapName();
         const authority::MapAuthorityLease* const lease =
-            policy->authority_->FindMapLease(mapName);
-        const bool ownsMap = lease != nullptr && !mapName.empty() &&
+            policy->authority_->FindMapLease(
+                policy->localHero_->MapId());
+        const bool ownsMap = lease != nullptr &&
             lease->epoch != 0 && lease->actorId == policy->localActorId_;
         return ownsMap && (policy->role_ == PeerRole::Host ||
             policy->HasCurrentRegionState());

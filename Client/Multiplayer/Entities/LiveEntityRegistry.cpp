@@ -67,7 +67,12 @@ namespace fable::multiplayer::entities
             record.abilityOwnedTransient = event.abilityOwnedTransient;
             record.thing = event.thing;
             record.mapwhoComponent = event.component;
+            if (existing != records_.end())
+            {
+                uidByThing_.erase(existing->second.thing);
+            }
             records_[event.thingUid] = record;
+            uidByThing_[event.thing] = event.thingUid;
             change.kind = wasAbsent
                 ? LiveEntityChangeKind::Registered
                 : LiveEntityChangeKind::Rebound;
@@ -111,6 +116,7 @@ namespace fable::multiplayer::entities
         existing->second.mapwhoComponent = event.component;
         change.kind = LiveEntityChangeKind::Unregistered;
         change.record = existing->second;
+        uidByThing_.erase(existing->second.thing);
         records_.erase(existing);
         MarkChanged();
         return true;
@@ -121,6 +127,17 @@ namespace fable::multiplayer::entities
     {
         const auto match = records_.find(thingUid);
         return match != records_.end() ? &match->second : nullptr;
+    }
+
+    const LiveEntityRecord* LiveEntityRegistry::FindByThing(
+        const void* thing) const noexcept
+    {
+        if (thing == nullptr)
+        {
+            return nullptr;
+        }
+        const auto uid = uidByThing_.find(thing);
+        return uid != uidByThing_.end() ? Find(uid->second) : nullptr;
     }
 
     std::uint64_t LiveEntityRegistry::Revision() const noexcept
@@ -154,6 +171,10 @@ namespace fable::multiplayer::entities
         LiveEntityRecord record = std::move(local->second);
         records_.erase(local);
         record.thingUid = canonicalUid;
+        if (record.thing != nullptr)
+        {
+            uidByThing_[record.thing] = canonicalUid;
+        }
         records_.emplace(canonicalUid, std::move(record));
         MarkChanged();
         return true;
@@ -203,6 +224,7 @@ namespace fable::multiplayer::entities
             MarkChanged();
         }
         records_.clear();
+        uidByThing_.clear();
         nextIncarnation_ = 0;
     }
 

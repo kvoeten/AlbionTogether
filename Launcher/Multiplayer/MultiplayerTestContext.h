@@ -31,6 +31,8 @@ struct MultiplayerTestContext final
     std::filesystem::path fixtureDocumentsSource;
     std::filesystem::path sessionRoot;
     std::wstring sessionId;
+    std::wstring hostFixtureSave = L"AutoSave";
+    std::wstring guestFixtureSave = L"AutoSave";
     unsigned short port = 38171;
     unsigned int timeoutSeconds = 120;
     std::uint32_t mapStressSeed = 0;

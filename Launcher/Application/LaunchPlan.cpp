@@ -24,12 +24,6 @@ namespace fable::launcher::application
                 options.multiplayerPlaytest;
         }
 
-        bool UsesHero3Fixture(const Options& options)
-        {
-            return options.multiplayerCombatTest || options.multiplayerHeroWillTest ||
-                (options.multiplayerRosterTest && options.multiplayerPlaytest);
-        }
-
         bool IsLocalInstance(const Options& options)
         {
             return !options.localInstance.empty();
@@ -114,7 +108,6 @@ namespace fable::launcher::application
 
         std::filesystem::path ResolveFixtureSource(
             const Options& options,
-            const std::filesystem::path& launcherDirectory,
             bool loadFixtureScenario)
         {
             if (!loadFixtureScenario)
@@ -125,13 +118,45 @@ namespace fable::launcher::application
             {
                 return fable::launcher::AbsolutePath(options.fixtureDocuments);
             }
-            const std::filesystem::path fixtureName = UsesHero3Fixture(options)
-                ? L"combat-chamber-hero3"
-                : L"adult-town";
-            return fable::launcher::ResolveDeploymentAsset(
-                launcherDirectory,
-                std::filesystem::path(L"fixtures") / fixtureName / L"Documents",
-                true);
+            // Test characters are deliberately never selected implicitly.
+            // Every fixture-backed run must name its isolated save source so
+            // distinct real characters cannot regress to bundled lookalikes.
+            return {};
+        }
+
+        bool ContainsOneCompleteHeroFixture(
+            const std::filesystem::path& documents)
+        {
+            const std::filesystem::path saves = documents / L"My Games" /
+                L"FableHD" / L"Saves";
+            std::error_code error;
+            unsigned int completeHeroes = 0;
+            for (std::filesystem::directory_iterator iterator(saves, error), end;
+                 !error && iterator != end;
+                 iterator.increment(error))
+            {
+                if (!iterator->is_directory(error))
+                {
+                    continue;
+                }
+                if (std::filesystem::is_regular_file(
+                        iterator->path() / L"Profile.bin", error) &&
+                    std::filesystem::is_regular_file(
+                        iterator->path() / L"AutoSave", error))
+                {
+                    ++completeHeroes;
+                }
+            }
+            return !error && completeHeroes == 1;
+        }
+
+        bool ContainsCompletePairedHeroFixture(
+            const std::filesystem::path& fixtureRoot)
+        {
+            return ContainsOneCompleteHeroFixture(
+                       fixtureRoot / L"host" / L"Documents") &&
+                ContainsOneCompleteHeroFixture(
+                       fixtureRoot / L"guest" / L"Documents");
         }
     }
 
@@ -170,7 +195,7 @@ namespace fable::launcher::application
             : plan.eventPath.parent_path() / L"character-snapshot.json";
         plan.loadFixtureScenario = IsFixtureMode(options);
         plan.fixtureDocumentsSource = ResolveFixtureSource(
-            options, launcherDirectory, plan.loadFixtureScenario);
+            options, plan.loadFixtureScenario);
         const std::filesystem::path defaultFixtureDocuments =
             options.automationScenario == L"bootstrap_fixture_probe"
             ? plan.clientDll.parent_path() / L"fixtures" / L"bootstrap" /
@@ -181,7 +206,9 @@ namespace fable::launcher::application
             : plan.clientDll.parent_path() / L"fixtures" / L"automation" /
                 L"Documents";
         plan.fixtureDocuments = local
-            ? plan.instanceRoot / L"Documents"
+            ? options.fixtureDocuments.empty()
+                ? std::filesystem::path()
+                : fable::launcher::AbsolutePath(options.fixtureDocuments)
             : options.automationScenario.empty()
             ? std::filesystem::path()
             : fable::launcher::AbsolutePath(
@@ -245,7 +272,10 @@ namespace fable::launcher::application
         {
             std::wcout << L"Local:  session=" << plan.localSession
                        << L" instance=" << plan.options.localInstance << L'\n'
-                       << L"Documents: " << plan.fixtureDocuments.wstring() << L'\n'
+                       << L"Documents: "
+                       << (plan.fixtureDocuments.empty()
+                           ? L"native Fable save directory"
+                           : plan.fixtureDocuments.wstring()) << L'\n'
                        << L"Script data: " << plan.scriptData.wstring() << L'\n';
         }
         if (!plan.options.multiplayerRole.empty())
@@ -314,7 +344,7 @@ namespace fable::launcher::application
                 fable::launcher::GetOrdinaryDocumentsPath();
             if (!fable::launcher::IsDirectory(plan.fixtureDocumentsSource))
             {
-                std::wcerr << L"The load fixture source is not an existing directory.\n";
+                std::wcerr << L"Fixture-backed tests require --fixture-documents pointing to either one isolated Documents directory or a paired root containing host/Documents and guest/Documents.\n";
                 return false;
             }
             if (!ordinaryDocuments.empty() &&
@@ -324,13 +354,12 @@ namespace fable::launcher::application
                 std::wcerr << L"Refusing to load a fixture from the ordinary Documents tree.\n";
                 return false;
             }
-            const std::filesystem::path saveRoot = plan.fixtureDocumentsSource /
-                L"My Games" / L"FableHD" / L"Saves" /
-                (UsesHero3Fixture(plan.options) ? L"Hero3" : L"Hero1");
-            if (!fable::launcher::IsFile(saveRoot / L"Profile.bin") ||
-                !fable::launcher::IsFile(saveRoot / L"AutoSave"))
+            if (!ContainsOneCompleteHeroFixture(
+                    plan.fixtureDocumentsSource) &&
+                !ContainsCompletePairedHeroFixture(
+                    plan.fixtureDocumentsSource))
             {
-                std::wcerr << L"The fixture must contain an isolated Profile.bin and AutoSave pair.\n";
+                std::wcerr << L"The fixture must contain exactly one isolated Hero directory, or distinct host/Documents and guest/Documents fixtures, each with one Profile.bin and AutoSave pair.\n";
                 return false;
             }
         }

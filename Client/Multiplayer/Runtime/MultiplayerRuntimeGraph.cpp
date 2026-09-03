@@ -125,7 +125,21 @@ namespace fable::multiplayer
             villages,
             diagnostics_);
         w.hostWorldState.Initialize(role, e.entityLifecycle, e.entityIdentities, diagnostics_);
-        w.savedEntityMapBaseline.Initialize(role, actorId, t.transport, diagnostics_);
+        w.questState.Initialize(
+            role, actorId, t.transport, diagnostics_, sessionAuthorityEpoch);
+        if (!w.worldSections.Initialize(
+                role, actorId, t.transport, diagnostics_,
+                sessionAuthorityEpoch))
+        {
+            diagnostics_.Event(
+                "ClientFailed",
+                "multiplayer-world-section-native-boundary");
+            MarkStage(InitializationStage::Components);
+            Shutdown();
+            return false;
+        }
+        w.savedEntityMapBaseline.Initialize(
+            role, actorId, t.transport, diagnostics_);
         w.authority.SetMapBaselineGate(&w.savedEntityMapBaseline);
         w.populationSimulation.Initialize(role, actorId, t.transport, w.authority, p.localHero, diagnostics_);
         e.entityMovement.Initialize(role, actorId, t.transport, w.authority, e.entityLifecycle, e.entityIdentities, locomotion, look, diagnostics_);
@@ -151,7 +165,7 @@ namespace fable::multiplayer
         }
         t.reliableMessages.Initialize(t.transport, diagnostics_);
         MarkStage(InitializationStage::ReliableDispatcher);
-        w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, a.playerActions, w.authority, diagnostics_);
+        w.savedEntityConstructionGate.Initialize(role, t.transport, t.reliableMessages, t.remotePlayerChannels, a.playerActions, w.authority, diagnostics_, &w.questState, &w.worldSections, &w.savedEntityMapBaseline);
         MarkStage(InitializationStage::ConstructionGate);
         if (!ReliableSinkDescriptorRegistry::RegisterDiscovered(
                 contexts_, t.reliableMessages, diagnostics_))
@@ -176,13 +190,29 @@ namespace fable::multiplayer
 
     bool MultiplayerRuntimeGraph::AttachThingPresenceObserver(game::entity::presence::ThingPresenceObserver& observer) { return !enabled_ || contexts_.entities.entityPresence.Attach(observer); }
     bool MultiplayerRuntimeGraph::AttachSavedEntityMapBlobObserver(game::entity::persistence::SavedEntityMapBlobObserver& observer) { return !enabled_ || (contexts_.world.savedEntityMapBaseline.Attach(observer) && contexts_.world.savedEntityConstructionGate.Attach(observer)); }
-    bool MultiplayerRuntimeGraph::AttachThingSaveProjectionHook(game::entity::persistence::ThingSaveProjectionHook& hook) { return !enabled_ || contexts_.world.hostWorldState.Attach(hook); }
+    bool MultiplayerRuntimeGraph::AttachThingSaveProjectionHook(game::entity::persistence::ThingSaveProjectionHook& hook) { return !enabled_ || (contexts_.world.hostWorldState.Attach(hook) && contexts_.world.savedEntityConstructionGate.AttachThingLoadFilterHook(hook)); }
     bool MultiplayerRuntimeGraph::AttachPopulationSimulationHook(game::npc::population::PopulationSimulationHook& hook) { return !enabled_ || contexts_.world.populationSimulation.Attach(hook); }
     bool MultiplayerRuntimeGraph::AttachCreatureActionObserver(game::creature::actions::CreatureActionLifecycleObserver& observer) { return !enabled_ || (contexts_.actions.entityActions.Attach(observer) && contexts_.actions.playerActions.AttachActionObserver(observer) && contexts_.world.entitySimulation.AttachActionObserver(observer)); }
     bool MultiplayerRuntimeGraph::AttachCreatureModeObserver(game::creature::locomotion::CreatureModeManagerObserver& observer) { return !enabled_ || contexts_.actions.playerActions.AttachModeObserver(observer); }
     bool MultiplayerRuntimeGraph::AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer) { return !enabled_ || contexts_.world.entitySimulation.AttachBrainObserver(observer); }
     bool MultiplayerRuntimeGraph::AttachWorldTravelObserver(game::world::travel::WorldTravelObserver& observer) { return !enabled_ || contexts_.world.mapTransitionAuthority.Attach(observer); }
-    bool MultiplayerRuntimeGraph::OnWorldReady() { return !enabled_ || contexts_.players.localHero.OnWorldReady(); }
+    bool MultiplayerRuntimeGraph::OnWorldReady()
+    {
+        if (!enabled_)
+        {
+            return true;
+        }
+        const bool ready = contexts_.players.localHero.OnWorldReady();
+        if (contexts_.world.authority.IsHost() &&
+            !contexts_.world.questState.CaptureHostCurrent())
+        {
+            diagnostics_.Event(
+                "MultiplayerQuestStateNativeCaptureBlocked",
+                "initial host quest snapshot was not captured at world-ready");
+        }
+        contexts_.world.savedEntityConstructionGate.OnWorldReady();
+        return ready;
+    }
     bool MultiplayerRuntimeGraph::ProcessPresentationLifecycle() { return lifecycle_.Process(*this); }
     bool MultiplayerRuntimeGraph::ProcessPlayerActorState() { return !enabled_ || contexts_.players.actorState.Process(); }
 
@@ -250,6 +280,8 @@ namespace fable::multiplayer
             w.authority.SetMapBaselineGate(nullptr);
             w.savedEntityMapBaseline.Shutdown();
             w.hostWorldState.Shutdown();
+            w.worldSections.Shutdown();
+            w.questState.Shutdown();
             e.entityLifecycle.Shutdown();
             e.entityIdentities.Clear();
             w.authority.Shutdown();

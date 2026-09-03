@@ -75,6 +75,11 @@ namespace fable::multiplayer::authority
         static bool ShouldExecuteBrain(
             void* context,
             void* ownerThing) noexcept;
+        static bool ShouldExecuteStateGroup(
+            void* context,
+            void* creature,
+            int frameTime,
+            void* nativeProposal) noexcept;
         static bool ShouldSubmitAction(
             void* context,
             void* creature,

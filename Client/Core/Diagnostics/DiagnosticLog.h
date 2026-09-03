@@ -9,6 +9,13 @@ namespace fable::core
     class DiagnosticLog final
     {
     public:
+        DiagnosticLog() = default;
+        ~DiagnosticLog();
+        DiagnosticLog(const DiagnosticLog&) = delete;
+        DiagnosticLog& operator=(const DiagnosticLog&) = delete;
+
+        // Initialize/reconfigure only while producers are quiescent. Shutdown
+        // serializes with writes and does not own the inherited console.
         void Initialize(
             HMODULE clientModule,
             const wchar_t* logPath,
@@ -17,6 +24,7 @@ namespace fable::core
             const wchar_t* runId,
             const wchar_t* scenario);
         void AttachConsole();
+        void Shutdown() noexcept;
 
         void Log(const char* message);
         void Event(const char* state, const char* detail = "");
@@ -24,9 +32,15 @@ namespace fable::core
     private:
         static std::string JsonEscape(const std::string& value);
         static std::string WideToUtf8(const wchar_t* value);
+        static void WriteLine(
+            HANDLE& file, const std::wstring& path,
+            const char* line, DWORD size) noexcept;
 
         SRWLOCK lock_ = SRWLOCK_INIT;
         HANDLE consoleOutput_ = nullptr;
+        HANDLE logFile_ = INVALID_HANDLE_VALUE;
+        HANDLE eventFile_ = INVALID_HANDLE_VALUE;
+        bool initialized_ = false;
         std::wstring logPath_;
         std::wstring eventPath_;
         std::wstring runId_;

@@ -607,7 +607,8 @@ using namespace fable::automation::character_snapshot;
 
     bool ObserveLocalSaveEntries(
         const void* loadGamePage,
-        std::uint32_t* exactAutoSaveIdentity)
+        const wchar_t* exactSaveName,
+        std::uint32_t* exactSaveIdentity)
     {
         __try
         {
@@ -681,8 +682,8 @@ using namespace fable::automation::character_snapshot;
                 count);
             LogEvent("SaveEntriesReady", summary);
 
-            unsigned int autoSaveMatches = 0;
-            std::uint32_t matchedAutoSaveIdentity = 0xFFFFFFFFu;
+            unsigned int exactSaveMatches = 0;
+            std::uint32_t matchedSaveIdentity = 0xFFFFFFFFu;
             for (std::size_t index = 0; index < count; ++index)
             {
                 const auto* const entry = begin + index * kEntryStride;
@@ -694,10 +695,11 @@ using namespace fable::automation::character_snapshot;
                 std::uint32_t nameLength = 0;
                 const bool nameReadable =
                     ReadSaveEntryName(entry, name, nameLength);
-                if (valid && nameReadable && std::wcscmp(name, L"AutoSave") == 0)
+                if (exactSaveName != nullptr && valid && nameReadable &&
+                    std::wcscmp(name, exactSaveName) == 0)
                 {
-                    ++autoSaveMatches;
-                    matchedAutoSaveIdentity = identity;
+                    ++exactSaveMatches;
+                    matchedSaveIdentity = identity;
                 }
                 char utf8Name[1'024] = "<unreadable>";
                 if (nameReadable)
@@ -729,20 +731,38 @@ using namespace fable::automation::character_snapshot;
                 LogEvent("SaveEntryObserved", detail);
             }
 
-            if (exactAutoSaveIdentity != nullptr)
+            if (exactSaveIdentity != nullptr)
             {
-                if (autoSaveMatches != 1)
+                if (exactSaveName == nullptr || exactSaveMatches != 1)
                 {
-                    char detail[128] = {};
+                    char utf8Name[256] = "<none>";
+                    if (exactSaveName != nullptr)
+                    {
+                        const int converted = WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            exactSaveName,
+                            -1,
+                            utf8Name,
+                            static_cast<int>(std::size(utf8Name)),
+                            nullptr,
+                            nullptr);
+                        if (converted <= 0)
+                        {
+                            strcpy_s(utf8Name, "<conversion-failed>");
+                        }
+                    }
+                    char detail[256] = {};
                     std::snprintf(
                         detail,
                         std::size(detail),
-                        "exact_name=AutoSave valid_matches=%u",
-                        autoSaveMatches);
+                        "exact_name=%s valid_matches=%u",
+                        utf8Name,
+                        exactSaveMatches);
                     LogEvent("SaveEntrySelectionRejected", detail);
                     return false;
                 }
-                *exactAutoSaveIdentity = matchedAutoSaveIdentity;
+                *exactSaveIdentity = matchedSaveIdentity;
             }
             return true;
         }
@@ -839,39 +859,57 @@ using namespace fable::automation::character_snapshot;
                     uiHandle);
                 LogFormat("Lifecycle: Load Game save list is ready; %s.", detail);
                 LogEvent("SaveListReady", detail);
-                std::uint32_t autoSaveIdentity = 0xFFFFFFFFu;
+                const wchar_t* const fixtureSaveName =
+                    CoreContext().configuration.FixtureSaveName().c_str();
+                std::uint32_t fixtureSaveIdentity = 0xFFFFFFFFu;
                 if (!ObserveLocalSaveEntries(
                         object,
-                        ScenarioLoadsFixture() ? &autoSaveIdentity : nullptr))
+                        ScenarioLoadsFixture() ? fixtureSaveName : nullptr,
+                        ScenarioLoadsFixture() ? &fixtureSaveIdentity : nullptr))
                 {
                     if (ScenarioLoadsFixture())
                     {
-                        LogEvent("ClientFailed", "fixture AutoSave identity could not be resolved exactly");
+                        LogEvent("ClientFailed", "fixture save identity could not be resolved exactly");
                     }
                     return;
                 }
                 if (ScenarioLoadsFixture())
                 {
                     *reinterpret_cast<std::uint32_t*>(
-                        static_cast<std::uint8_t*>(object) + 0x74) = autoSaveIdentity;
-                    FrontEndContext().autoSaveIdentity.store(
-                        autoSaveIdentity,
+                        static_cast<std::uint8_t*>(object) + 0x74) = fixtureSaveIdentity;
+                    FrontEndContext().fixtureSaveIdentity.store(
+                        fixtureSaveIdentity,
                         std::memory_order_release);
-                    FrontEndContext().autoSaveSelectedAt.store(
+                    FrontEndContext().fixtureSaveSelectedAt.store(
                         GetTickCount64(),
                         std::memory_order_release);
-                    FrontEndContext().autoSaveSelected.store(
+                    FrontEndContext().fixtureSaveSelected.store(
                         true,
                         std::memory_order_release);
-                    char selected[160] = {};
+                    char utf8Name[256] = "<conversion-failed>";
+                    const int converted = WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        fixtureSaveName,
+                        -1,
+                        utf8Name,
+                        static_cast<int>(std::size(utf8Name)),
+                        nullptr,
+                        nullptr);
+                    if (converted <= 0)
+                    {
+                        strcpy_s(utf8Name, "<conversion-failed>");
+                    }
+                    char selected[256] = {};
                     std::snprintf(
                         selected,
                         std::size(selected),
-                        "exact_name=AutoSave identity=%lu selection_field=%lu",
-                        static_cast<unsigned long>(autoSaveIdentity),
+                        "exact_name=%s identity=%lu selection_field=%lu",
+                        utf8Name,
+                        static_cast<unsigned long>(fixtureSaveIdentity),
                         static_cast<unsigned long>(
                             *reinterpret_cast<const std::uint32_t*>(bytes + 0x74)));
-                    LogEvent("FixtureAutoSaveSelected", selected);
+                    LogEvent("FixtureSaveSelected", selected);
                 }
             }
         }
@@ -884,7 +922,7 @@ using namespace fable::automation::character_snapshot;
     void DriveFixtureLoad()
     {
         if (!ScenarioLoadsFixture() ||
-            !FrontEndContext().autoSaveSelected.load(std::memory_order_acquire) ||
+            !FrontEndContext().fixtureSaveSelected.load(std::memory_order_acquire) ||
             CharacterSnapshotContext().heroReadyLogged.load(std::memory_order_acquire) ||
             FrontEndContext().mainMenuReleased.load(std::memory_order_acquire))
         {
@@ -892,7 +930,7 @@ using namespace fable::automation::character_snapshot;
         }
 
         const ULONGLONG selectedAt =
-            FrontEndContext().autoSaveSelectedAt.load(std::memory_order_acquire);
+            FrontEndContext().fixtureSaveSelectedAt.load(std::memory_order_acquire);
         if (selectedAt == 0 || GetTickCount64() - selectedAt < 250)
         {
             return;
@@ -939,7 +977,7 @@ using namespace fable::automation::character_snapshot;
             }
 
             const std::uint32_t expectedIdentity =
-                FrontEndContext().autoSaveIdentity.load(std::memory_order_acquire);
+                FrontEndContext().fixtureSaveIdentity.load(std::memory_order_acquire);
             const std::uint32_t flags =
                 *reinterpret_cast<const std::uint32_t*>(bytes + 0x58);
             const ULONGLONG now = GetTickCount64();
@@ -994,7 +1032,7 @@ using namespace fable::automation::character_snapshot;
                 std::snprintf(
                     detail,
                     std::size(detail),
-                    "exact_name=AutoSave identity=%lu previous_continue_identity=%lu menu_state=0x%08lX implementation=%p",
+                    "selected_save_identity=%lu previous_continue_identity=%lu menu_state=0x%08lX implementation=%p",
                     static_cast<unsigned long>(expectedIdentity),
                     static_cast<unsigned long>(previousIdentity),
                     static_cast<unsigned long>(menuState),
@@ -1004,7 +1042,7 @@ using namespace fable::automation::character_snapshot;
                 reinterpret_cast<MainMenuDoOnUIEvent>(implementation)(object, 17, 0);
                 LogEvent(
                     "FixtureContinueRequested",
-                    "validated main-menu Continue event returned for exact AutoSave identity");
+                    "validated main-menu Continue event returned for exact fixture save identity");
                 return;
             }
 
@@ -1108,12 +1146,8 @@ using namespace fable::automation::character_snapshot;
         DriveSaveListObservation();
         ObserveSaveListReadiness();
         DriveFixtureLoad();
-        if (GameplayContext().runtime.ProcessAutomationGameThreadIdle())
-        {
-            // Retail quest activation owns the resulting Guild transition.
-            return;
-        }
-        if (GameplayContext().runtime.ProcessMultiplayerPresentation())
+        GameplayContext().runtime.RequestAutomationIdle();
+        if (GameplayContext().runtime.ConsumeWorldDeparture())
         {
             // SCRIPT_NAME_HERO is reconstructed for the destination map. The
             // previous readiness edge represented the departing world.

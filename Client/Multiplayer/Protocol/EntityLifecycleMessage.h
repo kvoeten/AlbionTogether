@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/Math/Vector3.h"
+#include "Game/NPC/Simulation/DummyVillager/DummyVillagerState.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -70,6 +71,12 @@ namespace fable::multiplayer::protocol
         std::uint16_t definitionIndex = 0;
         game::Vector3 position = {};
         float facing = 0.0f;
+        // Optional handoff snapshot. It is populated only for cross-map
+        // transfers (and the host's resulting dormant record) so the final
+        // map-owner mutation cannot overtake the structural handoff.
+        std::uint32_t lowSimulationRevision = 0;
+        std::uint8_t lowSimulationFlags = 0;
+        game::npc::simulation::DummyVillagerState lowSimulation = {};
         std::string mapName;
         std::string sourceMapName;
         std::string definitionName;

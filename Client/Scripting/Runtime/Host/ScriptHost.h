@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 class asIScriptEngine;
@@ -39,6 +40,7 @@ namespace fable::scripting
             const core::Diagnostics& diagnostics);
         void DispatchKeyPressed(unsigned int virtualKey, bool shiftPressed);
         void DispatchWorldReady();
+        void DispatchGui();
         void Tick(float deltaSeconds);
         bool Reload();
         void Shutdown();
@@ -65,6 +67,7 @@ namespace fable::scripting
         std::unique_ptr<Scheduler> scheduler_;
         std::filesystem::path scriptsRoot_;
         core::Diagnostics diagnostics_ = {};
+        mutable std::recursive_mutex executionMutex_;
         bool loaded_ = false;
     };
 }

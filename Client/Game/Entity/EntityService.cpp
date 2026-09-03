@@ -3,6 +3,7 @@
 #include "Entity.h"
 #include "Game/Creature/Control/ScriptControl.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
+#include "Game/Entity/Native/EntityFlagFunction.h"
 #include "Game/Entity/Native/ScriptedUseActionFunctions.h"
 #include "../Native/Addresses.h"
 
@@ -1018,8 +1019,15 @@ namespace fable::game
         bool applied = false;
         __try
         {
-            const auto function = reinterpret_cast<SetFlagFunction>(
-                gameInterface->vtable[vtableIndex]);
+            const auto* const binding =
+                entity::native::FindEntityFlagFunction(vtableIndex);
+            void* const target = gameInterface->vtable[vtableIndex];
+            if (binding == nullptr || !binding->Matches(
+                    reinterpret_cast<std::uintptr_t>(gameModule_), target))
+            {
+                return false;
+            }
+            const auto function = reinterpret_cast<SetFlagFunction>(target);
             function(gameInterface, &handle, enabled);
             applied = true;
         }
@@ -1033,6 +1041,11 @@ namespace fable::game
     bool EntityService::SetAttackable(const native::ScriptThing& handle, bool enabled)
     {
         return SetFlag(handle, native::game_interface_slot::SetAttackable, enabled);
+    }
+
+    bool EntityService::SetPersistent(const native::ScriptThing& handle, bool enabled)
+    {
+        return SetFlag(handle, native::game_interface_slot::SetPersistent, enabled);
     }
 
     bool EntityService::SetDamageable(const native::ScriptThing& handle, bool enabled)

@@ -57,7 +57,8 @@ namespace fable::launcher::application
                     plan.eventPath,
                     plan.options.localInstance.c_str(),
                     x,
-                    plan.options.automationTimeoutSeconds))
+                    plan.options.automationTimeoutSeconds,
+                    !plan.fixtureDocuments.empty()))
             {
                 runtime::CloseCreatedProcess(
                     launched.process.get(), launched.processId, nullptr);

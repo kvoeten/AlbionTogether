@@ -1,5 +1,8 @@
 #include "HeroWeaponComponent.h"
 
+#include "Game/Creature/Equipment/Native/CreatureWeaponNativeSupport.h"
+#include "Game/Entity/Entity.h"
+#include "Game/Entity/EntityService.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 #include "Game/Native/Addresses.h"
 #include "Game/Native/GameInterface.h"
@@ -29,22 +32,23 @@ namespace
 
     constexpr std::uintptr_t kResolvePointerRva = 0x012E6EA0;
     constexpr std::uintptr_t kAssignPointerRva = 0x012E6EE0;
-    constexpr std::uintptr_t kEquipWeaponRva = 0x01A4AA23;
-    constexpr std::uintptr_t kReconcilePresentationRva = 0x01A492BD;
-    constexpr std::uintptr_t kRequestDestroyRva = 0x01B2E530;
+    constexpr std::uintptr_t kInventoryItemCountRva = 0x019F1108;
+    constexpr std::uintptr_t kAddItemToInventoryRva = 0x019F2375;
+    constexpr std::uintptr_t kOnItemAddedRva = 0x01A4B43C;
+    constexpr std::size_t kAddItemToInventoryVtableOffset = 0x14C;
+    constexpr std::size_t kOnItemAddedVtableOffset = 0x158;
 
     constexpr std::array<std::uint8_t, 6> kResolvePointerSignature = {
         0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x04};
     constexpr std::array<std::uint8_t, 7> kAssignPointerSignature = {
         0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x04, 0x57};
-    // The immediate following this prologue is an ASLR-relocated exception
-    // metadata address, so it cannot be part of a runtime byte signature.
-    constexpr std::array<std::uint8_t, 3> kEquipWeaponSignature = {
-        0x6A, 0x14, 0xB8};
-    constexpr std::array<std::uint8_t, 7> kReconcileSignature = {
-        0x68, 0x00, 0x01, 0x00, 0x00, 0xB8, 0x2A};
-    constexpr std::array<std::uint8_t, 6> kRequestDestroySignature = {
-        0x56, 0x8B, 0xF1, 0x8A, 0x86, 0x9D};
+    // The immediate after B8 is an ASLR-relocated exception metadata address.
+    constexpr std::array<std::uint8_t, 3> kInventoryItemCountSignature = {
+        0x6A, 0x08, 0xB8};
+    constexpr std::array<std::uint8_t, 7> kAddItemToInventorySignature = {
+        0x55, 0x8B, 0xEC, 0x53, 0x8B, 0x5D, 0x08};
+    constexpr std::array<std::uint8_t, 3> kOnItemAddedSignature = {
+        0x6A, 0x44, 0xB8};
 
     template <std::size_t Size>
     bool HasSignature(
@@ -76,21 +80,25 @@ namespace
 
     using ResolvePointer = void* (__thiscall*)(void*);
     using AssignPointer = void(__thiscall*)(void*, void*);
-    using EquipWeapon = void(__thiscall*)(void*, std::int32_t, int);
-    using ReconcilePresentation = void(__thiscall*)(void*);
-    using RequestDestroy = void(__thiscall*)(void*, bool);
+    using InventoryItemCount = std::int32_t(__thiscall*)(
+        void*, std::int32_t);
+    using AddItemToInventory = bool(__thiscall*)(
+        void*, std::int32_t, std::int32_t, bool, bool, std::int32_t, bool);
+    using OnItemAdded = void(__thiscall*)(
+        void*, std::int32_t, bool, bool);
 
     struct Functions final
     {
         ResolvePointer resolve = nullptr;
         AssignPointer assign = nullptr;
-        EquipWeapon equip = nullptr;
-        ReconcilePresentation reconcile = nullptr;
-        RequestDestroy requestDestroy = nullptr;
+        InventoryItemCount itemCount = nullptr;
+        AddItemToInventory addItem = nullptr;
+        OnItemAdded onItemAdded = nullptr;
     };
 
     bool ResolveFunctions(
         HMODULE gameModule,
+        void* component,
         Functions& functions,
         std::uint32_t* signatureMask = nullptr) noexcept
     {
@@ -100,7 +108,7 @@ namespace
         {
             *signatureMask = 0;
         }
-        if (module == nullptr)
+        if (module == nullptr || component == nullptr)
         {
             return false;
         }
@@ -108,23 +116,41 @@ namespace
             module + kResolvePointerRva, kResolvePointerSignature);
         const bool assignReady = HasSignature(
             module + kAssignPointerRva, kAssignPointerSignature);
-        const bool equipReady = HasSignatureOrDetour(
-            module + kEquipWeaponRva, kEquipWeaponSignature);
-        const bool reconcileReady = HasSignatureOrDetour(
-            module + kReconcilePresentationRva, kReconcileSignature);
-        const bool destroyReady = HasSignatureOrDetour(
-            module + kRequestDestroyRva, kRequestDestroySignature);
+        const bool itemCountReady = HasSignatureOrDetour(
+            module + kInventoryItemCountRva,
+            kInventoryItemCountSignature);
+        const bool addItemReady = HasSignatureOrDetour(
+            module + kAddItemToInventoryRva,
+            kAddItemToInventorySignature);
+        const bool onItemAddedReady = HasSignatureOrDetour(
+            module + kOnItemAddedRva,
+            kOnItemAddedSignature);
+        bool vtableReady = false;
+        __try
+        {
+            auto** const vtable = *reinterpret_cast<void***>(component);
+            vtableReady = vtable != nullptr &&
+                vtable[kAddItemToInventoryVtableOffset / sizeof(void*)] ==
+                    module + kAddItemToInventoryRva &&
+                vtable[kOnItemAddedVtableOffset / sizeof(void*)] ==
+                    module + kOnItemAddedRva;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            vtableReady = false;
+        }
         const std::uint32_t mask =
             (resolveReady ? 1u : 0u) |
             (assignReady ? 2u : 0u) |
-            (equipReady ? 4u : 0u) |
-            (reconcileReady ? 8u : 0u) |
-            (destroyReady ? 16u : 0u);
+            (itemCountReady ? 4u : 0u) |
+            (addItemReady ? 8u : 0u) |
+            (onItemAddedReady ? 16u : 0u) |
+            (vtableReady ? 32u : 0u);
         if (signatureMask != nullptr)
         {
             *signatureMask = mask;
         }
-        if (mask != 0x1Fu)
+        if (mask != 0x3Fu)
         {
             return false;
         }
@@ -132,13 +158,36 @@ namespace
             module + kResolvePointerRva);
         functions.assign = reinterpret_cast<AssignPointer>(
             module + kAssignPointerRva);
-        functions.equip = reinterpret_cast<EquipWeapon>(
-            module + kEquipWeaponRva);
-        functions.reconcile = reinterpret_cast<ReconcilePresentation>(
-            module + kReconcilePresentationRva);
-        functions.requestDestroy = reinterpret_cast<RequestDestroy>(
-            module + kRequestDestroyRva);
+        functions.itemCount = reinterpret_cast<InventoryItemCount>(
+            module + kInventoryItemCountRva);
+        functions.addItem = reinterpret_cast<AddItemToInventory>(
+            module + kAddItemToInventoryRva);
+        functions.onItemAdded = reinterpret_cast<OnItemAdded>(
+            module + kOnItemAddedRva);
         return true;
+    }
+
+    bool QuarantineDetachedWeapon(
+        fable::game::EntityService& entities,
+        void* weapon) noexcept
+    {
+        using fable::game::creature::equipment::native::detail::ReadThingUid;
+        if (weapon == nullptr)
+        {
+            return true;
+        }
+        const std::uint64_t uid = ReadThingUid(weapon);
+        fable::game::Entity* const entity = uid != 0
+            ? entities.FindByUid(uid)
+            : nullptr;
+        if (entity == nullptr)
+        {
+            return false;
+        }
+        const bool collidable = entity->SetCollidable(false);
+        const bool drawable = entity->SetDrawable(false);
+        entity->Release();
+        return collidable && drawable;
     }
 
     bool ReadDefinition(void* weapon, std::int32_t& definitionIndex) noexcept
@@ -248,12 +297,18 @@ namespace
     }
 
     bool ApplySlot(
+        fable::game::EntityService& entities,
+        void* hero,
         void* component,
         std::size_t pointerOffset,
         std::size_t definitionOffset,
         std::int32_t requestedDefinition,
-        const Functions& functions) noexcept
+        const Functions& functions,
+        const fable::game::creature::equipment::native::detail::Functions&
+            creatureFunctions,
+        bool& mutated) noexcept
     {
+        mutated = false;
         auto* const bytes = static_cast<std::uint8_t*>(component);
         void* const slot = bytes + pointerOffset;
         void* current = functions.resolve(slot);
@@ -266,22 +321,81 @@ namespace
         {
             return true;
         }
-        if (requestedDefinition != -1)
+
+        if (currentDefinition == -1 && requestedDefinition != -1)
         {
-            functions.equip(component, requestedDefinition, 0);
+            // The public inventory mutation owns the complete Hero path. It
+            // changes the count and synchronously calls the derived
+            // CTCHeroInventoryWeapons::OnItemAdded handler, which constructs
+            // the inventory Thing and its presentation graph. The lower-level
+            // equip helper assumes the count already exists and is not a
+            // valid insertion boundary.
+            const std::int32_t count = functions.itemCount(
+                component, requestedDefinition);
+            if (count <= 0)
+            {
+                if (!functions.addItem(
+                        component,
+                        requestedDefinition,
+                        1,
+                        false,
+                        true,
+                        0,
+                        false))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                // Recover an interrupted restore without incrementing the
+                // inventory count twice. OnItemAdded rebuilds the missing
+                // family slot from the already-owned definition.
+                functions.onItemAdded(
+                    component, requestedDefinition, true, false);
+            }
             current = functions.resolve(slot);
-            return ReadDefinition(current, currentDefinition) &&
-                currentDefinition == requestedDefinition;
+            if (!ReadDefinition(current, currentDefinition) ||
+                currentDefinition != requestedDefinition)
+            {
+                return false;
+            }
+            // Build one inventory weapon per update. This keeps native side
+            // effects ordered and lets the caller verify the completed slot
+            // before advancing to the other family.
+            mutated = true;
+            return false;
         }
 
+        // CTCCarrying can still own and asynchronously inspect this Thing
+        // after CTCHeroInventoryWeapons releases its pointer. Detach the
+        // visible carrying entry first, then ask Fable to retire the Thing at
+        // its normal safe lifecycle boundary. Immediate destruction clears
+        // the native vtable while the population worker can still have the
+        // old pointer queued, which turns a later virtual call into an AV.
+        // Quarantine the map-owned replacement rather than explicitly
+        // destroying it; the map lifecycle remains its final owner.
+        using namespace fable::game::creature::equipment::native::detail;
+        if (!QuarantineDetachedWeapon(entities, current))
+        {
+            return false;
+        }
+        void* const carrying = FindCarrying(hero);
+        std::uint32_t attachmentSlot = 0;
+        if (carrying != nullptr &&
+            ReadAttachmentSlot(
+                creatureFunctions, carrying, current, attachmentSlot))
+        {
+            creatureFunctions.remove(carrying, current);
+        }
         functions.assign(slot, nullptr);
         *reinterpret_cast<std::int32_t*>(bytes + definitionOffset) = -1;
-        functions.reconcile(component);
-        if (current != nullptr)
+        if (functions.resolve(slot) != nullptr)
         {
-            functions.requestDestroy(current, true);
+            return false;
         }
-        return functions.resolve(slot) == nullptr;
+        mutated = true;
+        return requestedDefinition == -1;
     }
 }
 
@@ -374,7 +488,10 @@ namespace fable::game::hero_pawn::equipment::native
                 nativeThing,
                 fable::game::entity::native::ThingComponentType::Carrying);
         inspection.functionsResolved = ResolveFunctions(
-            gameModule, functions, &inspection.functionSignatureMask);
+            gameModule,
+            inspection.component,
+            functions,
+            &inspection.functionSignatureMask);
         if (inspection.component == nullptr || !inspection.functionsResolved)
         {
             return true;
@@ -410,10 +527,11 @@ namespace fable::game::hero_pawn::equipment::native
     }
 
     bool HeroWeaponComponent::Apply(
+        game::EntityService& entities,
         void* nativeThing,
         const HeroEquipmentState& state) noexcept
     {
-        if (!ApplyDefinitions(nativeThing, state))
+        if (!ApplyDefinitions(entities, nativeThing, state))
         {
             return false;
         }
@@ -422,6 +540,7 @@ namespace fable::game::hero_pawn::equipment::native
     }
 
     bool HeroWeaponComponent::ApplyDefinitions(
+        game::EntityService& entities,
         void* nativeThing,
         const HeroEquipmentState& state) noexcept
     {
@@ -431,26 +550,48 @@ namespace fable::game::hero_pawn::equipment::native
         }
         HMODULE const gameModule = GetModuleHandleW(nullptr);
         Functions functions;
+        game::creature::equipment::native::detail::Functions
+            creatureFunctions;
         void* const component = FindComponent(nativeThing, gameModule);
-        if (component == nullptr || !ResolveFunctions(gameModule, functions))
+        if (component == nullptr ||
+            !ResolveFunctions(gameModule, component, functions) ||
+            !game::creature::equipment::native::detail::ResolveFunctions(
+                gameModule, creatureFunctions))
         {
             return false;
         }
         bool applied = false;
         __try
         {
-            applied = ApplySlot(
+            bool mutated = false;
+            const bool meleeApplied = ApplySlot(
+                    entities,
+                    nativeThing,
                     component,
                     kMeleePointerOffset,
                     kMeleeDefinitionOffset,
                     state.meleeDefinitionIndex,
-                    functions) &&
-                ApplySlot(
+                    functions,
+                    creatureFunctions,
+                    mutated);
+            if (mutated)
+            {
+                return false;
+            }
+            applied = meleeApplied && ApplySlot(
+                    entities,
+                    nativeThing,
                     component,
                     kRangedPointerOffset,
                     kRangedDefinitionOffset,
                     state.rangedDefinitionIndex,
-                    functions);
+                    functions,
+                    creatureFunctions,
+                    mutated);
+            if (mutated)
+            {
+                return false;
+            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -468,6 +609,112 @@ namespace fable::game::hero_pawn::equipment::native
         return Inspect(nativeThing, verified) &&
             verified.meleeDefinitionIndex == state.meleeDefinitionIndex &&
             verified.rangedDefinitionIndex == state.rangedDefinitionIndex;
+    }
+
+    bool HeroWeaponComponent::ApplyPresentation(
+        game::EntityService& entities,
+        void* nativeThing,
+        const HeroEquipmentState& state) noexcept
+    {
+        using namespace game::creature::equipment::native::detail;
+        if (nativeThing == nullptr || !state.IsSane())
+        {
+            return false;
+        }
+
+        HeroWeaponInspection inventory;
+        game::creature::equipment::native::detail::Functions functions;
+        HMODULE const gameModule = GetModuleHandleW(nullptr);
+        if (!Inspect(nativeThing, inventory) || !inventory.readable ||
+            inventory.meleeDefinitionIndex != state.meleeDefinitionIndex ||
+            inventory.rangedDefinitionIndex != state.rangedDefinitionIndex ||
+            !game::creature::equipment::native::detail::ResolveFunctions(
+                gameModule, functions))
+        {
+            return false;
+        }
+
+        const auto setVisibility = [&entities](
+            void* weapon,
+            const bool visible) noexcept
+        {
+            if (weapon == nullptr)
+            {
+                return true;
+            }
+            const std::uint64_t uid = ReadThingUid(weapon);
+            game::Entity* const entity = uid != 0
+                ? entities.FindByUid(uid)
+                : nullptr;
+            if (entity == nullptr)
+            {
+                return false;
+            }
+            const bool collidable = entity->SetCollidable(false);
+            const bool drawable = entity->SetDrawable(visible);
+            entity->Release();
+            return collidable && drawable;
+        };
+        const auto place = [&](
+            void* weapon,
+            const std::uint32_t currentSlot,
+            const std::uint32_t requestedSlot) noexcept
+        {
+            if (weapon == nullptr)
+            {
+                return requestedSlot == 0;
+            }
+            if (requestedSlot != 0 &&
+                !AttachmentSlotAvailable(functions, requestedSlot))
+            {
+                return false;
+            }
+            if (currentSlot != requestedSlot)
+            {
+                if (currentSlot != 0)
+                {
+                    functions.remove(inventory.carryingComponent, weapon);
+                }
+                if (requestedSlot != 0)
+                {
+                    functions.attach(
+                        inventory.carryingComponent,
+                        weapon,
+                        requestedSlot,
+                        true);
+                }
+            }
+            return setVisibility(weapon, requestedSlot != 0);
+        };
+
+        bool applied = false;
+        __try
+        {
+            applied = place(
+                    inventory.meleeWeapon,
+                    inventory.meleeAttachmentSlot,
+                    state.meleeAttachmentSlot) &&
+                place(
+                    inventory.rangedWeapon,
+                    inventory.rangedAttachmentSlot,
+                    state.rangedAttachmentSlot);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            applied = false;
+        }
+        if (!applied)
+        {
+            return false;
+        }
+
+        HeroWeaponInspection verified;
+        return Inspect(nativeThing, verified) && verified.readable &&
+            verified.meleeDefinitionIndex == state.meleeDefinitionIndex &&
+            verified.rangedDefinitionIndex == state.rangedDefinitionIndex &&
+            verified.meleeAttachmentSlot == state.meleeAttachmentSlot &&
+            verified.rangedAttachmentSlot == state.rangedAttachmentSlot &&
+            verified.activeFamily == state.activeFamily;
     }
 
 }

@@ -165,6 +165,27 @@ namespace fable::multiplayer::replication
 
     bool PlayerActionReplication::ProcessPending()
     {
+        if (localHero_ != nullptr && !localHero_->IsWorldReady())
+        {
+            // A map Construct is current state, not a continuation of actions
+            // captured against the departed actor generation. Retire those
+            // local callbacks instead of publishing them through the stale
+            // owner channel while the destination Hero graph is settling.
+            localCapture_.DiscardPending();
+            for (auto pending = pendingMessages_.begin();
+                 pending != pendingMessages_.end();)
+            {
+                if (pending->message.ownerActorId == localActorId_)
+                {
+                    pending = pendingMessages_.erase(pending);
+                }
+                else
+                {
+                    ++pending;
+                }
+            }
+            return ReplayRemotePending();
+        }
         return CaptureLocalPending() && PublishLocalPending() &&
             ReplayRemotePending();
     }

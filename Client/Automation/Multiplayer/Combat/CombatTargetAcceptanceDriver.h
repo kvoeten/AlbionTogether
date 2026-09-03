@@ -80,6 +80,7 @@ namespace fable::automation::multiplayer::combat
         bool nativeAttackSubmitted_ = false;
         bool sheatheRequested_ = false;
         bool sheatheReady_ = false;
+        bool unarmedAttackSubmitted_ = false;
         bool redrawRequested_ = false;
         bool redrawReady_ = false;
         bool healthMutationApplied_ = false;

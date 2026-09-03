@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Multiplayer/Entities/LiveEntityRegistry.h"
+#include "Game/NPC/Simulation/DummyVillager/DummyVillagerState.h"
 #include "Multiplayer/Protocol/EntityLifecycleMessage.h"
 #include "Multiplayer/Protocol/EntityMovementMessage.h"
 
@@ -34,6 +35,12 @@ namespace fable::multiplayer::entities
         bool available = true;
         bool awaitingMaterialization = false;
         bool hasVillageMembership = false;
+        // Retain the latest host-revisioned low-simulation row with the
+        // canonical entity, so it survives native map teardown/materialization
+        // without a second unbounded world table.
+        bool hasLowSimulation = false;
+        game::npc::simulation::DummyVillagerState lowSimulation = {};
+        std::uint32_t lowSimulationRevision = 0;
         std::string mapName;
         std::string definitionName;
         std::string scriptName;
@@ -44,6 +51,7 @@ namespace fable::multiplayer::entities
         std::uint64_t simulationOwnerActorId = 0;
         std::uint64_t worldRevision = 0;
         std::uint32_t mapEpoch = 0;
+        std::uint16_t mapId = 0;
         std::string mapName;
     };
 
@@ -58,6 +66,10 @@ namespace fable::multiplayer::entities
     class WorldEntityDirectory final
     {
     public:
+        // The directory is also the host's bounded canonical save overlay;
+        // never let remote lifecycle input turn it into an unbounded table.
+        static constexpr std::size_t MaximumRecords = 8'192;
+
         bool HostObserve(
             const LiveEntityChange& change,
             const std::string& mapName,
@@ -98,6 +110,7 @@ namespace fable::multiplayer::entities
             bool& changed);
         bool HostCompleteMapRoster(
             const std::string& mapName,
+            std::uint16_t mapId,
             std::uint64_t simulationOwnerActorId,
             std::uint32_t mapEpoch,
             protocol::EntityLifecycleMessage& authoritative,
@@ -106,6 +119,15 @@ namespace fable::multiplayer::entities
             const protocol::EntityLifecycleMessage& message);
         bool HostAcceptMovement(
             const protocol::EntityMovementMessage& message) noexcept;
+        bool HostApplyLowSimulation(
+            std::uint64_t thingUid,
+            std::uint32_t generation,
+            const std::string& mapName,
+            std::uint64_t simulationOwnerActorId,
+            std::uint32_t mapEpoch,
+            const game::npc::simulation::DummyVillagerState& state,
+            std::uint32_t revision,
+            bool& changed) noexcept;
 
         [[nodiscard]] const WorldEntityRecord* Find(
             std::uint64_t thingUid) const noexcept;
@@ -116,12 +138,12 @@ namespace fable::multiplayer::entities
         [[nodiscard]] std::vector<MapRosterCompletion>
             CompletedMapRosters() const;
         [[nodiscard]] bool IsMapRosterComplete(
-            const std::string& mapName,
+            std::uint16_t mapId,
             std::uint32_t mapEpoch) const noexcept;
         [[nodiscard]] bool HasMapRoster(
-            const std::string& mapName) const noexcept;
+            std::uint16_t mapId) const noexcept;
         [[nodiscard]] bool IsMapSeedAllowed(
-            const std::string& mapName,
+            std::uint16_t mapId,
             std::uint64_t simulationOwnerActorId,
             std::uint32_t mapEpoch) const noexcept;
         [[nodiscard]] bool HasAuthoritativeBaseline() const noexcept;
@@ -144,9 +166,9 @@ namespace fable::multiplayer::entities
         [[nodiscard]] std::uint64_t NextWorldRevision() noexcept;
         static std::uint8_t Flags(const WorldEntityRecord& record) noexcept;
         std::unordered_map<std::uint64_t, WorldEntityRecord> records_;
-        std::unordered_map<std::string, MapRosterCompletion>
+        std::unordered_map<std::uint16_t, MapRosterCompletion>
             completedMapRosters_;
-        std::unordered_map<std::string, MapRosterSeedPermission>
+        std::unordered_map<std::uint16_t, MapRosterSeedPermission>
             mapSeedPermissions_;
         std::uint32_t nextGeneration_ = 0;
         std::uint64_t nextWorldRevision_ = 0;

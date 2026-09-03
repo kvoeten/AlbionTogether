@@ -13,6 +13,12 @@ namespace fable::ui
         void (*onDestroyed)() = nullptr;
         bool (*onCloseRequested)() = nullptr;
         void (*onNumberRowOne)(bool down, bool shiftPressed) = nullptr;
+        bool (*onDeveloperToolsToggle)() = nullptr;
+        bool (*onWindowMessage)(
+            HWND window,
+            UINT message,
+            WPARAM wParam,
+            LPARAM lParam) = nullptr;
     };
 
     class MainWindowHook final
@@ -52,6 +58,7 @@ namespace fable::ui
         WNDPROC originalProcedure_ = nullptr;
         UINT_PTR timerId_ = 0;
         bool captureNumberRowOne_ = false;
+        bool developerToolsKeyCaptured_ = false;
         bool preserveBackgroundRendering_ = false;
         MainWindowCallbacks callbacks_ = {};
         core::Diagnostics diagnostics_ = {};

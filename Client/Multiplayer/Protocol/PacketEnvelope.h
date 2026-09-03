@@ -34,6 +34,13 @@ namespace fable::multiplayer::protocol
         PlayerActorState = 13,
         CombatHit = 14,
         ReliableFragment = 15,
+        // Host-authoritative global quest state. This is a reliable,
+        // control-stream transfer; it never carries guest Hero-owned state.
+        QuestStateSnapshot = 16,
+        // Opaque native REGIONS/FACTIONS section snapshots. These are
+        // chunked over the reliable control stream and never include the
+        // guest-owned PLAYER/Hero section.
+        WorldSectionSnapshot = 17,
         Count,
     };
 

@@ -51,6 +51,11 @@ namespace fable::multiplayer::combat
     class PlayerCombatantDirectory;
 }
 
+namespace fable::multiplayer::entities
+{
+    class LiveEntityRegistry;
+}
+
 namespace fable::ui
 {
     class HudService;
@@ -78,7 +83,9 @@ namespace fable::multiplayer::presentation
         void Reconcile(
             const std::vector<replication::RemotePlayerSnapshot>& snapshots,
             const std::string& localMap,
-            game::Entity* localHero);
+            std::uint16_t localMapId,
+            game::Entity* localHero,
+            const entities::LiveEntityRegistry* liveEntities = nullptr);
         void Remove(std::uint64_t actorId) noexcept;
         void BeginWorldTransition() noexcept;
         void CompleteWorldTransition() noexcept;

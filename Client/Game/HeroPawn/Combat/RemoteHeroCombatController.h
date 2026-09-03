@@ -31,6 +31,21 @@ namespace fable::game::hero_pawn::combat
     class RemoteHeroCombatController final
     {
     public:
+        // Fable uses the same auto-turn native attack action for a weaponless
+        // Hero and an equipped melee Hero. Keep this route decision separate
+        // from equipment preparation so an unarmed attack cannot fall through
+        // to the generic ability submission path.
+        [[nodiscard]] static bool UsesNativeAutoTurnAttack(
+            game::creature::equipment::CreatureWeaponFamily weaponFamily,
+            const std::string& resolvedActionType) noexcept
+        {
+            using game::creature::equipment::CreatureWeaponFamily;
+            return (weaponFamily == CreatureWeaponFamily::None ||
+                weaponFamily == CreatureWeaponFamily::Melee) &&
+                resolvedActionType.find("InterruptableMidAttackAutoTurn") !=
+                    std::string::npos;
+        }
+
         bool Initialize(
             game::EntityService& entities,
             game::creature::combat::CreatureCombatService& combat,

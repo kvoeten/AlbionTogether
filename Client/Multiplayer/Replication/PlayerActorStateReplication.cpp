@@ -313,14 +313,62 @@ namespace fable::multiplayer::replication
         {
             return true;
         }
-        const bool mapChanged = state.mapName != localMapName_ ||
-            state.mapId != localMapId_;
+        // Retail map labels can lag the native map transition by several
+        // frames.  When both sides have a numeric identity, it is the stable
+        // lifecycle key; a stale label must not manufacture another actor
+        // incarnation after the authoritative transition echo arrives.
+        const bool hasStableMapIdentity =
+            state.mapId != 0 && localMapId_ != 0;
+        const bool mapChanged = hasStableMapIdentity
+            ? state.mapId != localMapId_
+            : state.mapName != localMapName_;
         const bool nativeIncarnationChanged =
             (state.actorGeneration != 0 &&
                 state.actorGeneration != current->second.actorGeneration) ||
             (state.mapEpoch != 0 &&
                 state.mapEpoch != current->second.mapEpoch);
-        if (mapChanged || nativeIncarnationChanged)
+        if (mapChanged)
+        {
+            localMapEpoch_ = state.mapEpoch != 0
+                ? state.mapEpoch : localMapEpoch_ + 1;
+            if (localMapEpoch_ == 0) localMapEpoch_ = 1;
+            protocol::PlayerActorStateMessage transition = MakeLocalMessage(
+                state, protocol::PlayerActorStateOperation::MapTransition);
+            transition.componentFlags = 0;
+            transition.mapEpoch = localMapEpoch_;
+            transition.actorGeneration = state.actorGeneration != 0
+                ? state.actorGeneration
+                : current->second.actorGeneration + 1;
+            if (transition.actorGeneration == 0)
+            {
+                transition.actorGeneration = 1;
+            }
+            transition.authorityEpoch = current->second.authorityEpoch;
+            PlayerActorLifecycleReducer::ClearStructuralTiming(transition);
+            const std::uint32_t destinationGeneration =
+                transition.actorGeneration;
+            if (role_ == PeerRole::Host)
+            {
+                if (!AcceptHostLocal(std::move(transition)))
+                {
+                    return false;
+                }
+            }
+            else if (!Publish(std::move(transition)))
+            {
+                return false;
+            }
+            // The reliable host echo re-opens guest-side mutation capture
+            // against the canonical transition revision. Until then, the
+            // owner must not emit packets carrying the destination tokens.
+            localActiveAcknowledged_ = role_ == PeerRole::Host;
+            localConstructSent_ = false;
+            localActorGeneration_ = destinationGeneration;
+            localMapName_ = state.mapName;
+            localMapId_ = state.mapId;
+            return true;
+        }
+        if (nativeIncarnationChanged)
         {
             localMapEpoch_ = state.mapEpoch != 0
                 ? state.mapEpoch : localMapEpoch_ + 1;
@@ -371,6 +419,15 @@ namespace fable::multiplayer::replication
         }
         protocol::PlayerActorStateMessage delta = MakeLocalMessage(
             state, protocol::PlayerActorStateOperation::ComponentDelta);
+        if (hasStableMapIdentity)
+        {
+            // Preserve the host-acknowledged canonical label on structural
+            // patches.  Component deltas belong to the current numeric map
+            // incarnation and must not be rejected because the retail script
+            // string has not caught up yet.
+            delta.mapId = localMapId_;
+            delta.mapName = localMapName_;
+        }
         delta.actorGeneration = current->second.actorGeneration;
         delta.authorityEpoch = current->second.authorityEpoch;
         delta.mapEpoch = current->second.mapEpoch;
@@ -517,9 +574,11 @@ namespace fable::multiplayer::replication
         }
         if (existing == lifecycles_.end() ||
             existing->second.authorityEpoch != message.authorityEpoch ||
-            existing->second.actorGeneration != message.actorGeneration ||
             lifecycleConnectionNonces_[message.actorId] !=
-                sourceConnectionNonce)
+                sourceConnectionNonce ||
+            (message.operation != protocol::PlayerActorStateOperation::
+                    MapTransition &&
+                existing->second.actorGeneration != message.actorGeneration))
         {
             return true;
         }
@@ -613,7 +672,11 @@ namespace fable::multiplayer::replication
                 return true;
             }
             message.authorityEpoch = existing->second.authorityEpoch;
-            message.actorGeneration = existing->second.actorGeneration;
+            if (message.operation != protocol::PlayerActorStateOperation::
+                    MapTransition)
+            {
+                message.actorGeneration = existing->second.actorGeneration;
+            }
             // Local intent revisions share neither the host's revision domain
             // nor its lifetime. Canonicalize into the authoritative stream
             // before applying the same reducer used for remote owners.

@@ -3,6 +3,9 @@
 #include "Game/Entity/Persistence/Hooks/SavedEntityMapBlobObserver.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Replication/PlayerActionReplication.h"
+#include "Multiplayer/Persistence/QuestStateAuthorityService.h"
+#include "Multiplayer/Persistence/SavedEntityMapBaselineService.h"
+#include "Multiplayer/Persistence/WorldSectionAuthorityService.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
 #include "Multiplayer/Transport/UdpPeer.h"
@@ -10,6 +13,7 @@
 #include <Windows.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <utility>
 #include <vector>
 
@@ -22,7 +26,10 @@ namespace fable::multiplayer::persistence
         replication::RemotePlayerChannels& remotePlayers,
         replication::PlayerActionReplication& playerActions,
         authority::AuthorityReplication& authority,
-        const core::Diagnostics& diagnostics) noexcept
+        const core::Diagnostics& diagnostics,
+        QuestStateAuthorityService* const questState,
+        WorldSectionAuthorityService* const worldSections,
+        SavedEntityMapBaselineService* const mapBaseline) noexcept
     {
         Shutdown();
         role_ = role;
@@ -31,6 +38,9 @@ namespace fable::multiplayer::persistence
         remotePlayers_ = &remotePlayers;
         playerActions_ = &playerActions;
         authority_ = &authority;
+        questState_ = questState;
+        worldSections_ = worldSections;
+        mapBaseline_ = mapBaseline;
         diagnostics_ = diagnostics;
         stopping_.store(false, std::memory_order_release);
     }
@@ -58,6 +68,25 @@ namespace fable::multiplayer::persistence
         return true;
     }
 
+    bool SavedEntityConstructionGate::AttachThingLoadFilterHook(
+        game::entity::persistence::ThingSaveProjectionHook& hook) noexcept
+    {
+        if (role_ != PeerRole::Guest)
+        {
+            return true;
+        }
+        (void)hook;
+        // The native Thing load detour exposes neither the save reader nor the
+        // collection record identity. A SCRIPT_NAME_HERO-only predicate would
+        // be unsafe because it could reject the guest's true selected-save
+        // Hero. Leave this hook detached until a source-scoped boundary is
+        // available.
+        diagnostics_.Event(
+            "MultiplayerSavedEntityHeroLoadFilterUnavailable",
+            "preserving the guest SCRIPT_NAME_HERO because the native detour cannot distinguish host-record source");
+        return true;
+    }
+
     void SavedEntityConstructionGate::Shutdown() noexcept
     {
         stopping_.store(true, std::memory_order_release);
@@ -71,9 +100,30 @@ namespace fable::multiplayer::persistence
         remotePlayers_ = nullptr;
         playerActions_ = nullptr;
         authority_ = nullptr;
+        questState_ = nullptr;
+        worldSections_ = nullptr;
+        mapBaseline_ = nullptr;
         diagnostics_ = {};
         role_ = PeerRole::Guest;
         waiting_.store(false, std::memory_order_release);
+    }
+
+    void SavedEntityConstructionGate::OnWorldReady() noexcept
+    {
+        if (role_ != PeerRole::Guest || mapBaseline_ == nullptr)
+        {
+            return;
+        }
+        // WorldReady only proves that the native Hero object exists. Fable
+        // continues settling its component graph afterwards; retiring and
+        // reinstalling the source record here can remove the serialized
+        // inventory/ability payload before the local Hero is actually usable.
+        // PresentationLifecycleCoordinator keeps it pinned for the initial
+        // Hero incarnation and retires it only when that Hero departs the map.
+        // This also preserves data consumed lazily by inventory components.
+        diagnostics_.Event(
+            "MultiplayerGuestHeroInitialRecordRetirementDeferred",
+            "selected-save Hero record remains pinned through its initial map incarnation");
     }
 
     void SavedEntityConstructionGate::AwaitPostLoad(
@@ -92,8 +142,10 @@ namespace fable::multiplayer::persistence
                 SavedEntityMapBlobFormat::Binary)
         {
             gate->diagnostics_.Event(
-                "MultiplayerSavedEntityConstructionGateBypassed",
-                "the selected save used an unsupported text saved-entity collection");
+                "MultiplayerSavedEntityConstructionGateBlocked",
+                "text saved-entity collections have no validated host-record installer");
+            gate->AbortLoad(
+                "unsupported text save cannot satisfy host world authority");
             return;
         }
         try
@@ -102,9 +154,7 @@ namespace fable::multiplayer::persistence
         }
         catch (...)
         {
-            gate->waiting_.store(false, std::memory_order_release);
-            gate->diagnostics_.Event(
-                "MultiplayerSavedEntityConstructionGateAborted",
+            gate->AbortLoad(
                 "the pre-construction control pump raised an exception");
         }
     }
@@ -135,7 +185,9 @@ namespace fable::multiplayer::persistence
                 diagnostics_.Event(
                     "ClientFailed",
                     "multiplayer-saved-entity-construction-timeout");
-                break;
+                AbortLoad(
+                    "host world authority timed out before construction");
+                return;
             }
             if (stopping_.load(std::memory_order_acquire))
             {
@@ -155,7 +207,9 @@ namespace fable::multiplayer::persistence
                     requestedMap,
                     requestedMapId,
                     "multiplayer control transport failed while the save was loading");
-                break;
+                AbortLoad(
+                    "transport failed before host world authority was applied");
+                return;
             }
             if (!PumpControlLane())
             {
@@ -163,9 +217,8 @@ namespace fable::multiplayer::persistence
                 continue;
             }
 
-            std::string hostMap;
-            std::uint16_t hostMapId = 0;
-            if (!ResolveHostMap(hostMap, hostMapId))
+            if (mapBaseline_ == nullptr ||
+                !mapBaseline_->IsGuestCollectionReady())
             {
                 if (!heldReported)
                 {
@@ -173,39 +226,45 @@ namespace fable::multiplayer::persistence
                         "MultiplayerSavedEntityConstructionHeld",
                         {},
                         0,
-                        "waiting for the host's current native map identity");
+                        "waiting for the host saved-entity collection commit and native apply");
                     heldReported = true;
                 }
                 Sleep(1);
                 continue;
             }
-            if (requestedMap != hostMap || requestedMapId != hostMapId)
+
+            // Global manager sections load after this ENTITIES boundary.
+            // Hold until their reliable host snapshots are immutable, then
+            // their exact native load hooks substitute only QUESTS, REGIONS,
+            // and FACTIONS as retail continues the same bundle.
+            if (questState_ != nullptr &&
+                !questState_->IsReadyForGuestWorldLoad())
             {
-                requestedMap = std::move(hostMap);
-                requestedMapId = hostMapId;
-                heldReported = false;
-            }
-            if (!heldReported)
-            {
-                Report(
-                    "MultiplayerSavedEntityConstructionHeld",
-                    requestedMap,
-                    requestedMapId,
-                    "retail Thing construction is waiting for the host baseline");
-                heldReported = true;
-            }
-            if (!authority_->RequestMapPreparation(
-                    requestedMap,
-                    requestedMapId))
-            {
+                if (!heldReported)
+                {
+                    Report(
+                        "MultiplayerSavedEntityConstructionHeld",
+                        requestedMap,
+                        requestedMapId,
+                        "waiting for the complete host quest snapshot before native section completion");
+                    heldReported = true;
+                }
                 Sleep(1);
                 continue;
             }
-            if (!PumpControlLane() ||
-                !authority_->IsMapPreparationReady(
-                    requestedMap,
-                    requestedMapId))
+
+            if (worldSections_ != nullptr &&
+                !worldSections_->IsGuestReady())
             {
+                if (!heldReported)
+                {
+                    Report(
+                        "MultiplayerSavedEntityConstructionHeld",
+                        requestedMap,
+                        requestedMapId,
+                        "waiting for complete host REGIONS and FACTIONS snapshots before native section load");
+                    heldReported = true;
+                }
                 Sleep(1);
                 continue;
             }
@@ -214,10 +273,24 @@ namespace fable::multiplayer::persistence
                 "MultiplayerSavedEntityConstructionReleased",
                 requestedMap,
                 requestedMapId,
-                "host baseline is installed before retail Thing construction");
+                "host world and exact selected-save guest Hero were installed before retail Thing construction");
             break;
         }
         waiting_.store(false, std::memory_order_release);
+    }
+
+    void SavedEntityConstructionGate::AbortLoad(
+        const char* const reason) noexcept
+    {
+        stopping_.store(true, std::memory_order_release);
+        waiting_.store(false, std::memory_order_release);
+        diagnostics_.Event(
+            "MultiplayerSavedEntityConstructionAborted",
+            reason != nullptr ? reason : "host world authority unavailable");
+        // The observer boundary has no native failure return. Exit the game
+        // thread instead of ever exposing the guest's stale world as a valid
+        // multiplayer session.
+        PostQuitMessage(EXIT_FAILURE);
     }
 
     bool SavedEntityConstructionGate::PumpControlLane()
@@ -248,43 +321,26 @@ namespace fable::multiplayer::persistence
         }
         const std::vector<replication::RemotePlayerSnapshot> snapshots =
             remotePlayers_->Snapshots();
+        if (questState_ != nullptr)
+        {
+            for (const auto& snapshot : snapshots)
+            {
+                if (snapshot.state.role == PeerRole::Host &&
+                    snapshot.state.actorId != 0)
+                {
+                    questState_->SetExpectedHostActor(
+                        snapshot.state.actorId);
+                    if (worldSections_ != nullptr)
+                    {
+                        worldSections_->SetExpectedHostActor(
+                            snapshot.state.actorId);
+                    }
+                    break;
+                }
+            }
+        }
         return authority_->Reconcile(nullptr, snapshots) &&
             reliableMessages_->Pump() && authority_->ProcessControl();
-    }
-
-    bool SavedEntityConstructionGate::ResolveHostMap(
-        std::string& mapName,
-        std::uint16_t& mapId) const
-    {
-        mapName.clear();
-        mapId = 0;
-        if (remotePlayers_ == nullptr)
-        {
-            return false;
-        }
-        const std::vector<replication::RemotePlayerSnapshot> snapshots =
-            remotePlayers_->Snapshots();
-        const PlayerState* selected = nullptr;
-        for (const auto& snapshot : snapshots)
-        {
-            const PlayerState& candidate = snapshot.state;
-            if (candidate.role != PeerRole::Host || candidate.actorId == 0 ||
-                candidate.mapId == 0 || candidate.mapName.empty())
-            {
-                continue;
-            }
-            if (selected == nullptr || candidate.actorId < selected->actorId)
-            {
-                selected = &candidate;
-            }
-        }
-        if (selected == nullptr)
-        {
-            return false;
-        }
-        mapName = selected->mapName;
-        mapId = selected->mapId;
-        return true;
     }
 
     void SavedEntityConstructionGate::Report(

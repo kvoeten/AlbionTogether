@@ -132,7 +132,8 @@ namespace fable::launcher::automation
         const std::filesystem::path& eventPath,
         const wchar_t* instance,
         int x,
-        unsigned int timeoutSeconds)
+        unsigned int timeoutSeconds,
+        const bool requireFixtureDocuments)
     {
         const ULONGLONG deadline = GetTickCount64() +
             static_cast<ULONGLONG>(timeoutSeconds) * 1'000;
@@ -149,14 +150,16 @@ namespace fable::launcher::automation
             }
             if (fable::launcher::diagnostics::EventWasReported(
                     events, "ClientHooksReady") &&
-                fable::launcher::diagnostics::EventWasReported(
-                    events, "FrontEndStartReady") &&
+                (!requireFixtureDocuments ||
+                    fable::launcher::diagnostics::EventWasReported(
+                        events, "FrontEndStartReady")) &&
                 fable::launcher::diagnostics::EventWasReported(
                     events, "LocalInstanceReady") &&
                 fable::launcher::diagnostics::EventWasReported(
                     events, "UnrealSingletonNamespaced") &&
-                fable::launcher::diagnostics::EventWasReported(
-                    events, "FixtureDocumentsRedirectReady") &&
+                (!requireFixtureDocuments ||
+                    fable::launcher::diagnostics::EventWasReported(
+                        events, "FixtureDocumentsRedirectReady")) &&
                 fable::launcher::diagnostics::EventWasReported(
                     events, "ScriptStorageRootReady"))
             {

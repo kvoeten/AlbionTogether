@@ -18,6 +18,7 @@ using fable::launcher::kClientPreResumeReady;
 using fable::launcher::kClientRuntimeReady;
 using fable::launcher::kFableSteamAppId;
 using fable::launcher::kFixtureDocumentsEnvironment;
+using fable::launcher::kFixtureSaveNameEnvironment;
 using fable::launcher::kInjectionTimeoutMilliseconds;
 using fable::launcher::kLocalInstanceEnvironment;
 using fable::launcher::kLocalSessionEnvironment;
@@ -295,6 +296,7 @@ class ChildEnvironment final
         Override(kConsoleEnabledEnvironment, spec.showConsole ? L"1" : L"0");
         Override(kLogFilesEnabledEnvironment, spec.generateLogs ? L"1" : L"0");
         Override(kFixtureDocumentsEnvironment, spec.fixtureDocuments.wstring());
+        Override(kFixtureSaveNameEnvironment, spec.fixtureSaveName);
         Override(kCharacterSnapshotEnvironment, spec.characterSnapshot.wstring());
         Override(kScriptDataEnvironment, spec.scriptData.wstring());
         Override(kLocalSessionEnvironment, spec.localSession);

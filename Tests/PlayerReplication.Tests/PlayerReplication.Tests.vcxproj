@@ -43,6 +43,20 @@
   <ItemGroup>
     <ClCompile Include="..\..\Client\Core\Hooking\CodePatch.cpp" />
     <ClCompile Include="CodePatch.Tests.cpp" />
+    <ClCompile Include="EntityFlagFunction.Tests.cpp" />
+    <ClCompile Include="DiagnosticLog.Tests.cpp" />
+    <ClCompile Include="GameplayFrameMailbox.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Core\GameThread\Hooks\SimulationFrameHook.cpp" />
+    <ClCompile Include="SimulationFrameHook.Tests.cpp" />
+    <ClCompile Include="AiStateGroupHook.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Game\Creature\AI\Hooks\AiBrainUpdateObserver.cpp" />
+    <ClCompile Include="..\..\Client\Game\Creature\AI\Native\AiBrainFunctions.cpp" />
+    <ClCompile Include="..\..\Client\Core\Diagnostics\DiagnosticLog.cpp" />
+    <ClCompile Include="DeveloperTools.Tests.cpp" />
+    <ClCompile Include="WorldSectionSnapshot.Tests.cpp" />
+    <ClCompile Include="..\..\Client\DeveloperTools\DeveloperToolTypes.cpp" />
+    <ClCompile Include="..\..\Client\DeveloperTools\DeveloperCommandQueue.cpp" />
+    <ClCompile Include="..\..\Client\DeveloperTools\DeveloperToolBackend.cpp" />
     <ClCompile Include="PlayerReplication.Tests.cpp" />
     <ClCompile Include="CombatHitReplication.Tests.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Combat\CombatActionLedger.cpp" />
@@ -53,6 +67,8 @@
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\PacketEnvelope.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityActionMessage.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityLifecycleMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Entities\WorldEntityDirectory.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\World\MapIdentityRegistry.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityLowSimulationMessageCodec.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityMovementMessage.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\EntityVitalsMessageCodec.cpp" />
@@ -78,6 +94,31 @@
     <ClCompile Include="SessionClock.Tests.cpp" />
     <ClCompile Include="ReliableStreamWindow.Tests.cpp" />
     <ClCompile Include="EquipmentTransitionTiming.Tests.cpp" />
+    <ClCompile Include="SavedEntityMapBaseline.Tests.cpp" />
+    <ClCompile Include="WorldEntityDirectory.Tests.cpp" />
+    <ClCompile Include="LocalShopAuthority.Tests.cpp" />
+    <ClCompile Include="ShopKeeperReadiness.Tests.cpp" />
+    <ClCompile Include="LocalShopEconomy.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Game\NPC\Shop\Native\ShopKeeperReadiness.cpp" />
+    <ClCompile Include="..\..\Client\Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\LocalShopSaveBoundary.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Native\ThingComponentAccess.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Authority\ActionAuthorityCoordinator.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Authority\MapAuthorityCoordinator.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Persistence\Serialization\SavedEntityCell.cpp" />
+    <ClCompile Include="HeroSavedEntityRecord.Tests.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\GuestHeroSaveBoundary.cpp" />
+    <ClCompile Include="..\..\Client\Game\Entity\Persistence\Native\SavedEntityCompression.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\QuestStateSnapshotMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\WorldSectionSnapshotMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\WorldSectionSnapshotTransfer.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\QuestStateAuthorityService.cpp" />
+    <ClCompile Include="..\..\Client\Game\Quest\Persistence\QuestStateNativeCaptureHook.cpp" />
+    <ClCompile Include="..\..\Client\Game\Persistence\Hooks\GameStateSectionLoadHook.cpp" />
+    <ClCompile Include="QuestStateSnapshot.Tests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Client\Multiplayer\Combat\CombatActionLedger.h" />
@@ -108,6 +149,11 @@
     <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerDatagramCodec.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerSessionRegistry.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\ReliableStreamTransport.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\QuestStateSnapshotMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\WorldSectionSnapshotMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Persistence\WorldSectionSnapshotTransfer.h" />
+    <ClInclude Include="..\..\Client\Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.h" />
+    <ClInclude Include="..\..\Client\Game\Entity\Persistence\Serialization\SavedEntityCell.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

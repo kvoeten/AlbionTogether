@@ -106,9 +106,12 @@ namespace fable::multiplayer::authority
         brainObserver_->SetExecutionSink(
             &EntitySimulationAuthority::ShouldExecuteBrain,
             this);
+        brainObserver_->SetStateGroupExecutionSink(
+            &EntitySimulationAuthority::ShouldExecuteStateGroup,
+            this);
         diagnostics_.Event(
             "MultiplayerEntityBrainAuthorityAttached",
-            "non-publisher CAIBrain updates are suppressed without removing native creature components");
+            "non-publisher CAIBrain and direct state-group decisions are suppressed without removing native creature components");
         return true;
     }
 
@@ -176,8 +179,7 @@ namespace fable::multiplayer::authority
             }
 
             // Known player combatants get an explicit decision: only the
-            // local actor may run native simulation. Unknown presentations
-            // during engine bootstrap remain fail-open below.
+            // local actor may run native simulation.
             if (playerActorId != 0)
             {
                 const std::uint64_t localUid = identities_->FindLocal(canonicalUid);
@@ -200,10 +202,17 @@ namespace fable::multiplayer::authority
 
             // A canonical world record takes precedence over the presentation
             // label: world entities with a Hero morph still follow publisher
-            // authority. Only an unknown, unrecorded player presentation is
-            // omitted (and therefore remains fail-open in CanSimulate).
+            // authority. An unbound player presentation is fenced until its
+            // actor binding is available.
             if (record == nullptr && isPlayerPresentation)
             {
+                std::uint64_t nativeUid = identities_->FindLocal(canonicalUid);
+                if (nativeUid == 0)
+                {
+                    nativeUid = canonicalUid;
+                }
+                next->byCreature[live.thing] = {nativeUid, false};
+                ++fencedCount;
                 continue;
             }
             if (!entities::LiveEntityRegistry::IsReplicable(live))
@@ -212,26 +221,13 @@ namespace fable::multiplayer::authority
             }
             ++replicableCount;
 
-            bool canSimulate = true;
+            bool canSimulate = false;
             if (record == nullptr)
             {
-                // A live non-Hero creature can be observed before its reliable
-                // lifecycle record. Fence it when the map lease is already
-                // known; otherwise remain fail-open during engine bootstrap.
-                const std::string* const mapName =
-                    authority_->ResolveMapName(live.mapId);
-                const MapAuthorityLease* const lease = mapName != nullptr
-                    ? authority_->FindMapLease(*mapName)
-                    : nullptr;
-                if (!ownerRosterReady && mapName != nullptr &&
-                    *mapName == localMap)
-                {
-                    canSimulate = false;
-                }
-                else if (lease != nullptr && lease->epoch != 0)
-                {
-                    canSimulate = lease->actorId == localActorId_;
-                }
+                // A creature observed before its ordered lifecycle record has
+                // no authoritative incarnation yet. It cannot simulate until
+                // the host directory and map lease classify it.
+                canSimulate = false;
             }
             else if (!record->available || !record->live ||
                 !record->creature || record->mapId == 0 ||
@@ -313,6 +309,7 @@ namespace fable::multiplayer::authority
         if (brainObserver_ != nullptr)
         {
             brainObserver_->SetExecutionSink(nullptr, nullptr);
+            brainObserver_->SetStateGroupExecutionSink(nullptr, nullptr);
         }
         if (actionObserver_ != nullptr)
         {
@@ -370,11 +367,24 @@ namespace fable::multiplayer::authority
         return simulation == nullptr || simulation->CanSimulate(creature);
     }
 
+    bool EntitySimulationAuthority::ShouldExecuteStateGroup(
+        void* context,
+        void* creature,
+        int frameTime,
+        void* nativeProposal) noexcept
+    {
+        const auto* const simulation =
+            static_cast<const EntitySimulationAuthority*>(context);
+        (void)frameTime;
+        (void)nativeProposal;
+        return simulation == nullptr || simulation->CanSimulate(creature);
+    }
+
     bool EntitySimulationAuthority::CanSimulate(void* creature) const noexcept
     {
         if (creature == nullptr)
         {
-            return true;
+            return false;
         }
         const std::shared_ptr<const DecisionSnapshot> decisions =
             std::atomic_load_explicit(
@@ -385,12 +395,13 @@ namespace fable::multiplayer::authority
             return true;
         }
         const auto decision = decisions->byCreature.find(creature);
-        // Unknown Things remain fail-open so the Hero and engine bootstrap
-        // objects are never caught by an NPC policy. Refresh publishes an
-        // explicit decision as soon as Mapwho reports a replicable creature.
+        // Once a decision snapshot exists, a newly observed creature is
+        // fenced until the next reconciliation classifies its incarnation.
+        // Before the first world snapshot, the null-table case above remains
+        // fail-open for retail bootstrap.
         if (decision == decisions->byCreature.end())
         {
-            return true;
+            return false;
         }
 
         std::uint64_t nativeUid = 0;
@@ -398,7 +409,7 @@ namespace fable::multiplayer::authority
         // A native address can be reused between reconciliation passes. Never
         // apply an old NPC decision to a newly constructed Thing (especially
         // a Hero presentation) that happens to occupy the same address.
-        return !readable || nativeUid != decision->second.nativeUid ||
+        return readable && nativeUid == decision->second.nativeUid &&
             decision->second.canSimulate;
     }
 }

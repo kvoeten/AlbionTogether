@@ -62,6 +62,25 @@ namespace fable::game::native
         inline constexpr std::uintptr_t IsQuestRegistered = 0x01891E60;
         inline constexpr std::uintptr_t IsQuestCompleted = 0x01891E70;
         inline constexpr std::uintptr_t IsQuestFailed = 0x01891E80;
+        // Global quest-manager/save seam from the current PE32 build. The
+        // manager instance and CStringParser lifecycle remain deliberately
+        // opaque until a runtime-safe construction boundary is validated.
+        inline constexpr std::uintptr_t QuestManagerGlobal = 0x03230360;
+        inline constexpr std::uintptr_t QuestManagerSaveGameState =
+            0x01BC4270;
+        inline constexpr std::uintptr_t QuestManagerLoadGameState =
+            0x01BC5200;
+        inline constexpr std::uintptr_t PersistLoadGameState = 0x01BC5EF0;
+        // Loads the retail save bundle in section order: ENTITIES, PLAYER,
+        // QUESTS, REGIONS, then FACTIONS. Multiplayer uses its completion
+        // boundary so host-owned sections cannot be overwritten later by
+        // the guest save's own section loaders.
+        inline constexpr std::uintptr_t GameStateBundleLoadSections =
+            0x01BA2BA0;
+        inline constexpr std::uintptr_t CStringParserConstructor =
+            0x012C0AA0;
+        inline constexpr std::uintptr_t CStringParserDestructor =
+            0x012C0B90;
         inline constexpr std::uintptr_t AutoSave = 0x0188C510;
         inline constexpr std::uintptr_t WorldSaveGameStateManual =
             0x01BA35B0;
@@ -107,7 +126,11 @@ namespace fable::game::native
         inline constexpr std::size_t GetThingWithUid = 89;
         inline constexpr std::size_t CreateCreature = 97;
         inline constexpr std::size_t TurnCreatureInto = 100;
+        // Current Anniversary layout, verified from the native cutscene
+        // .SetAttackable call at RVA 0x0136097A. Older FSE slot numbers differ;
+        // slot 469 here takes six arguments, not (Thing, bool).
         inline constexpr std::size_t SetAttackable = 0x774 / sizeof(void*);
+        inline constexpr std::size_t SetPersistent = 0x7C0 / sizeof(void*);
         inline constexpr std::size_t SetBound = 0x804 / sizeof(void*);
         inline constexpr std::size_t SetFree = 0x808 / sizeof(void*);
         inline constexpr std::size_t SetDrawable = 0x848 / sizeof(void*);

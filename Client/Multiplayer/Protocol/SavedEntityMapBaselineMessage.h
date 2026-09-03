@@ -12,6 +12,8 @@ namespace fable::multiplayer::protocol
         Begin = 1,
         Chunk = 2,
         Commit = 3,
+        CollectionBegin = 4,
+        CollectionCommit = 5,
     };
 
     struct SavedEntityMapBaselineMessage final
@@ -21,7 +23,10 @@ namespace fable::multiplayer::protocol
         game::entity::persistence::SavedEntityMapBlobFormat format =
             game::entity::persistence::SavedEntityMapBlobFormat::Binary;
         bool present = false;
+        bool collection = false;
         std::uint16_t mapId = 0;
+        std::uint16_t collectionRecordCount = 0;
+        std::uint16_t collectionRecordIndex = 0;
         std::uint64_t transferId = 0;
         std::uint64_t baselineRevision = 0;
         std::uint32_t metadata = 0;

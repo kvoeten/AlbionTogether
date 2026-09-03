@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 
 namespace fable::core::target
 {
@@ -28,6 +29,13 @@ namespace fable::core::target
         constexpr std::uintptr_t kRegionManagerResolveIndexRva = 0x01BC6560;
         constexpr std::uintptr_t kThingPlayerCreatureVtableRva = 0x02B1DBB4;
         constexpr std::uintptr_t kThingPlayerCreatureModifyCombatHealthRva = 0x01B5A520;
+        constexpr std::uintptr_t kQuestManagerSaveGameStateRva = 0x01BC4270;
+        constexpr std::uintptr_t kQuestManagerLoadGameStateRva = 0x01BC5200;
+        constexpr std::uintptr_t kPersistLoadGameStateRva = 0x01BC5EF0;
+        constexpr std::uintptr_t kCStringParserConstructorRva = 0x012C0AA0;
+        constexpr std::uintptr_t kCStringParserDestructorRva = 0x012C0B90;
+        constexpr std::uintptr_t kQuestManagerGlobalRva = 0x03230360;
+        constexpr std::uintptr_t kQuestManagerGlobalUseRva = 0x01891E50;
 
         constexpr std::size_t kScriptThingDestructorVtableIndex = 0;
         constexpr std::size_t kScriptThingIsNullVtableIndex = 77;
@@ -46,6 +54,36 @@ namespace fable::core::target
                 }
             }
             return true;
+        }
+
+        template <std::size_t Size>
+        bool BytesMatchRelocatedOperand(
+            const std::uint8_t* address,
+            const std::array<std::uint8_t, Size>& expected,
+            const std::size_t operandOffset,
+            const std::uintptr_t operandRva,
+            const std::uint8_t* moduleBase) noexcept
+        {
+            if (operandOffset + sizeof(std::uint32_t) > Size)
+            {
+                return false;
+            }
+            for (std::size_t index = 0; index < Size; ++index)
+            {
+                if (index >= operandOffset &&
+                    index < operandOffset + sizeof(std::uint32_t))
+                {
+                    continue;
+                }
+                if (address[index] != expected[index])
+                {
+                    return false;
+                }
+            }
+            std::uint32_t actual = 0;
+            std::memcpy(&actual, address + operandOffset, sizeof(actual));
+            return actual == static_cast<std::uint32_t>(
+                reinterpret_cast<std::uintptr_t>(moduleBase) + operandRva);
         }
 
         void Report(ValidationLog log, const char* message) noexcept
@@ -106,6 +144,25 @@ namespace fable::core::target
             0x80, 0xE4, 0x00, 0x00, 0x00, 0xC3};
         constexpr std::array<std::uint8_t, 8> kRegionManagerResolveIndexPrefix = {
             0x53, 0x55, 0x56, 0x8B, 0xF1, 0x8B, 0x4E, 0x38};
+        constexpr std::array<std::uint8_t, 20> kCStringParserConstructorPrefix = {
+            0x6A, 0xFF, 0x68, 0x71, 0xD9, 0x89, 0x02, 0x64,
+            0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0x83, 0xEC,
+            0x0C, 0x53, 0x56, 0x57};
+        constexpr std::array<std::uint8_t, 20> kCStringParserDestructorPrefix = {
+            0x6A, 0xFF, 0x68, 0xB6, 0xD9, 0x89, 0x02, 0x64,
+            0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0x83, 0xEC,
+            0x08, 0x55, 0x56, 0x57};
+        constexpr std::array<std::uint8_t, 16> kQuestSavePrefix = {
+            0x6A, 0xFF, 0x68, 0x30, 0xE3, 0x95, 0x02, 0x64,
+            0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0x83, 0xEC};
+        constexpr std::array<std::uint8_t, 16> kQuestLoadPrefix = {
+            0x6A, 0xFF, 0x68, 0x2C, 0xE6, 0x95, 0x02, 0x64,
+            0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0x83, 0xEC};
+        constexpr std::array<std::uint8_t, 16> kPersistLoadPrefix = {
+            0x6A, 0xFF, 0x68, 0x70, 0xE6, 0x95, 0x02, 0x64,
+            0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0x83, 0xEC};
+        constexpr std::array<std::uint8_t, 7> kQuestManagerGlobalUsePrefix = {
+            0x8B, 0x0D, 0x60, 0x03, 0x63, 0x03, 0xE9};
 
         if (!BytesMatch(base + kCharStringConstructorRva, kCharStringConstructorPrefix) ||
             !BytesMatch(base + kGetHeroRva, kGetHeroPrefix) ||
@@ -124,6 +181,35 @@ namespace fable::core::target
             Report(log, "Target validation failed: one or more native signatures drifted.");
             return false;
         }
+
+#define FABLE_REQUIRE_RELOCATED_SIGNATURE(name, rva, bytes, offset, operand) \
+        if (!BytesMatchRelocatedOperand( \
+                base + (rva), (bytes), (offset), (operand), base)) \
+        { \
+            Report(log, "Target validation failed: " name " signature drifted."); \
+            return false; \
+        }
+
+        FABLE_REQUIRE_RELOCATED_SIGNATURE(
+            "CStringParser constructor", kCStringParserConstructorRva,
+            kCStringParserConstructorPrefix, 3, 0x0249D971);
+        FABLE_REQUIRE_RELOCATED_SIGNATURE(
+            "CStringParser destructor", kCStringParserDestructorRva,
+            kCStringParserDestructorPrefix, 3, 0x0249D9B6);
+        FABLE_REQUIRE_RELOCATED_SIGNATURE(
+            "quest SaveGameState", kQuestManagerSaveGameStateRva,
+            kQuestSavePrefix, 3, 0x0255E330);
+        FABLE_REQUIRE_RELOCATED_SIGNATURE(
+            "quest LoadGameState", kQuestManagerLoadGameStateRva,
+            kQuestLoadPrefix, 3, 0x0255E62C);
+        FABLE_REQUIRE_RELOCATED_SIGNATURE(
+            "persistence LoadGameState", kPersistLoadGameStateRva,
+            kPersistLoadPrefix, 3, 0x0255E670);
+        FABLE_REQUIRE_RELOCATED_SIGNATURE(
+            "quest-manager global", kQuestManagerGlobalUseRva,
+            kQuestManagerGlobalUsePrefix, 2, kQuestManagerGlobalRva);
+
+#undef FABLE_REQUIRE_RELOCATED_SIGNATURE
 
         const auto scriptThingVtable = reinterpret_cast<void* const*>(base + kScriptThingVtableRva);
         if (scriptThingVtable[kScriptThingDestructorVtableIndex] !=

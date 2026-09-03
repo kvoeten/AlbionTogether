@@ -239,6 +239,7 @@ namespace fable::ui
         threadId_ = 0;
         originalProcedure_ = nullptr;
         timerId_ = 0;
+        developerToolsKeyCaptured_ = false;
         callbacks_ = {};
         diagnostics_ = {};
     }
@@ -319,6 +320,27 @@ namespace fable::ui
         }
         if (captureNumberRowOne_ && message == WM_CHAR &&
             (wParam == static_cast<WPARAM>('1') || wParam == static_cast<WPARAM>('!')))
+        {
+            return 0;
+        }
+
+        if (message == WM_KEYDOWN && wParam == VK_F8 &&
+            (lParam & (1L << 30)) == 0 &&
+            callbacks_.onDeveloperToolsToggle != nullptr &&
+            callbacks_.onDeveloperToolsToggle())
+        {
+            developerToolsKeyCaptured_ = true;
+            return 0;
+        }
+        if (message == WM_KEYUP && wParam == VK_F8 &&
+            developerToolsKeyCaptured_)
+        {
+            developerToolsKeyCaptured_ = false;
+            return 0;
+        }
+
+        if (callbacks_.onWindowMessage != nullptr &&
+            callbacks_.onWindowMessage(window, message, wParam, lParam))
         {
             return 0;
         }

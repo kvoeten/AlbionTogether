@@ -8,6 +8,11 @@ namespace fable::game::native
     struct ScriptThing;
 }
 
+namespace fable::game
+{
+    class EntityService;
+}
+
 namespace fable::game::hero_pawn::equipment::native
 {
     struct HeroWeaponInspection final
@@ -36,6 +41,7 @@ namespace fable::game::hero_pawn::equipment::native
             void* nativeThing,
             HeroEquipmentState& state) noexcept;
         [[nodiscard]] static bool Apply(
+            game::EntityService& entities,
             void* nativeThing,
             const HeroEquipmentState& state) noexcept;
         // Materializes/removes the Hero inventory-weapon Things without
@@ -43,6 +49,14 @@ namespace fable::game::hero_pawn::equipment::native
         // reached its final carry slots. Presentation ownership remains with
         // RequestActiveFamily and the retail Hero action stack.
         [[nodiscard]] static bool ApplyDefinitions(
+            game::EntityService& entities,
+            void* nativeThing,
+            const HeroEquipmentState& state) noexcept;
+        // Applies an already-materialized owner's exact hand/back/hidden
+        // layout without playing a transition. This is for actor baseline
+        // construction; live equipment changes use the action stack.
+        [[nodiscard]] static bool ApplyPresentation(
+            game::EntityService& entities,
             void* nativeThing,
             const HeroEquipmentState& state) noexcept;
         [[nodiscard]] static bool Inspect(

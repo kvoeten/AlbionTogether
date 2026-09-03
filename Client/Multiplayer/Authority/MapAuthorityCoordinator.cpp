@@ -29,12 +29,14 @@ namespace fable::multiplayer::authority
             return;
         }
 
-        std::unordered_map<std::string, std::vector<const PlayerState*>> players;
+        // Names are diagnostic only.  They can be stale or disagree between
+        // peers during travel; the native numeric ID is the authority key.
+        std::unordered_map<std::uint16_t, std::vector<const PlayerState*>> players;
         std::unordered_set<std::uint64_t> presentActors;
-        if (!localPlayer->mapName.empty())
+        if (!localPlayer->mapName.empty() && localPlayer->mapId != 0)
         {
             ObserveOccupancy(*localPlayer, presentActors);
-            players[localPlayer->mapName].push_back(localPlayer);
+            players[localPlayer->mapId].push_back(localPlayer);
         }
         std::vector<const replication::RemotePlayerSnapshot*> orderedRemotes;
         orderedRemotes.reserve(remotePlayers.size());
@@ -52,12 +54,13 @@ namespace fable::multiplayer::authority
             });
         for (const auto* remote : orderedRemotes)
         {
-            if (remote != nullptr && !remote->state.mapName.empty())
+            if (remote != nullptr && !remote->state.mapName.empty() &&
+                remote->state.mapId != 0)
             {
                 ObserveOccupancy(
                     remote->state,
                     presentActors);
-                players[remote->state.mapName].push_back(&remote->state);
+                players[remote->state.mapId].push_back(&remote->state);
             }
         }
         for (auto iterator = actorOccupancy_.begin();
@@ -85,13 +88,13 @@ namespace fable::multiplayer::authority
             }
         }
 
-        std::unordered_map<std::string, MapAuthorityLease> next;
+        std::unordered_map<std::uint16_t, MapAuthorityLease> next;
         // Player-state map updates and pre-load Prepare reservations are not
         // sufficient to revoke an old lease. Retain the source until the actor
         // both occupies a different native map ID and activates that exact
         // reservation with Request. A disconnected actor is absent and is
         // never retained.
-        for (const auto& [mapName, previous] : leases_)
+        for (const auto& [mapId, previous] : leases_)
         {
             const auto occupancy = actorOccupancy_.find(previous.actorId);
             const auto request = actorRequests_.find(previous.actorId);
@@ -100,8 +103,7 @@ namespace fable::multiplayer::authority
                 continue;
             }
             const bool stillOccupiesSource =
-                occupancy->second.mapName == mapName &&
-                occupancy->second.mapId == previous.mapId;
+                occupancy->second.mapId == mapId;
             const bool destinationActivated =
                 request != actorRequests_.end() &&
                 request->second.activated &&
@@ -109,17 +111,24 @@ namespace fable::multiplayer::authority
                 occupancy->second.mapId != previous.mapId;
             if (stillOccupiesSource || !destinationActivated)
             {
-                next.emplace(mapName, previous);
+                MapAuthorityLease retained = previous;
+                if (localPlayer->mapId == mapId &&
+                    !localPlayer->mapName.empty())
+                {
+                    // The host's local name is canonical for diagnostics.
+                    retained.mapName = localPlayer->mapName;
+                }
+                next.emplace(mapId, std::move(retained));
             }
         }
-        for (auto& [mapName, occupants] : players)
+        for (auto& [mapId, occupants] : players)
         {
-            if (next.find(mapName) != next.end())
+            if (next.find(mapId) != next.end())
             {
                 continue;
             }
             const PlayerState* selected = nullptr;
-            const auto previous = leases_.find(mapName);
+            const auto previous = leases_.find(mapId);
             if (previous != leases_.end())
             {
                 const auto retained = std::find_if(
@@ -148,7 +157,7 @@ namespace fable::multiplayer::authority
                         occupant->actorId);
                     if (candidate == actorRequests_.end() ||
                         !candidate->second.activated ||
-                        candidate->second.mapId != occupant->mapId)
+                        candidate->second.mapId != mapId)
                     {
                         continue;
                     }
@@ -178,36 +187,48 @@ namespace fable::multiplayer::authority
                 continue;
             }
             MapAuthorityLease lease;
-            lease.mapName = mapName;
+            if (localPlayer->mapId == mapId &&
+                !localPlayer->mapName.empty())
+            {
+                lease.mapName = localPlayer->mapName;
+            }
+            else if (previous != leases_.end() &&
+                !previous->second.mapName.empty())
+            {
+                lease.mapName = previous->second.mapName;
+            }
+            else
+            {
+                lease.mapName = selected->mapName;
+            }
             lease.actorId = selected->actorId;
-            lease.mapId = changed
-                ? selectedRequest->second.mapId
-                : previous->second.mapId;
+            lease.mapId = mapId;
             lease.epoch = changed
-                ? ++epochCounters_[mapName]
+                ? ++epochCounters_[mapId]
                 : previous->second.epoch;
             lease.localAuthority = lease.actorId == localActorId_;
-            next.emplace(mapName, lease);
+            next.emplace(mapId, lease);
             if (changed)
             {
                 QueueGrant(lease);
                 ReportChange(
-                    mapName,
+                    lease.mapName,
+                    lease.mapId,
                     lease.actorId,
                     lease.epoch,
                     "grant");
             }
         }
 
-        for (const auto& [mapName, previous] : leases_)
+        for (const auto& [mapId, previous] : leases_)
         {
-            if (next.find(mapName) != next.end())
+            if (next.find(mapId) != next.end())
             {
                 continue;
             }
-            const std::uint32_t epoch = ++epochCounters_[mapName];
-            QueueRelease(mapName, previous.mapId, epoch);
-            ReportChange(mapName, 0, epoch, "release");
+            const std::uint32_t epoch = ++epochCounters_[mapId];
+            QueueRelease(previous.mapName, mapId, epoch);
+            ReportChange(previous.mapName, mapId, 0, epoch, "release");
         }
         leases_ = std::move(next);
     }
@@ -252,7 +273,7 @@ namespace fable::multiplayer::authority
         {
             return false;
         }
-        const auto epoch = epochCounters_.find(mapName);
+        const auto epoch = epochCounters_.find(mapId);
         if (epoch != epochCounters_.end() && observedEpoch > epoch->second)
         {
             return false;
@@ -302,7 +323,7 @@ namespace fable::multiplayer::authority
         const PlayerState& player,
         std::unordered_set<std::uint64_t>& presentActors)
     {
-        if (player.actorId == 0 || player.mapName.empty())
+        if (player.actorId == 0 || player.mapName.empty() || player.mapId == 0)
         {
             return;
         }
@@ -316,11 +337,13 @@ namespace fable::multiplayer::authority
         const protocol::AuthorityMessage& message)
     {
         if (message.scope != protocol::AuthorityScope::MapSimulation ||
-            message.mapName.empty() || message.mapEpoch == 0)
+            message.mapName.empty() || message.mapId == 0 ||
+            message.mapEpoch == 0)
         {
             return false;
         }
-        std::uint32_t& lastEpoch = epochCounters_[message.mapName];
+        // Epochs fence the numeric map identity, never the diagnostic name.
+        std::uint32_t& lastEpoch = epochCounters_[message.mapId];
         if (message.mapEpoch <= lastEpoch)
         {
             return false;
@@ -328,8 +351,17 @@ namespace fable::multiplayer::authority
         lastEpoch = message.mapEpoch;
         if (message.operation == protocol::AuthorityOperation::Release)
         {
-            leases_.erase(message.mapName);
-            ReportChange(message.mapName, 0, message.mapEpoch, "release");
+            const auto existing = leases_.find(message.mapId);
+            const std::string reportName = existing != leases_.end()
+                ? existing->second.mapName
+                : message.mapName;
+            leases_.erase(message.mapId);
+            ReportChange(
+                reportName,
+                message.mapId,
+                0,
+                message.mapEpoch,
+                "release");
             return true;
         }
         if (message.operation != protocol::AuthorityOperation::Grant ||
@@ -343,9 +375,10 @@ namespace fable::multiplayer::authority
         lease.mapId = message.mapId;
         lease.epoch = message.mapEpoch;
         lease.localAuthority = lease.actorId == localActorId_;
-        leases_[lease.mapName] = lease;
+        leases_[lease.mapId] = lease;
         ReportChange(
             lease.mapName,
+            lease.mapId,
             lease.actorId,
             lease.epoch,
             "grant");
@@ -358,9 +391,9 @@ namespace fable::multiplayer::authority
         {
             return;
         }
-        for (const auto& [mapName, lease] : leases_)
+        for (const auto& [mapId, lease] : leases_)
         {
-            (void)mapName;
+            (void)mapId;
             QueueGrant(lease);
         }
     }
@@ -384,9 +417,30 @@ namespace fable::multiplayer::authority
     }
 
     const MapAuthorityLease* MapAuthorityCoordinator::Find(
+        std::uint16_t mapId) const noexcept
+    {
+        if (mapId == 0)
+        {
+            return nullptr;
+        }
+        const auto iterator = leases_.find(mapId);
+        return iterator == leases_.end() ? nullptr : &iterator->second;
+    }
+
+    const MapAuthorityLease* MapAuthorityCoordinator::Find(
         const std::string& mapName) const noexcept
     {
-        const auto iterator = leases_.find(mapName);
+        if (mapName.empty())
+        {
+            return nullptr;
+        }
+        const auto iterator = std::find_if(
+            leases_.begin(),
+            leases_.end(),
+            [&mapName](const auto& entry)
+            {
+                return entry.second.mapName == mapName;
+            });
         return iterator == leases_.end() ? nullptr : &iterator->second;
     }
 
@@ -404,7 +458,11 @@ namespace fable::multiplayer::authority
             [](const MapAuthorityLease& left,
                 const MapAuthorityLease& right)
             {
-                return left.mapName < right.mapName;
+                if (left.mapName != right.mapName)
+                {
+                    return left.mapName < right.mapName;
+                }
+                return left.mapId < right.mapId;
             });
         return result;
     }
@@ -438,6 +496,7 @@ namespace fable::multiplayer::authority
 
     void MapAuthorityCoordinator::ReportChange(
         const std::string& mapName,
+        const std::uint16_t mapId,
         std::uint64_t actorId,
         std::uint32_t epoch,
         const char* operation)
@@ -446,13 +505,14 @@ namespace fable::multiplayer::authority
         std::snprintf(
             detail,
             sizeof(detail),
-            "operation=%s map=%s authority_actor_id=%llu epoch=%u local=%s resolver=%s",
+            "operation=%s map=%s authority_actor_id=%llu epoch=%u local=%s resolver=%s map_id=%u",
             operation,
             mapName.c_str(),
             static_cast<unsigned long long>(actorId),
             epoch,
             actorId != 0 && actorId == localActorId_ ? "true" : "false",
-            localRole_ == PeerRole::Host ? "host" : "host-message");
+            localRole_ == PeerRole::Host ? "host" : "host-message",
+            static_cast<unsigned int>(mapId));
         diagnostics_.Event("MultiplayerMapAuthorityChanged", detail);
     }
 

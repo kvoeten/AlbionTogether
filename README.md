@@ -10,6 +10,8 @@ Join the [AlbionTogether Discord](https://discord.gg/5JSKmjKd85) for playtests, 
 
 One host can accept up to 64 guests (65 players total); the current alpha has been manually tested with six players. Players can load their own Heroes, explore Albion independently, and meet up anywhere. Remote Heroes keep their appearance, weapons, combat animations, emotes, and most Will spell effects.
 
+The latest update improves loading different saves, travelling between regions, and shopkeeper stability.
+
 During alpha, expect some jank. Systems are being roughly implemented to make a full multiplayer playthrough possible. Once the full game can be played by two or more people, development will move into beta and focus on polishing the experience toward release.
 
 ### Done

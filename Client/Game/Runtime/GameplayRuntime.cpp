@@ -1,6 +1,10 @@
 #include "GameplayRuntime.h"
+#include "GameplayRuntimeState.h"
+#include "Core/GameThread/Hooks/SimulationFrameHook.h"
 
 #include "Game/Creature/Animation/CreatureAnimationService.h"
+#include "DeveloperTools/Game/MultiplayerSaveSectionStatusProvider.h"
+#include "UI/ImGui/Runtime/ImGuiDx9Runtime.h"
 
 #include "Automation/Runtime/AutomationRunner.h"
 #include "Automation/AppearanceCycle/AppearanceCycleScenario.h"
@@ -15,20 +19,6 @@
 
 namespace fable::game
 {
-    class GameplayRuntime::State final
-    {
-    public:
-        GameServiceRuntime services;
-        multiplayer::MultiplayerSession multiplayer;
-        automation::runtime::AutomationRunner automation;
-        scripting::ScriptHost scripts;
-        core::Diagnostics diagnostics = {};
-        bool servicesReady = false;
-        bool multiplayerReady = false;
-        bool automationReady = false;
-        bool scriptsReady = false;
-    };
-
     GameplayRuntime::GameplayRuntime()
         : state_(std::make_unique<State>())
     {
@@ -88,6 +78,24 @@ namespace fable::game
         }
         state_->automationReady = true;
 
+        state_->developerSaveSections.Bind(&state_->multiplayer);
+        if (!state_->developerTools.Initialize(
+                state_->services.Entities(),
+                state_->services.Npcs(),
+                state_->services.Quests(),
+                &state_->developerSaveSections,
+                !state_->multiplayer.IsEnabled() ||
+                    configuration.MultiplayerRole() == L"host",
+                state_->multiplayer.IsEnabled()
+                    ? state_->multiplayer.Contexts().transport.transport.
+                        ConnectionNonce()
+                    : 0))
+        {
+            diagnostics.Log("Developer tools: native API initialization failed.");
+            Shutdown();
+            return false;
+        }
+
         if (!state_->scripts.Initialize(
                 clientModule,
                 persistentStorageRoot,
@@ -97,7 +105,13 @@ namespace fable::game
             Shutdown();
             return false;
         }
-        state_->scriptsReady = true;
+        if (!state_->scriptUi.Install(gameModule, state_->scripts, diagnostics))
+        {
+            diagnostics.Log("AngelScript ImGui framework initialization failed.");
+            Shutdown();
+            return false;
+        }
+        state_->scriptsReady.store(true, std::memory_order_release);
         return true;
     }
 
@@ -182,71 +196,30 @@ namespace fable::game
         scenario.Initialize(state_->scripts, state_->diagnostics);
     }
 
-    void GameplayRuntime::DispatchKeyPressed(
-        unsigned int virtualKey,
-        bool shiftPressed)
+    void GameplayRuntime::ToggleDeveloperTools(HWND owner) noexcept
     {
-        state_->scripts.DispatchKeyPressed(virtualKey, shiftPressed);
+        (void)owner;
+        state_->scriptUi.Toggle();
     }
 
-    void GameplayRuntime::DispatchWorldReady()
+    void GameplayRuntime::CloseDeveloperTools() noexcept
     {
-        if (!state_->multiplayerReady || !state_->multiplayer.OnWorldReady())
-        {
-            state_->diagnostics.Event("ClientFailed", "multiplayer-world-entry");
-            return;
-        }
-        state_->scripts.DispatchWorldReady();
+        state_->scriptUi.Hide();
     }
 
-    bool GameplayRuntime::ProcessMultiplayerPresentation()
+    bool GameplayRuntime::HandleDeveloperToolsWindowMessage(
+        HWND window,
+        UINT message,
+        WPARAM wParam,
+        LPARAM lParam) noexcept
     {
-        return state_->scriptsReady && state_->multiplayerReady &&
-            state_->multiplayer.ProcessPresentationLifecycle();
+        return state_ != nullptr && state_->scriptUi.HandleWindowMessage(
+            window, message, wParam, lParam);
     }
 
-    bool GameplayRuntime::ProcessAutomationGameThreadIdle()
+    bool GameplayRuntime::IsDeveloperToolsAvailable() const noexcept
     {
-        return state_->automationReady &&
-            state_->automation.ProcessGameThreadIdle();
-    }
-
-    void GameplayRuntime::DriveReplicatedMovement()
-    {
-        if (state_->scriptsReady && state_->multiplayerReady)
-        {
-            state_->multiplayer.DriveReplicatedMovement();
-        }
-    }
-
-    void GameplayRuntime::Tick(float deltaSeconds)
-    {
-        if (!state_->scriptsReady)
-        {
-            return;
-        }
-        state_->services.Locomotion().TickHeroShadow();
-        state_->automation.Tick(
-            deltaSeconds,
-            state_->multiplayer.HasActiveRemotePresentation());
-        state_->scripts.Tick(deltaSeconds);
-    }
-
-    bool GameplayRuntime::Reload()
-    {
-        if (state_->multiplayerReady && state_->multiplayer.IsEnabled())
-        {
-            state_->diagnostics.Event(
-                "ScriptReloadSkipped",
-                "multiplayer owns shared locomotion and combat routes");
-            return false;
-        }
-        if (state_->servicesReady)
-        {
-            state_->services.Combat().ClearPlayerCombat();
-            state_->services.Locomotion().ClearHeroShadow();
-        }
-        return state_->scripts.Reload();
+        return state_ != nullptr && state_->scriptUi.IsAvailable();
     }
 
     void GameplayRuntime::Shutdown() noexcept
@@ -256,10 +229,18 @@ namespace fable::game
             return;
         }
 
+        core::game_thread::SimulationFrameHook::Disable();
+        state_->scriptsReady.store(false, std::memory_order_release);
+        state_->mailbox.Reset();
+        state_->lastFrameAt = 0;
+
         // Multiplayer owns the native service callbacks it attached. Its
         // shutdown clears those sinks before transport and actor state retire.
         state_->automation.Shutdown();
         state_->automationReady = false;
+        (void)state_->scriptUi.Shutdown();
+        state_->developerTools.Shutdown();
+        state_->developerSaveSections.Bind(nullptr);
         state_->multiplayer.Shutdown();
         state_->multiplayerReady = false;
         state_->scripts.Shutdown();
@@ -271,7 +252,7 @@ namespace fable::game
 
     bool GameplayRuntime::IsLoaded() const noexcept
     {
-        return state_ != nullptr && state_->scriptsReady &&
-            state_->scripts.IsLoaded();
+        return state_ != nullptr &&
+            state_->scriptsReady.load(std::memory_order_acquire);
     }
 }

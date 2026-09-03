@@ -117,13 +117,18 @@ namespace fable::game::hero_pawn::combat
         std::uint32_t resolvedAnimationId)
     {
         using creature::equipment::CreatureWeaponFamily;
+        const bool nativeAutoTurnAttack =
+            UsesNativeAutoTurnAttack(weaponFamily, resolvedActionType);
+        const bool weaponlessAttack =
+            weaponFamily == CreatureWeaponFamily::None &&
+            nativeAutoTurnAttack;
         if (combat_ == nullptr || entities_ == nullptr || equipment_ == nullptr ||
             nativeHero_ == nullptr || hero_ == nullptr || !hero_->IsValid() ||
-            !equipment_->PrepareWeapon(
+            (!weaponlessAttack && !equipment_->PrepareWeapon(
                 weaponFamily,
                 requiredWeapons,
                 meleeAttachmentSlot,
-                rangedAttachmentSlot))
+                rangedAttachmentSlot)))
         {
             return false;
         }
@@ -213,9 +218,7 @@ namespace fable::game::hero_pawn::combat
                 ? "native-ranged-aim-action"
                 : "native-fire-missile-action";
         }
-        else if (weaponFamily == CreatureWeaponFamily::Melee &&
-            resolvedActionType.find("InterruptableMidAttackAutoTurn") !=
-                std::string::npos)
+        else if (nativeAutoTurnAttack)
         {
             creature::locomotion::native::LocomotionComponentSnapshot aim;
             const HMODULE gameModule = entities_->GameModule();
@@ -261,18 +264,20 @@ namespace fable::game::hero_pawn::combat
                 resolvedAnimationId);
         }
         if (weaponFamily == CreatureWeaponFamily::Melee ||
-            weaponFamily == CreatureWeaponFamily::Ranged)
+            weaponFamily == CreatureWeaponFamily::Ranged ||
+            nativeAutoTurnAttack)
         {
             char detail[448] = {};
             std::snprintf(
                 detail,
                 sizeof(detail),
-                "actor_id=%llu avatar=%p target=%p ability_id=%u charge=%.3f source_action=%s source_animation_id=%u route=%s submitted=%s",
+                "actor_id=%llu avatar=%p target=%p ability_id=%u charge=%.3f weapon_family=%u source_action=%s source_animation_id=%u route=%s submitted=%s",
                 static_cast<unsigned long long>(actorId_),
                 nativeHero_,
                 targetCreature,
                 abilityId,
                 charge,
+                static_cast<unsigned int>(weaponFamily),
                 resolvedActionType.empty()
                     ? "<unresolved>"
                     : resolvedActionType.c_str(),

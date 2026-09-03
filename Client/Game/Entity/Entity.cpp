@@ -107,6 +107,11 @@ namespace fable::game
         return service_ != nullptr && service_->SetAttackable(handle_, enabled);
     }
 
+    bool Entity::SetPersistent(bool enabled)
+    {
+        return service_ != nullptr && service_->SetPersistent(handle_, enabled);
+    }
+
     bool Entity::SetDamageable(bool enabled)
     {
         return service_ != nullptr && service_->SetDamageable(handle_, enabled);

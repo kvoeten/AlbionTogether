@@ -30,20 +30,30 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup><OutDir>$(SolutionDir)bin\Release\</OutDir><IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir><TargetName>AlbionTogether.Client</TargetName></PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>Disabled</Optimization><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)ThirdParty\AngelScript\include;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptstdstring;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptarray;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>Disabled</Optimization><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)ThirdParty\AngelScript\include;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptstdstring;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptarray;$(SolutionDir)ThirdParty\ImGui;$(SolutionDir)ThirdParty\ImGui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <Link><AdditionalDependencies>Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>MaxSpeed</Optimization><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)ThirdParty\AngelScript\include;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptstdstring;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptarray;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <ClCompile><WarningLevel>Level4</WarningLevel><Optimization>MaxSpeed</Optimization><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)ThirdParty\AngelScript\include;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptstdstring;$(SolutionDir)ThirdParty\AngelScript\add_on\scriptarray;$(SolutionDir)ThirdParty\ImGui;$(SolutionDir)ThirdParty\ImGui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <Link><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences><AdditionalDependencies>Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup>
     <PostBuildEvent>
       <Command>if not exist "$(OutDir)scripts\debug" mkdir "$(OutDir)scripts\debug"
-copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\appearance_cycle.as"</Command>
+copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\appearance_cycle.as"
+copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\developer_tools.as"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="DeveloperTools\DeveloperToolTypes.cpp" />
+    <ClCompile Include="DeveloperTools\DeveloperCommandQueue.cpp" />
+    <ClCompile Include="DeveloperTools\DeveloperToolBackend.cpp" />
+    <ClCompile Include="DeveloperTools\Game\GameDeveloperToolAdapter.cpp" />
+    <ClCompile Include="DeveloperTools\Game\MultiplayerSaveSectionStatusProvider.cpp" />
+    <ClCompile Include="DeveloperTools\Scripting\DeveloperToolBindings.cpp" />
+    <ClCompile Include="DeveloperTools\Runtime\DeveloperToolsRuntime.cpp" />
+    <ClCompile Include="UI\ImGui\Bindings\ImGuiBindings.cpp" />
+    <ClCompile Include="UI\ImGui\Runtime\ImGuiDx9Runtime.cpp" />
     <ClCompile Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.cpp" />
     <ClCompile Include="Multiplayer\Authority\AuthorityReplication.cpp" />
     <ClCompile Include="Multiplayer\Authority\ActionAuthorityCoordinator.cpp" />
@@ -63,11 +73,14 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.cpp" />
+    <ClCompile Include="Automation\Multiplayer\Transition\OwnerScopedPresentationAcceptanceDriver.cpp" />
     <ClCompile Include="Automation\Runtime\RuntimeConfiguration.cpp" />
     <ClCompile Include="Core\Capabilities\CapabilityRegistry.cpp" />
     <ClCompile Include="Core\Diagnostics\DiagnosticLog.cpp" />
     <ClCompile Include="Core\Hooking\CodePatch.cpp" />
     <ClCompile Include="Core\GameThread\Hooks\GameThreadIdleHook.cpp" />
+    <ClCompile Include="Core\GameThread\Hooks\SimulationFrameHook.cpp" />
+    <ClCompile Include="Core\Bootstrap\SimulationFrameFeature.cpp" />
     <ClCompile Include="Core\GameThread\Native\PeekMessageImport.cpp" />
     <ClCompile Include="Game\Creature\CreatureService.cpp" />
     <ClCompile Include="Game\Creature\AI\Hooks\AiBrainUpdateObserver.cpp" />
@@ -128,8 +141,11 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\Entity\Persistence\Hooks\SavedEntityMapBlobObserver.cpp" />
     <ClCompile Include="Game\Entity\Persistence\Hooks\ThingSaveProjectionHook.cpp" />
     <ClCompile Include="Game\Entity\Persistence\Native\SavedEntityMapRecordInstaller.cpp" />
+    <ClCompile Include="Game\Entity\Persistence\Native\SavedEntityCompression.cpp" />
     <ClCompile Include="Game\Entity\Persistence\Native\SavedEntitiesFunctions.cpp" />
     <ClCompile Include="Game\Entity\Persistence\Native\ThingSaveFunctions.cpp" />
+    <ClCompile Include="Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.cpp" />
+    <ClCompile Include="Game\Entity\Persistence\Serialization\SavedEntityCell.cpp" />
     <ClCompile Include="Game\HeroPawn\HeroPawnService.cpp" />
     <ClCompile Include="Game\HeroPawn\Travel\Hooks\GuildTeleportSafetyHook.cpp" />
     <ClCompile Include="Game\HeroPawn\Travel\Hooks\MapTransitionUiActionSafetyHook.cpp" />
@@ -162,6 +178,10 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\HeroPawn\TransformProbe\Native\HeroTransformCompatibilityFunctions.cpp" />
     <ClCompile Include="Game\Native\GameInterface.cpp" />
     <ClCompile Include="Game\NPC\NpcService.cpp" />
+    <ClCompile Include="Game\NPC\Shop\Native\ShopKeeperReadiness.cpp" />
+    <ClCompile Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.cpp" />
+    <ClCompile Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\LocalShopSaveBoundary.cpp" />
     <ClCompile Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.cpp" />
     <ClCompile Include="Game\NPC\Population\Hooks\PopulationSimulationHook.cpp" />
     <ClCompile Include="Game\NPC\Population\Native\PopulationSimulationFunctions.cpp" />
@@ -176,6 +196,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp" />
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp" />
     <ClCompile Include="Game\Quest\QuestService.cpp" />
+    <ClCompile Include="Game\Persistence\Hooks\GameStateSectionLoadHook.cpp" />
+    <ClCompile Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.cpp" />
     <ClCompile Include="Game\Persistence\Native\AutoSaveFunction.cpp" />
     <ClCompile Include="Game\World\WorldService.cpp" />
     <ClCompile Include="Game\World\Travel\Hooks\WorldTravelObserver.cpp" />
@@ -195,7 +217,13 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Multiplayer\Movement\ReplicatedActorMovement.cpp" />
     <ClCompile Include="Multiplayer\Movement\EntityMovementReplication.cpp" />
     <ClCompile Include="Multiplayer\Persistence\HostWorldStateProjection.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\QuestStateAuthorityService.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\WorldSectionAuthorityService.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.cpp" />
+    <ClCompile Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.cpp" />
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBaselineService.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\GuestHeroSaveBoundary.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.cpp" />
     <ClCompile Include="Multiplayer\Persistence\SavedEntityConstructionGate.cpp" />
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBlobDirectory.cpp" />
     <ClCompile Include="Multiplayer\Population\PopulationSimulationAuthority.cpp" />
@@ -212,11 +240,15 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Multiplayer\Protocol\PlayerMovementCodec.cpp" />
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp" />
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp" />
+    <ClCompile Include="Multiplayer\Protocol\QuestStateSnapshotMessage.cpp" />
+    <ClCompile Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.cpp" />
     <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroActor.cpp" />
+    <ClCompile Include="Game\HeroPawn\Remote\RemoteHeroNativeLifecycle.cpp" />
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerActionPresentation.cpp" />
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerRegistry.cpp" />
     <ClCompile Include="Multiplayer\Presentation\RemotePlayerPartyHud.cpp" />
     <ClCompile Include="Multiplayer\Replication\LocalHeroReplication.cpp" />
+    <ClCompile Include="Multiplayer\Replication\LocalHeroOwnedStateRestorer.cpp" />
     <ClCompile Include="Multiplayer\Replication\LocalPlayerActionCapture.cpp" />
     <ClCompile Include="Multiplayer\Replication\EntityActionReplication.cpp" />
     <ClCompile Include="Multiplayer\Replication\PlayerActionReplication.cpp" />
@@ -279,6 +311,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="Core\Target\ExecutableValidator.cpp" />
     <ClCompile Include="Game\Runtime\GameServiceRuntime.cpp" />
     <ClCompile Include="Game\Runtime\GameplayRuntime.cpp" />
+    <ClCompile Include="Game\Runtime\GameplayRuntimeDispatch.cpp" />
     <ClCompile Include="Multiplayer\Runtime\MultiplayerRuntimeGraph.cpp" />
     <ClCompile Include="Multiplayer\Runtime\PresentationLifecycleCoordinator.cpp" />
     <ClCompile Include="Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.cpp" />
@@ -287,6 +320,15 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClCompile Include="UI\Runtime\GameWindowRuntime.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DeveloperTools\DeveloperToolTypes.h" />
+    <ClInclude Include="DeveloperTools\DeveloperCommandQueue.h" />
+    <ClInclude Include="DeveloperTools\DeveloperToolBackend.h" />
+    <ClInclude Include="DeveloperTools\Game\GameDeveloperToolAdapter.h" />
+    <ClInclude Include="DeveloperTools\Game\MultiplayerSaveSectionStatusProvider.h" />
+    <ClInclude Include="DeveloperTools\Scripting\DeveloperToolBindings.h" />
+    <ClInclude Include="DeveloperTools\Runtime\DeveloperToolsRuntime.h" />
+    <ClInclude Include="UI\ImGui\Bindings\ImGuiBindings.h" />
+    <ClInclude Include="UI\ImGui\Runtime\ImGuiDx9Runtime.h" />
     <ClInclude Include="Automation\Multiplayer\Abilities\HeroWillAbilityAcceptanceDriver.h" />
     <ClInclude Include="Multiplayer\Authority\AuthorityReplication.h" />
     <ClInclude Include="Multiplayer\Authority\ActionAuthorityCoordinator.h" />
@@ -306,13 +348,17 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Automation\Multiplayer\Combat\CombatVisualExchangeDriver.h" />
     <ClInclude Include="Automation\Multiplayer\Persistence\SaveAcceptanceDriver.h" />
     <ClInclude Include="Automation\Multiplayer\Transition\NpcTransferAcceptanceDriver.h" />
+    <ClInclude Include="Automation\Multiplayer\Transition\NativeRegionRoute.h" />
     <ClInclude Include="Automation\Multiplayer\Transition\MapStressAcceptanceDriver.h" />
+    <ClInclude Include="Automation\Multiplayer\Transition\OwnerScopedPresentationAcceptanceDriver.h" />
     <ClInclude Include="Automation\Runtime\RuntimeConfiguration.h" />
     <ClInclude Include="Core\Capabilities\CapabilityRegistry.h" />
     <ClInclude Include="Core\Diagnostics\DiagnosticLog.h" />
     <ClInclude Include="Core\Diagnostics\Diagnostics.h" />
     <ClInclude Include="Core\Hooking\CodePatch.h" />
     <ClInclude Include="Core\GameThread\Hooks\GameThreadIdleHook.h" />
+    <ClInclude Include="Core\GameThread\Hooks\SimulationFrameHook.h" />
+    <ClInclude Include="Core\GameThread\Native\SimulationFrameFunction.h" />
     <ClInclude Include="Core\GameThread\Native\PeekMessageImport.h" />
     <ClInclude Include="Game\Creature\CreatureService.h" />
     <ClInclude Include="Game\Creature\AI\Hooks\AiBrainUpdateObserver.h" />
@@ -372,6 +418,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Entity\Entity.h" />
     <ClInclude Include="Game\Entity\EntityService.h" />
     <ClInclude Include="Game\Entity\Native\ThingComponentAccess.h" />
+    <ClInclude Include="Game\Entity\Native\EntityFlagFunction.h" />
     <ClInclude Include="Game\Entity\Native\ThingComponentProvisioner.h" />
     <ClInclude Include="Game\Entity\Native\ScriptedUseActionFunctions.h" />
     <ClInclude Include="Game\Entity\Presence\Hooks\ThingPresenceObserver.h" />
@@ -380,9 +427,12 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Entity\Persistence\Hooks\SavedEntityMapBlobObserver.h" />
     <ClInclude Include="Game\Entity\Persistence\Hooks\ThingSaveProjectionHook.h" />
     <ClInclude Include="Game\Entity\Persistence\Native\SavedEntityMapRecordInstaller.h" />
+    <ClInclude Include="Game\Entity\Persistence\Native\SavedEntityCompression.h" />
     <ClInclude Include="Game\Entity\Persistence\Native\SavedEntitiesFunctions.h" />
     <ClInclude Include="Game\Entity\Persistence\Native\ThingSaveFunctions.h" />
     <ClInclude Include="Game\Entity\Persistence\SavedEntityMapBlobSnapshot.h" />
+    <ClInclude Include="Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.h" />
+    <ClInclude Include="Game\Entity\Persistence\Serialization\SavedEntityCell.h" />
     <ClInclude Include="Game\Entity\Presence\ThingPresenceEvent.h" />
     <ClInclude Include="Game\HeroPawn\HeroPawnService.h" />
     <ClInclude Include="Game\HeroPawn\Travel\Hooks\GuildTeleportSafetyHook.h" />
@@ -425,6 +475,10 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Native\GameInterface.h" />
     <ClInclude Include="Game\Native\ScriptTypes.h" />
     <ClInclude Include="Game\NPC\NpcService.h" />
+    <ClInclude Include="Game\NPC\Shop\Native\ShopKeeperReadiness.h" />
+    <ClInclude Include="Game\NPC\Shop\Hooks\ShopKeeperSetupGuard.h" />
+    <ClInclude Include="Game\Entity\Persistence\Serialization\ShopSavedEntityRecord.h" />
+    <ClInclude Include="Multiplayer\Persistence\LocalShopSaveBoundary.h" />
     <ClInclude Include="Game\NPC\Conversation\Native\ConversationCameraFunctions.h" />
     <ClInclude Include="Game\NPC\Population\Hooks\PopulationSimulationHook.h" />
     <ClInclude Include="Game\NPC\Population\Native\PopulationSimulationFunctions.h" />
@@ -442,6 +496,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h" />
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h" />
     <ClInclude Include="Game\Quest\QuestService.h" />
+    <ClInclude Include="Game\Persistence\Hooks\GameStateSectionLoadHook.h" />
+    <ClInclude Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.h" />
     <ClInclude Include="Game\Persistence\Native\AutoSaveFunction.h" />
     <ClInclude Include="Game\World\WorldService.h" />
     <ClInclude Include="Game\World\Travel\Hooks\WorldTravelObserver.h" />
@@ -465,12 +521,19 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Multiplayer\Movement\ReplicatedActorMovement.h" />
     <ClInclude Include="Multiplayer\Movement\EntityMovementReplication.h" />
     <ClInclude Include="Multiplayer\Persistence\HostWorldStateProjection.h" />
+    <ClInclude Include="Multiplayer\Persistence\QuestStateAuthorityService.h" />
+    <ClInclude Include="Multiplayer\Persistence\WorldSectionAuthorityService.h" />
+    <ClInclude Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.h" />
+    <ClInclude Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.h" />
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBaselineService.h" />
+    <ClInclude Include="Multiplayer\Persistence\GuestHeroSaveBoundary.h" />
     <ClInclude Include="Multiplayer\Persistence\SavedEntityConstructionGate.h" />
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBlobDirectory.h" />
     <ClInclude Include="Multiplayer\Population\PopulationSimulationAuthority.h" />
     <ClInclude Include="Multiplayer\Movement\ReplicatedMovementSample.h" />
     <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroActor.h" />
+    <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroNativeLifecycle.h" />
+    <ClInclude Include="Game\HeroPawn\Remote\RemoteHeroVisibilityPolicy.h" />
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerActionPresentation.h" />
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerRegistry.h" />
     <ClInclude Include="Multiplayer\Presentation\RemotePlayerPartyHud.h" />
@@ -495,7 +558,10 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Multiplayer\Protocol\SessionTime.h" />
     <ClInclude Include="Multiplayer\Protocol\PopulationStateMessage.h" />
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h" />
+    <ClInclude Include="Multiplayer\Protocol\QuestStateSnapshotMessage.h" />
+    <ClInclude Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.h" />
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h" />
+    <ClInclude Include="Multiplayer\Replication\LocalHeroOwnedStateRestorer.h" />
     <ClInclude Include="Multiplayer\Replication\LocalPlayerActionCapture.h" />
     <ClInclude Include="Multiplayer\Replication\EntityActionReplication.h" />
     <ClInclude Include="Multiplayer\Replication\PlayerActionReplication.h" />
@@ -565,6 +631,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Core\Target\FableNativeLayout.h" />
     <ClInclude Include="Game\Runtime\GameServiceRuntime.h" />
     <ClInclude Include="Game\Runtime\GameplayRuntime.h" />
+    <ClInclude Include="Game\Runtime\GameplayRuntimeState.h" />
+    <ClInclude Include="Game\Runtime\GameplayFrameMailbox.h" />
     <ClInclude Include="Multiplayer\Runtime\MultiplayerRuntimeGraph.h" />
     <ClInclude Include="Multiplayer\Runtime\MultiplayerSessionContexts.h" />
     <ClInclude Include="Multiplayer\Runtime\PresentationLifecycleCoordinator.h" />
@@ -573,10 +641,14 @@ copy /Y "$(ProjectDir)Scripts\Debug\AppearanceCycle.as" "$(OutDir)scripts\debug\
     <ClInclude Include="Scripting\Bindings\Registry\ScriptBindingRegistry.h" />
     <ClInclude Include="UI\Runtime\GameWindowRuntime.h" />
     <None Include="Scripts\Debug\AppearanceCycle.as" />
+    <None Include="Scripts\Debug\DeveloperTools.as" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ThirdParty\AngelScript\AngelScript.vcxproj">
       <Project>{A9354F5D-A550-4D94-A86A-40C843E28EAD}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\ThirdParty\ImGui\ImGui.vcxproj">
+      <Project>{52D302CA-9F87-44EC-B633-F38998622A1C}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -32,9 +32,10 @@ namespace fable::multiplayer::presentation
 {
     class RemotePlayerRegistry;
 
-    // The action transport is reliable and ordered, but native presentation is
-    // intentionally latest-current per actor/lane.  This prevents an old
-    // animation from holding newer combat or ability state behind it.
+    // Reliable actions are presented immediately once their current actor and
+    // map lifecycle is ready. Each lane remains latest-current so a newer
+    // ordered revision supersedes an older presentation instead of queueing it.
+    // Author timestamps are retained as animation-seek metadata, not validity.
     class RemotePlayerActionPresentation final
     {
     public:
@@ -57,13 +58,6 @@ namespace fable::multiplayer::presentation
 
         [[nodiscard]] static std::uint32_t DefaultDurationMs(
             protocol::PlayerActionKind kind) noexcept;
-        // Finite one-shots are only replayable near their owner-authored
-        // presentation point. Persistent ranged aim deliberately has no
-        // expiry, while aim-end remains an ordered cancellation event.
-        [[nodiscard]] static bool IsReplayEligible(
-            protocol::PlayerActionKind kind,
-            std::uint64_t sessionAgeMs,
-            std::uint32_t expectedDurationMs) noexcept;
         [[nodiscard]] static bool IsRevisionNewer(
             std::uint32_t incoming,
             std::uint32_t current) noexcept;

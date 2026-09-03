@@ -11,6 +11,18 @@ namespace
     using fable::launcher::multiplayer::Peer;
     using fable::launcher::multiplayer::PeerHarness;
 
+    bool IsManualScenario(
+        const fable::launcher::multiplayer::MultiplayerScenario scenario)
+        noexcept
+    {
+        return scenario ==
+                fable::launcher::multiplayer::MultiplayerScenario::Manual ||
+            scenario == fable::launcher::multiplayer::
+                MultiplayerScenario::ManualCombat ||
+            scenario == fable::launcher::multiplayer::
+                MultiplayerScenario::ManualRoster;
+    }
+
     bool WaitSixPeerRosterMatrix(MultiplayerTestSession& session)
     {
         PeerHarness& peers = session.peers();
@@ -113,6 +125,13 @@ bool MultiplayerTestSession::StartCorePeers()
     if (!peers_.SpawnPeer(peers_.guest(), L"127.0.0.1")) return false;
     if (!peers_.WaitReady(peers_.guest(), kLocalTestWindowPitch)) return false;
     if (!peers_.WaitEvent(peers_.guest(), "MultiplayerLocalHeroReady")) return false;
+    // Manual peers are allowed to load different maps and meet later. Waiting
+    // for a remote presentation here turns that normal state into an
+    // automation timeout that tears down a user-controlled playtest.
+    if (IsManualScenario(context_.scenario))
+    {
+        return true;
+    }
     const bool automatedBasicOrRoster =
         context_.scenario == MultiplayerScenario::Basic ||
         context_.scenario == MultiplayerScenario::Roster;

@@ -25,6 +25,7 @@ namespace fable::automation::runtime
         [[nodiscard]] const std::wstring& EventPath() const noexcept;
         [[nodiscard]] const std::wstring& LogPath() const noexcept;
         [[nodiscard]] const std::wstring& FixtureDocumentsPath() const noexcept;
+        [[nodiscard]] const std::wstring& FixtureSaveName() const noexcept;
         [[nodiscard]] const std::wstring& CharacterSnapshotPath() const noexcept;
         [[nodiscard]] const std::wstring& ScriptDataPath() const noexcept;
         [[nodiscard]] const std::wstring& LocalSessionId() const noexcept;
@@ -55,6 +56,7 @@ namespace fable::automation::runtime
         std::wstring eventPath_;
         std::wstring logPath_;
         std::wstring fixtureDocumentsPath_;
+        std::wstring fixtureSaveName_ = L"AutoSave";
         std::wstring characterSnapshotPath_;
         std::wstring scriptDataPath_;
         std::wstring localSessionId_;
