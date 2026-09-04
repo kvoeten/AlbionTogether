@@ -190,12 +190,15 @@ int RunQuestStateSnapshotTests()
 
     // PlayerActorState and quest snapshots have independent reliable streams.
     // A sane Begin must establish the host fence before PlayerActorState
-    // identity arrives.
+    // identity arrives. Native Fable hooks are deliberately disabled in this
+    // protocol test; GuestApplySink owns the apply boundary below.
     {
         fable::multiplayer::UdpPeer transport;
         fable::multiplayer::persistence::QuestStateAuthorityService service;
+        validateExecutableForQuestTest = false;
         service.Initialize(fable::multiplayer::PeerRole::Guest, 900,
             transport, {}, 7);
+        validateExecutableForQuestTest = true;
         const std::array<std::uint8_t, 1> questByte = {42};
         constexpr std::uint64_t hashOffset = 14695981039346656037ull;
         constexpr std::uint64_t hashPrime = 1099511628211ull;
