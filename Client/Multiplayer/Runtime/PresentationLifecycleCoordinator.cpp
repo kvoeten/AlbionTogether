@@ -51,12 +51,42 @@ namespace fable::multiplayer
         }
     }
 
+    void PresentationLifecycleCoordinator::ApplyGuestQuestProgression(
+        MultiplayerRuntimeGraph& graph) noexcept
+    {
+        auto& questState = graph.Contexts().world.questState;
+        if (!questState.HasStagedSnapshot() || questState.StagedSnapshotApplied())
+        {
+            return;
+        }
+
+        const std::uint64_t revision = questState.StagedSnapshotRevision();
+        const std::uint64_t fingerprint = questState.CurrentSnapshotFingerprint();
+        if (revision == 0 ||
+            (revision == lastQuestProgressionApplyAttemptRevision_ &&
+             fingerprint == lastQuestProgressionApplyAttemptFingerprint_))
+        {
+            return;
+        }
+
+        lastQuestProgressionApplyAttemptRevision_ = revision;
+        lastQuestProgressionApplyAttemptFingerprint_ = fingerprint;
+        if (!questState.ApplyPendingLiveProgression())
+        {
+            graph.Diagnostics().Event(
+                "MultiplayerQuestProgressionApplyDeferred",
+                "staged host QUESTS snapshot was retained for the next validated world-load boundary");
+        }
+    }
+
     void PresentationLifecycleCoordinator::Reset() noexcept
     {
         departingEntityMap_.clear();
         departingEntityMapId_ = 0;
         ignoredDepartingEntityMapId_ = 0;
         lastQuestProgressionCaptureMilliseconds_ = 0;
+        lastQuestProgressionApplyAttemptRevision_ = 0;
+        lastQuestProgressionApplyAttemptFingerprint_ = 0;
         sourceMapFinalDrainRequired_ = false;
         reportedRemotePlayerCount_ = 0;
     }
@@ -184,6 +214,12 @@ namespace fable::multiplayer
             // the reliable MapTransition operation.
             remotePlayers.BeginWorldTransition(); world.populationSimulation.SetHighDetailReady(departingEntityMap_, false); entitySimulation.Refresh(departingEntityMap_, false); localHero.BeginWorldTransition(); return true;
         }
+
+        // A newly accepted quest snapshot may only replace the live guest
+        // manager once the local world is fully current and no transition
+        // teardown path is active. Failed live apply remains staged for the
+        // next validated native QUESTS/world-load boundary.
+        ApplyGuestQuestProgression(graph);
 
         const std::uint64_t now = GetTickCount64();
         const std::string localMap = canonicalMapName(
