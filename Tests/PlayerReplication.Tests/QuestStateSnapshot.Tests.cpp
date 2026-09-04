@@ -236,12 +236,16 @@ int RunQuestStateSnapshotTests()
         Check(service.IsReadyForGuestWorldLoad() &&
             !service.StagedSnapshotApplied() && probe.calls == 0,
             "pre-world gate waits for delivery without applying before guest QUESTS");
-        Check(service.ApplyAfterNativeWorldSections() && probe.calls == 1 &&
+        Check(service.ApplyPendingLiveProgression() && probe.calls == 1 &&
             probe.bytes.size() == 1 && probe.bytes[0] == questByte[0] &&
             service.StagedSnapshotApplied(),
-            "section completion applies the authoritative quest snapshot");
+            "stable-world live apply accepts the staged authoritative snapshot");
+        Check(service.ApplyPendingLiveProgression() && probe.calls == 1,
+            "already applied live progression is not replayed each frame");
         Check(service.ApplyAfterNativeWorldSections() && probe.calls == 2,
-            "a later full save-bundle load reapplies the same authoritative snapshot");
+            "a later full save-bundle load may reapply the authoritative snapshot");
+        Check(service.ApplyAfterNativeWorldSections() && probe.calls == 3,
+            "repeated full save-bundle loads retain the authoritative override");
         service.SetExpectedHostActor(88);
         Check(!service.HasStagedSnapshot() &&
             service.StagedSnapshotRevision() == 0,
