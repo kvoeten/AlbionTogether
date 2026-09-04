@@ -27,11 +27,14 @@ namespace fable::multiplayer
         void CaptureHostQuestProgression(
             MultiplayerRuntimeGraph& graph,
             std::uint64_t nowMilliseconds) noexcept;
+        void ApplyGuestQuestProgression(
+            MultiplayerRuntimeGraph& graph) noexcept;
 
         std::string departingEntityMap_;
         std::uint16_t departingEntityMapId_ = 0;
         std::uint16_t ignoredDepartingEntityMapId_ = 0;
         std::uint64_t lastQuestProgressionCaptureMilliseconds_ = 0;
+        std::uint64_t lastQuestProgressionApplyAttemptRevision_ = 0;
         bool sourceMapFinalDrainRequired_ = false;
         std::size_t reportedRemotePlayerCount_ = 0;
     };
