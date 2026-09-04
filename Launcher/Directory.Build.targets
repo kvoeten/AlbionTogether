@@ -1,8 +1,0 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <ItemGroup Condition="'$(MSBuildProjectName)'=='AlbionTogether.Launcher'">
-    <ClCompile Include="$(MSBuildThisFileDirectory)Safety\SaveBackupCore.cpp" />
-    <ClCompile Include="$(MSBuildThisFileDirectory)Safety\SaveBackup.cpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)Safety\SaveBackupCore.h" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)Safety\SaveBackup.h" />
-  </ItemGroup>
-</Project>
