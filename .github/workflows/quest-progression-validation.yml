@@ -1,0 +1,54 @@
+name: Quest progression validation
+
+on:
+  push:
+    branches:
+      - feat/shared-quest-world-progression
+  workflow_dispatch:
+
+jobs:
+  build-test-win32:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Locate Visual Studio 2026 MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            throw 'vswhere.exe was not found on the Visual Studio 2026 runner.'
+          }
+          $msbuild = & $vswhere -latest -products * -version '[18.0,19.0)' `
+            -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' |
+            Select-Object -First 1
+          if (-not $msbuild) {
+            throw 'Visual Studio 2026 MSBuild was not found.'
+          }
+          "path=$msbuild" >> $env:GITHUB_OUTPUT
+          & $msbuild -version
+
+      - name: Build Release Win32
+        shell: pwsh
+        run: |
+          & '${{ steps.msbuild.outputs.path }}' .\AlbionTogether.sln /m /restore `
+            /p:Configuration=Release /p:Platform=Win32 /warnaserror
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSBuild failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Run native replication tests
+        shell: pwsh
+        run: |
+          $test = '.\bin\Tests\PlayerReplication.Tests\Release\PlayerReplication.Tests.exe'
+          if (-not (Test-Path $test -PathType Leaf)) {
+            throw "Expected test executable was not produced: $test"
+          }
+          & $test
+          if ($LASTEXITCODE -ne 0) {
+            throw "PlayerReplication.Tests failed with exit code $LASTEXITCODE"
+          }
