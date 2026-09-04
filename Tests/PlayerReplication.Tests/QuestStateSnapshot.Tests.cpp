@@ -15,6 +15,7 @@
 namespace
 {
     int failures = 0;
+    bool validateExecutableForQuestTest = true;
 
     struct GuestApplyProbe final
     {
@@ -67,7 +68,7 @@ namespace fable::core::target
     // isolated protocol test does not load that executable.
     bool ValidateFableExecutable(HMODULE, ValidationLog) noexcept
     {
-        return true;
+        return validateExecutableForQuestTest;
     }
 }
 
@@ -164,8 +165,10 @@ int RunQuestStateSnapshotTests()
     {
         fable::multiplayer::UdpPeer transport;
         fable::multiplayer::persistence::QuestStateAuthorityService service;
+        validateExecutableForQuestTest = false;
         service.Initialize(fable::multiplayer::PeerRole::Host, 77,
             transport, {}, 9);
+        validateExecutableForQuestTest = true;
         const std::array<std::uint8_t, 4> first = {2, 4, 6, 8};
         const std::array<std::uint8_t, 4> changed = {2, 4, 6, 9};
         service.CaptureHostSerializedBytes(first.data(), first.size());
