@@ -58,11 +58,60 @@ namespace fable::multiplayer::persistence
             const std::uint8_t* bytes,
             std::size_t byteCount);
         // Called by the native save hook after retail has serialized the
-        // manager. A new revision is fenced to this session automatically.
+        // manager. Identical serialized state is ignored so periodic captures
+        // do not create revisions or reliable traffic without real progress.
         void CaptureHostSerializedBytes(
             const std::uint8_t* bytes,
             std::size_t byteCount) noexcept;
         bool CaptureHostCurrent();
+        [[nodiscard]] bool CanCaptureHostCurrent() const noexcept
+        {
+            return role_ == PeerRole::Host && nativeCaptureHook_.IsInstalled();
+        }
+        // Applies a newly staged host snapshot while the guest already owns a
+        // stable live world. Production live apply is allowed only through the
+        // exact validated QUESTS load override; tests may use GuestApplySink.
+        bool ApplyPendingLiveProgression() noexcept
+        {
+            if (role_ != PeerRole::Guest || !staged_.present || staged_.applied)
+            {
+                return true;
+            }
+            if (guestApplySink_ == nullptr &&
+                !nativeCaptureHook_.IsLoadOverrideInstalled())
+            {
+                return false;
+            }
+
+            bool applied = false;
+            if (guestApplySink_ != nullptr)
+            {
+                try
+                {
+                    applied = guestApplySink_(
+                        guestApplyContext_,
+                        staged_.bytes.data(),
+                        staged_.bytes.size());
+                }
+                catch (...)
+                {
+                    applied = false;
+                }
+            }
+            else
+            {
+                applied = nativeCaptureHook_.ApplySnapshot(
+                    staged_.bytes.data(), staged_.bytes.size());
+            }
+            if (applied)
+            {
+                staged_.applied = true;
+                Report(
+                    "MultiplayerQuestProgressionApplied",
+                    "validated host QUESTS snapshot was applied to the stable guest world");
+            }
+            return applied;
+        }
         // Advances a bounded number of begin/chunk/commit messages. Calling
         // this each game-thread tick provides backpressure without a burst.
         bool Process();

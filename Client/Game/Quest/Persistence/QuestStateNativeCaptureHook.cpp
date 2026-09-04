@@ -63,8 +63,9 @@ namespace fable::multiplayer::persistence
         std::array<std::uint8_t, SavePrefix.size()> expected = SavePrefix;
         *reinterpret_cast<std::uint32_t*>(expected.data() + 3) =
             static_cast<std::uint32_t>(base + 0x0255E330);
-        if (!target || *reinterpret_cast<std::uint8_t*>(target) != SavePrefix[0] ||
-            !core::target::ValidateFableExecutable(gameModule, nullptr))
+        if (!target ||
+            !core::target::ValidateFableExecutable(gameModule, nullptr) ||
+            *reinterpret_cast<std::uint8_t*>(target) != SavePrefix[0])
         {
             diagnostics.Log(
                 "Hook: quest save capture refused because the current PE build was not validated.");

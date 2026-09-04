@@ -135,6 +135,18 @@ namespace fable::multiplayer::persistence
         {
             return;
         }
+
+        const std::uint64_t hash = HashBytes(bytes, byteCount);
+        const bool unchanged = latestHostSnapshot_.present &&
+            latestHostSnapshot_.hash == hash &&
+            latestHostSnapshot_.bytes.size() == byteCount &&
+            (byteCount == 0 || std::memcmp(
+                latestHostSnapshot_.bytes.data(), bytes, byteCount) == 0);
+        if (unchanged)
+        {
+            return;
+        }
+
         ++nextSnapshotRevision_;
         if (nextSnapshotRevision_ == 0) ++nextSnapshotRevision_;
         if (!PublishHostSnapshot(

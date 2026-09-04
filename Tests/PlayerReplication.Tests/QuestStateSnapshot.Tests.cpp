@@ -15,6 +15,7 @@
 namespace
 {
     int failures = 0;
+    bool validateExecutableForQuestTest = true;
 
     struct GuestApplyProbe final
     {
@@ -67,7 +68,7 @@ namespace fable::core::target
     // isolated protocol test does not load that executable.
     bool ValidateFableExecutable(HMODULE, ValidationLog) noexcept
     {
-        return true;
+        return validateExecutableForQuestTest;
     }
 }
 
@@ -158,14 +159,46 @@ int RunQuestStateSnapshotTests()
     Check(offset == largeSize && chunkCount > 1,
         "307201-byte snapshot is split into multiple chunks");
 
-    // PlayerActorState and quest snapshots have independent reliable streams.
-    // A sane Begin must establish the host fence before PlayerActorState
-    // identity arrives.
+    // Periodic live captures are allowed to serialize the same manager state
+    // repeatedly. Only a bytewise change may advance the host revision; this
+    // keeps polling from creating reliable traffic without real progression.
     {
         fable::multiplayer::UdpPeer transport;
         fable::multiplayer::persistence::QuestStateAuthorityService service;
+        validateExecutableForQuestTest = false;
+        service.Initialize(fable::multiplayer::PeerRole::Host, 77,
+            transport, {}, 9);
+        validateExecutableForQuestTest = true;
+        const std::array<std::uint8_t, 4> first = {2, 4, 6, 8};
+        const std::array<std::uint8_t, 4> changed = {2, 4, 6, 9};
+        service.CaptureHostSerializedBytes(first.data(), first.size());
+        const std::uint64_t firstRevision = service.CurrentSnapshotRevision();
+        const std::uint64_t firstFingerprint =
+            service.CurrentSnapshotFingerprint();
+        Check(service.HasCurrentSnapshot() && firstRevision != 0,
+            "first host capture creates a current snapshot");
+        service.CaptureHostSerializedBytes(first.data(), first.size());
+        Check(service.CurrentSnapshotRevision() == firstRevision &&
+            service.CurrentSnapshotFingerprint() == firstFingerprint,
+            "identical host capture does not create a new revision");
+        service.CaptureHostSerializedBytes(changed.data(), changed.size());
+        Check(service.CurrentSnapshotRevision() == firstRevision + 1 &&
+            service.CurrentSnapshotFingerprint() != firstFingerprint,
+            "changed host capture advances exactly one revision");
+        service.Shutdown();
+    }
+
+    // PlayerActorState and quest snapshots have independent reliable streams.
+    // A sane Begin must establish the host fence before PlayerActorState
+    // identity arrives. Native Fable hooks are deliberately disabled in this
+    // protocol test; GuestApplySink owns the apply boundary below.
+    {
+        fable::multiplayer::UdpPeer transport;
+        fable::multiplayer::persistence::QuestStateAuthorityService service;
+        validateExecutableForQuestTest = false;
         service.Initialize(fable::multiplayer::PeerRole::Guest, 900,
             transport, {}, 7);
+        validateExecutableForQuestTest = true;
         const std::array<std::uint8_t, 1> questByte = {42};
         constexpr std::uint64_t hashOffset = 14695981039346656037ull;
         constexpr std::uint64_t hashPrime = 1099511628211ull;
@@ -209,12 +242,16 @@ int RunQuestStateSnapshotTests()
         Check(service.IsReadyForGuestWorldLoad() &&
             !service.StagedSnapshotApplied() && probe.calls == 0,
             "pre-world gate waits for delivery without applying before guest QUESTS");
-        Check(service.ApplyAfterNativeWorldSections() && probe.calls == 1 &&
+        Check(service.ApplyPendingLiveProgression() && probe.calls == 1 &&
             probe.bytes.size() == 1 && probe.bytes[0] == questByte[0] &&
             service.StagedSnapshotApplied(),
-            "section completion applies the authoritative quest snapshot");
+            "stable-world live apply accepts the staged authoritative snapshot");
+        Check(service.ApplyPendingLiveProgression() && probe.calls == 1,
+            "already applied live progression is not replayed each frame");
         Check(service.ApplyAfterNativeWorldSections() && probe.calls == 2,
-            "a later full save-bundle load reapplies the same authoritative snapshot");
+            "a later full save-bundle load may reapply the authoritative snapshot");
+        Check(service.ApplyAfterNativeWorldSections() && probe.calls == 3,
+            "repeated full save-bundle loads retain the authoritative override");
         service.SetExpectedHostActor(88);
         Check(!service.HasStagedSnapshot() &&
             service.StagedSnapshotRevision() == 0,
