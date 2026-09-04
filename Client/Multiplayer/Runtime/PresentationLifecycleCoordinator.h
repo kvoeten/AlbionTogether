@@ -35,6 +35,7 @@ namespace fable::multiplayer
         std::uint16_t ignoredDepartingEntityMapId_ = 0;
         std::uint64_t lastQuestProgressionCaptureMilliseconds_ = 0;
         std::uint64_t lastQuestProgressionApplyAttemptRevision_ = 0;
+        std::uint64_t lastQuestProgressionApplyAttemptFingerprint_ = 0;
         bool sourceMapFinalDrainRequired_ = false;
         std::size_t reportedRemotePlayerCount_ = 0;
     };
