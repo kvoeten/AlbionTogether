@@ -18,11 +18,45 @@ namespace fable::multiplayer
             contexts.actions.entityVitals);
     }
 
+    void PresentationLifecycleCoordinator::CaptureHostQuestProgression(
+        MultiplayerRuntimeGraph& graph,
+        const std::uint64_t nowMilliseconds) noexcept
+    {
+        auto& contexts = graph.Contexts();
+        auto& questState = contexts.world.questState;
+        if (!contexts.players.localHero.IsWorldReady() ||
+            !questState.CanCaptureHostCurrent())
+        {
+            return;
+        }
+
+        const bool clockReset =
+            lastQuestProgressionCaptureMilliseconds_ != 0 &&
+            nowMilliseconds < lastQuestProgressionCaptureMilliseconds_;
+        const bool intervalElapsed =
+            lastQuestProgressionCaptureMilliseconds_ == 0 || clockReset ||
+            nowMilliseconds - lastQuestProgressionCaptureMilliseconds_ >=
+                QuestProgressionCaptureIntervalMilliseconds;
+        if (!intervalElapsed)
+        {
+            return;
+        }
+
+        lastQuestProgressionCaptureMilliseconds_ = nowMilliseconds;
+        if (!questState.CaptureHostCurrent())
+        {
+            graph.Diagnostics().Event(
+                "MultiplayerQuestProgressionCaptureDeferred",
+                "validated host CQuestManager capture failed during the periodic progression sample");
+        }
+    }
+
     void PresentationLifecycleCoordinator::Reset() noexcept
     {
         departingEntityMap_.clear();
         departingEntityMapId_ = 0;
         ignoredDepartingEntityMapId_ = 0;
+        lastQuestProgressionCaptureMilliseconds_ = 0;
         sourceMapFinalDrainRequired_ = false;
         reportedRemotePlayerCount_ = 0;
     }
@@ -37,6 +71,7 @@ namespace fable::multiplayer
         auto& entities = contexts.entities;
         auto& actions = contexts.actions;
         auto& diagnostics = graph.Diagnostics();
+        CaptureHostQuestProgression(graph, GetTickCount64());
         if (!world.questState.Process())
         {
             diagnostics.Event("ClientFailed", "multiplayer-quest-state-publication");
