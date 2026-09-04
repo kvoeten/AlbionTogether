@@ -55,6 +55,8 @@
     <ClCompile Include="Runtime\GameProcess.cpp" />
     <ClCompile Include="Configuration\Options.cpp" />
     <ClCompile Include="Configuration\Paths.cpp" />
+    <ClCompile Include="Safety\SaveBackupCore.cpp" />
+    <ClCompile Include="Safety\SaveBackup.cpp" />
     <ClCompile Include="Artifacts\RunId.cpp" />
     <ClCompile Include="Multiplayer\PeerHarness.cpp" />
     <ClCompile Include="Multiplayer\MultiplayerTestSession.cpp" />
@@ -96,6 +98,8 @@
     <ClInclude Include="Configuration\LauncherConstants.h" />
     <ClInclude Include="Configuration\Options.h" />
     <ClInclude Include="Configuration\Paths.h" />
+    <ClInclude Include="Safety\SaveBackupCore.h" />
+    <ClInclude Include="Safety\SaveBackup.h" />
     <ClInclude Include="Artifacts\RunId.h" />
     <ClInclude Include="Multiplayer\MultiplayerTestContext.h" />
     <ClInclude Include="Multiplayer\PeerHarness.h" />
