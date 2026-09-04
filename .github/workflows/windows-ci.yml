@@ -2,7 +2,9 @@ name: Windows build and tests
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - feat/prelaunch-save-safety-ci
   pull_request:
   workflow_dispatch:
 
