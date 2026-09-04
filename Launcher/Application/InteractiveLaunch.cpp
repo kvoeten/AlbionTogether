@@ -3,6 +3,7 @@
 #include "LaunchPlan.h"
 #include "SingleGameLaunch.h"
 #include "../Configuration/Paths.h"
+#include "../Safety/SaveBackup.h"
 
 #include <cwctype>
 
@@ -10,20 +11,26 @@ namespace fable::launcher::application
 {
     namespace
     {
-        bool ValidPlayerName(const std::wstring& name)
+        bool HasVisibleText(const std::wstring& value)
         {
-            if (name.empty() || name.size() > 32)
-            {
-                return false;
-            }
-            for (const wchar_t character : name)
+            bool hasVisibleCharacter = false;
+            for (const wchar_t character : value)
             {
                 if (std::iswcntrl(character) != 0)
                 {
                     return false;
                 }
+                if (std::iswspace(character) == 0)
+                {
+                    hasVisibleCharacter = true;
+                }
             }
-            return true;
+            return hasVisibleCharacter;
+        }
+
+        bool ValidPlayerName(const std::wstring& name)
+        {
+            return name.size() <= 32 && HasVisibleText(name);
         }
     }
 
@@ -43,7 +50,7 @@ namespace fable::launcher::application
             return false;
         }
         if (request.role == InteractiveRole::Guest &&
-            request.settings.hostAddress.empty())
+            !HasVisibleText(request.settings.hostAddress))
         {
             result = L"Enter the host IP address.";
             return false;
@@ -69,6 +76,16 @@ namespace fable::launcher::application
             result = L"The game or AlbionTogether client files could not be validated.";
             return false;
         }
+
+        const safety::SaveBackupReport saveBackup =
+            safety::CreateDefaultFableSaveBackup();
+        if (!saveBackup.success)
+        {
+            result = L"Safety backup failed: " + saveBackup.detail +
+                L"\n\nLaunch cancelled so the live Fable save is not put at additional alpha risk.";
+            return false;
+        }
+
         if (!PrepareLaunchArtifacts(plan))
         {
             result = L"The launcher could not prepare its run files.";
@@ -82,6 +99,10 @@ namespace fable::launcher::application
         result = request.role == InteractiveRole::Host
             ? L"Game launched. Friends can now join your IP address."
             : L"Game launched. Connection begins after your save is loaded.";
+        if (saveBackup.sourcePresent && !saveBackup.backupDirectory.empty())
+        {
+            result += L"\nSafety backup: " + saveBackup.backupDirectory.wstring();
+        }
         return true;
     }
 }
