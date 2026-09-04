@@ -158,6 +158,33 @@ int RunQuestStateSnapshotTests()
     Check(offset == largeSize && chunkCount > 1,
         "307201-byte snapshot is split into multiple chunks");
 
+    // Periodic live captures are allowed to serialize the same manager state
+    // repeatedly. Only a bytewise change may advance the host revision; this
+    // keeps polling from creating reliable traffic without real progression.
+    {
+        fable::multiplayer::UdpPeer transport;
+        fable::multiplayer::persistence::QuestStateAuthorityService service;
+        service.Initialize(fable::multiplayer::PeerRole::Host, 77,
+            transport, {}, 9);
+        const std::array<std::uint8_t, 4> first = {2, 4, 6, 8};
+        const std::array<std::uint8_t, 4> changed = {2, 4, 6, 9};
+        service.CaptureHostSerializedBytes(first.data(), first.size());
+        const std::uint64_t firstRevision = service.CurrentSnapshotRevision();
+        const std::uint64_t firstFingerprint =
+            service.CurrentSnapshotFingerprint();
+        Check(service.HasCurrentSnapshot() && firstRevision != 0,
+            "first host capture creates a current snapshot");
+        service.CaptureHostSerializedBytes(first.data(), first.size());
+        Check(service.CurrentSnapshotRevision() == firstRevision &&
+            service.CurrentSnapshotFingerprint() == firstFingerprint,
+            "identical host capture does not create a new revision");
+        service.CaptureHostSerializedBytes(changed.data(), changed.size());
+        Check(service.CurrentSnapshotRevision() == firstRevision + 1 &&
+            service.CurrentSnapshotFingerprint() != firstFingerprint,
+            "changed host capture advances exactly one revision");
+        service.Shutdown();
+    }
+
     // PlayerActorState and quest snapshots have independent reliable streams.
     // A sane Begin must establish the host fence before PlayerActorState
     // identity arrives.
