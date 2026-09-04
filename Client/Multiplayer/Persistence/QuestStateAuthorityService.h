@@ -40,8 +40,6 @@ namespace fable::multiplayer::persistence
 
         static constexpr std::size_t MaximumSnapshotBytes =
             protocol::MaximumQuestStateSnapshotBytes;
-        static constexpr std::uint64_t HostProgressionCaptureIntervalMilliseconds =
-            1'000;
 
         void Initialize(
             PeerRole role,
@@ -66,10 +64,10 @@ namespace fable::multiplayer::persistence
             const std::uint8_t* bytes,
             std::size_t byteCount) noexcept;
         bool CaptureHostCurrent();
-        // Periodically samples the live host CQuestManager on the game thread.
-        // Guests are a no-op. A missing validated capture hook is also treated
-        // as a no-op because initialization already reports that capability.
-        bool RefreshHostProgression(std::uint64_t nowMilliseconds);
+        [[nodiscard]] bool CanCaptureHostCurrent() const noexcept
+        {
+            return role_ == PeerRole::Host && nativeCaptureHook_.IsInstalled();
+        }
         // Advances a bounded number of begin/chunk/commit messages. Calling
         // this each game-thread tick provides backpressure without a burst.
         bool Process();
@@ -235,7 +233,6 @@ namespace fable::multiplayer::persistence
         std::uint32_t hostAuthorityEpoch_ = 0;
         std::uint64_t hostSessionRevision_ = 0;
         std::uint64_t nextSnapshotRevision_ = 0;
-        std::uint64_t lastHostProgressionCaptureMilliseconds_ = 0;
         std::uint64_t lastPublishedPeerSetRevision_ = 0;
         std::uint64_t lastPublishedSnapshotRevision_ = 0;
         GuestApplySink guestApplySink_ = nullptr;
