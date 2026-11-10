@@ -10,6 +10,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 
 namespace fable::game
 {
@@ -48,7 +49,8 @@ namespace fable::game::creature::combat
             void* sourceCreature,
             unsigned int abilityId,
             float charge,
-            bool attackCommand) noexcept;
+            bool attackCommand,
+            std::uint64_t actionCorrelationId = 0) noexcept;
         bool AddAbilitySink(
             AbilitySink sink,
             void* context) noexcept;
@@ -154,6 +156,8 @@ namespace fable::game::creature::combat
         static void CaptureResolvedHit(
             void* context,
             const ResolvedHitEvent& event) noexcept;
+        [[nodiscard]] static std::uint64_t ReadThingUid(
+            void* thing) noexcept;
 
         EntityService* entities_ = nullptr;
         animation::CreatureAnimationService* animation_ = nullptr;

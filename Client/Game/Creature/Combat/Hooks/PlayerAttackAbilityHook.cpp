@@ -1,5 +1,6 @@
 #include "PlayerAttackAbilityHook.h"
 
+#include "Game/Creature/Actions/CreatureActionSubmissionContext.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
 
 #include <intrin.h>
@@ -162,13 +163,17 @@ namespace fable::game::creature::combat
                 creature,
                 routedCreature);
 
+        std::uint64_t actionCorrelationId = 0;
         if (hook->service_ != nullptr)
         {
+            actionCorrelationId = actions::ScopedActionSubmissionContext::
+                NextCorrelationId();
             hook->service_->ObservePlayerAbility(
                 creature,
                 abilityId,
                 charge,
-                playerAttackCommand);
+                playerAttackCommand,
+                actionCorrelationId);
         }
 
         if (playerAttackCommand)
@@ -198,6 +203,13 @@ namespace fable::game::creature::combat
             }
         }
 
+        // The native call constructs and submits its concrete action
+        // synchronously. Keep the semantic request in thread-local scope so
+        // the central SubmitAction observer can bind acceptance exactly,
+        // without a nearest-timestamp heuristic.
+        const actions::ScopedActionSubmissionContext submissionContext(
+            actionCorrelationId,
+            routedCreature);
         hook->original_(routedCreature, abilityId, charge);
     }
 }

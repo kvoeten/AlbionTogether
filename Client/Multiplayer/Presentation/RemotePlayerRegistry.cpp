@@ -2,7 +2,7 @@
 
 #include "Game/Entity/EntityService.h"
 #include "Game/Creature/Animation/CreatureAnimationService.h"
-#include "Game/HeroPawn/Remote/RemoteHeroActor.h"
+#include "Multiplayer/Presentation/RemoteHero/RemoteHeroActor.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 
 #include <algorithm>
@@ -66,11 +66,11 @@ namespace fable::multiplayer::presentation
         return true;
     }
 
-    std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>
+    std::unique_ptr<remote_hero::RemoteHeroActor>
         RemotePlayerRegistry::CreatePresentation()
     {
         auto presentation = std::make_unique<
-            game::hero_pawn::remote::RemoteHeroActor>();
+            remote_hero::RemoteHeroActor>();
         if (!presentation->Initialize(
                 *entities_, *npcs_, *locomotion_, *look_, *animation_,
                 *combat_,

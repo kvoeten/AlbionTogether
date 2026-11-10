@@ -42,6 +42,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Client\Core\Hooking\CodePatch.cpp" />
+    <ClCompile Include="..\..\Client\Game\Creature\Actions\CreatureActionSubmissionContext.cpp" />
+    <ClCompile Include="ActionSubmissionContext.Tests.cpp" />
+    <ClCompile Include="EntityActionState.Tests.cpp" />
     <ClCompile Include="CodePatch.Tests.cpp" />
     <ClCompile Include="EntityFlagFunction.Tests.cpp" />
     <ClCompile Include="DiagnosticLog.Tests.cpp" />
@@ -76,7 +79,11 @@
     <ClCompile Include="..\..\Client\Multiplayer\Replication\RemotePlayerChannels.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\EntityVitalsReplication.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActionEventQueue.cpp" />
-    <ClCompile Include="..\..\Client\Multiplayer\Replication\LocalPlayerActionCapture.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActions\LocalPlayerActionCapture.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActions\LocalPlayerActionPairing.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActions\LocalPlayerActionMessages.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActions\LocalPlayerActionEquipmentMessages.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActions\LocalPlayerActionHeroMessages.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Replication\PlayerActionReplication.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Presentation\RemotePlayerActionPresentation.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Runtime\RemotePlayerLifecycleInvalidation.cpp" />
@@ -138,7 +145,7 @@
     <ClInclude Include="..\..\Client\Multiplayer\Replication\RemotePlayerChannels.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\EntityVitalsReplication.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActionEventQueue.h" />
-    <ClInclude Include="..\..\Client\Multiplayer\Replication\LocalPlayerActionCapture.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActions\LocalPlayerActionCapture.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Replication\PlayerActionReplication.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Presentation\RemotePlayerActionPresentation.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\UdpPeer.h" />

@@ -4,7 +4,7 @@
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroPresentationFactoryHook.h"
 #include "Game/HeroPawn/Appearance/Hooks/RemoteHeroDefinitionHook.h"
 #include "Game/HeroPawn/Equipment/Hooks/RemoteRangedWeaponOrientationHook.h"
-#include "Game/HeroPawn/Remote/RemoteHeroActor.h"
+#include "Multiplayer/Presentation/RemoteHero/RemoteHeroActor.h"
 #include "Multiplayer/Presentation/RemotePlayerPartyHud.h"
 #include "Multiplayer/Replication/RemotePlayerChannels.h"
 
@@ -143,7 +143,7 @@ namespace fable::multiplayer::presentation
             std::uint32_t mapEpoch) const noexcept;
 
     private:
-        std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>
+        std::unique_ptr<remote_hero::RemoteHeroActor>
             CreatePresentation();
 
         game::EntityService* entities_ = nullptr;
@@ -167,7 +167,7 @@ namespace fable::multiplayer::presentation
         RemotePlayerPartyHud partyHud_;
         std::unordered_map<
             std::uint64_t,
-            std::unique_ptr<game::hero_pawn::remote::RemoteHeroActor>>
+            std::unique_ptr<remote_hero::RemoteHeroActor>>
                 presentations_;
         std::uint64_t localActorId_ = 0;
         bool initialized_ = false;

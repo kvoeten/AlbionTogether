@@ -3,6 +3,7 @@
 #include "Core/Diagnostics/Diagnostics.h"
 #include "Core/Hooking/CodePatch.h"
 #include "Game/Creature/Actions/CreatureActionLifecycleEvent.h"
+#include "Game/Creature/Actions/CreatureActionSubmissionReceipt.h"
 #include "Game/Creature/Actions/Native/CreatureActionFunctions.h"
 
 #include <Windows.h>
@@ -23,7 +24,7 @@ namespace fable::game::creature::actions
         using AuthorityGate = bool(*)(
             void* context,
             void* creature,
-            void* action);
+            const char* actionType);
         using PostUpdateSink = void(*)(
             void* context,
             CreatureActionLifecycleObserver& observer,
@@ -41,8 +42,6 @@ namespace fable::game::creature::actions
         // AddEventSink/RemoveEventSink so action observation stays composable.
         void SetEventSink(EventSink sink, void* context) noexcept;
         void SetAuthorityGate(AuthorityGate gate, void* context) noexcept;
-        static void BeginAuthoritativeReplay() noexcept;
-        static void EndAuthoritativeReplay() noexcept;
         // The retail ability wrapper returns void. A scoped receipt lets its
         // caller distinguish "function returned" from "Fable accepted an
         // action" without polling or publishing rejected input requests.
@@ -53,7 +52,7 @@ namespace fable::game::creature::actions
         // Ends a frozen locally-originated action before an authoritative
         // replica replaces it. An action already installed by replication is
         // never interrupted here; Fable retains its normal priority rules.
-        static bool RetireLocalActionForAuthoritativeReplay(
+        static bool RetireLocalActionForReplicatedReplay(
             void* creature) noexcept;
         // Re-enters the observed native submission boundary on the caller's
         // current thread. Deferred native actions use this after the owning
@@ -61,13 +60,13 @@ namespace fable::game::creature::actions
         bool RetrySubmission(
             void* creature,
             void* action,
-            bool authoritativeReplay) noexcept;
-        [[nodiscard]] bool IsAuthoritativeReplayAction(
+            bool replicatedReplay) noexcept;
+        [[nodiscard]] bool IsReplicatedReplayAction(
             void* action) const noexcept;
         // True only while the creature's current native action is one that
         // replication submitted. Combat resolution uses this to keep a
         // presentation-only replay from producing a second retail hit.
-        [[nodiscard]] static bool IsActiveActionAuthoritativeReplay(
+        [[nodiscard]] static bool IsActiveActionReplicatedReplay(
             void* creature) noexcept;
         static bool DescribeActionType(
             void* action,
@@ -85,7 +84,7 @@ namespace fable::game::creature::actions
         static constexpr std::size_t ActionNameCapacity = 128;
         static constexpr std::size_t EventSinkCapacity = 4;
         static constexpr std::size_t PostUpdateSinkCapacity = 4;
-        static constexpr std::size_t AuthoritativeReplayCapacity = 128;
+        static constexpr std::size_t ReplicatedReplayCapacity = 128;
 
         struct EventSubscription final
         {
@@ -99,7 +98,7 @@ namespace fable::game::creature::actions
             void* context = nullptr;
         };
 
-        struct AuthoritativeReplayEntry final
+        struct ReplicatedReplayEntry final
         {
             void* action = nullptr;
             void* creature = nullptr;
@@ -159,10 +158,10 @@ namespace fable::game::creature::actions
         static ThingContext ReadThingContext(void* creature) noexcept;
         void Notify(const CreatureActionLifecycleEvent& event) noexcept;
         void NotifyPostUpdate(void* creature) noexcept;
-        bool IsAuthoritativeReplay(void* action) const noexcept;
-        void RememberAuthoritativeReplay(void* action) noexcept;
-        void ForgetAuthoritativeReplay(void* action) noexcept;
-        void PruneAuthoritativeReplay(void* creature) noexcept;
+        bool IsReplicatedReplay(void* action) const noexcept;
+        void RememberReplicatedReplay(void* action) noexcept;
+        void ForgetReplicatedReplay(void* action) noexcept;
+        void PruneReplicatedReplay(void* creature) noexcept;
 
         static CreatureActionLifecycleObserver* active_;
 
@@ -183,13 +182,11 @@ namespace fable::game::creature::actions
             postUpdateSinks_ = {};
         std::atomic<AuthorityGate> authorityGate_{nullptr};
         std::atomic<void*> authorityGateContext_{nullptr};
-        mutable SRWLOCK authoritativeReplayLock_ = SRWLOCK_INIT;
-        std::array<AuthoritativeReplayEntry, AuthoritativeReplayCapacity>
-            authoritativeReplayActions_ = {};
-        static thread_local unsigned int authoritativeReplayDepth_;
-        static thread_local void* submissionReceiptCreature_;
-        static thread_local unsigned int submissionReceiptDepth_;
-        static thread_local bool submissionReceiptObserved_;
-        static thread_local bool submissionReceiptAccepted_;
+        mutable SRWLOCK replicatedReplayLock_ = SRWLOCK_INIT;
+        std::array<ReplicatedReplayEntry, ReplicatedReplayCapacity>
+            replicatedReplayActions_ = {};
+        static thread_local CreatureActionSubmissionReceiptStack
+            submissionReceipts_;
+        static thread_local unsigned int nativeSubmitDepth_;
     };
 }

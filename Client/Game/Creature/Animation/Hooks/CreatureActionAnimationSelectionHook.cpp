@@ -1,5 +1,6 @@
 #include "CreatureActionAnimationSelectionHook.h"
 
+#include "Game/Creature/Actions/Native/CreatureActionInspector.h"
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
@@ -279,16 +280,8 @@ namespace fable::game::creature::animation
         {
             return false;
         }
-        void* activeAction = nullptr;
-        __try
-        {
-            activeAction = *reinterpret_cast<void**>(
-                static_cast<std::uint8_t*>(selection.creature) + 0x120);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        void* const activeAction = actions::native::
+            CreatureActionInspector::ActiveAction(selection.creature);
         if (activeAction != selection.action)
         {
             return false;
@@ -316,23 +309,15 @@ namespace fable::game::creature::animation
             return false;
         }
 
-        // SubmitAction installs its clone in creature +0x120 before invoking
+        // SubmitAction installs its clone in the creature's active-action slot before invoking
         // the action's Start callback. Some Hero combat actions request their
         // animation inside that callback, before the post-submit lifecycle
         // event can bind the cloned pointer. During the caller's narrow
         // thread-local scope, matching the installed action type identifies
         // that synchronous request without affecting an older action,
         // another creature, or another thread.
-        void* activeAction = nullptr;
-        __try
-        {
-            activeAction = *reinterpret_cast<void**>(
-                static_cast<std::uint8_t*>(selection.creature) + 0x120);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        void* const activeAction = actions::native::
+            CreatureActionInspector::ActiveAction(selection.creature);
         char actionType[ActionTypeCapacity] = {};
         return activeAction != nullptr &&
             actions::CreatureActionLifecycleObserver::DescribeActionType(

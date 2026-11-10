@@ -11,8 +11,8 @@
 #include "DeveloperTools/DeveloperToolBackend.h"
 #include "Multiplayer/Protocol/QuestStateSnapshotMessage.h"
 #include "Game/Creature/Combat/CreatureCombatService.h"
-#include "Game/HeroPawn/Combat/RemoteHeroCombatController.h"
-#include "Game/HeroPawn/Remote/RemoteHeroVisibilityPolicy.h"
+#include "Multiplayer/Presentation/RemoteHero/Combat/RemoteHeroCombatController.h"
+#include "Multiplayer/Presentation/RemoteHero/RemoteHeroVisibilityPolicy.h"
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Combat/CombatActionLedger.h"
@@ -70,6 +70,8 @@ extern "C" std::uint32_t PerformedAbilityCountForTest() noexcept;
 extern "C" std::uint32_t LastPerformedAnimationIdForTest() noexcept;
 
 int RunCombatHitReplicationTests();
+int RunActionSubmissionContextTests();
+int RunEntityActionStateTests();
 int RunCodePatchTests();
 int RunGameplayFrameMailboxTests();
 int RunSimulationFrameHookTests();
@@ -4432,7 +4434,8 @@ namespace
     {
         constexpr const char* test = "unarmed attack uses native auto-turn route";
         using fable::game::creature::equipment::CreatureWeaponFamily;
-        using fable::game::hero_pawn::combat::RemoteHeroCombatController;
+        using fable::multiplayer::presentation::remote_hero::combat::
+            RemoteHeroCombatController;
         using namespace fable::multiplayer::protocol;
 
         CHECK(test, RemoteHeroCombatController::UsesNativeAutoTurnAttack(
@@ -4881,9 +4884,9 @@ namespace
     {
         constexpr const char* test =
             "remote Hero active presentation repair cadence";
-        using fable::game::hero_pawn::remote::
+        using fable::multiplayer::presentation::remote_hero::
             IsActivePresentationRepairDue;
-        using fable::game::hero_pawn::remote::
+        using fable::multiplayer::presentation::remote_hero::
             kActivePresentationRepairCadenceMilliseconds;
 
         CHECK(test, IsActivePresentationRepairDue(1'000, 0));
@@ -4963,6 +4966,10 @@ int main()
     };
     failures += runFocused(
         "combat hit replication", RunCombatHitReplicationTests());
+    failures += runFocused(
+        "action submission context", RunActionSubmissionContextTests());
+    failures += runFocused(
+        "entity action state", RunEntityActionStateTests());
     failures += runFocused("code patch", RunCodePatchTests());
     failures += runFocused("entity flag ABI", RunEntityFlagFunctionTests());
     failures += runFocused("diagnostic file lifecycle", RunDiagnosticLogTests());

@@ -42,12 +42,9 @@ namespace
         return readable;
     }
 
-    bool IsVictimPresentationAction(void* action) noexcept
+    bool IsVictimPresentationAction(const char* actionType) noexcept
     {
-        char actionType[128] = {};
-        if (!fable::game::creature::actions::
-                CreatureActionLifecycleObserver::DescribeActionType(
-                    action, actionType, sizeof(actionType)))
+        if (actionType == nullptr || actionType[0] == '\0')
         {
             return false;
         }
@@ -350,7 +347,7 @@ namespace fable::multiplayer::authority
     bool EntitySimulationAuthority::ShouldSubmitAction(
         void* context,
         void* creature,
-        void* action) noexcept
+        const char* actionType) noexcept
     {
         // Hit reactions are presentation consequences, not simulation
         // decisions. Let the retail OnHit path submit and update them on a
@@ -358,7 +355,7 @@ namespace fable::multiplayer::authority
         // impact effects immediately. Health remains protected and the
         // reliable CombatHit result suppresses duplicate replay after it
         // correlates this native response.
-        if (IsVictimPresentationAction(action))
+        if (IsVictimPresentationAction(actionType))
         {
             return true;
         }

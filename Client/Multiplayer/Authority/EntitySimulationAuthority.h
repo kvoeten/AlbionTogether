@@ -83,7 +83,7 @@ namespace fable::multiplayer::authority
         static bool ShouldSubmitAction(
             void* context,
             void* creature,
-            void* action) noexcept;
+            const char* actionType) noexcept;
         [[nodiscard]] bool CanSimulate(void* creature) const noexcept;
 
         AuthorityReplication* authority_ = nullptr;

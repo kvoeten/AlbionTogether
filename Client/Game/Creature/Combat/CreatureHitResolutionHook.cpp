@@ -1,5 +1,6 @@
 #include "CreatureHitResolutionHook.h"
 
+#include "Game/Creature/Actions/Native/CreatureActionInspector.h"
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
 #include "Game/Creature/Combat/Hooks/CombatHealthMutationHook.h"
 
@@ -20,7 +21,6 @@ namespace
     constexpr std::size_t kDirectionOffset = 0x0E;
     constexpr std::size_t kSourcePointerOffset = 0x58;
     constexpr std::size_t kIntelligentPointerHeaderOffset = sizeof(void*);
-    constexpr std::size_t kActiveActionOffset = 0x120;
 
     bool ReadByte(const std::uint8_t* object, std::size_t offset,
         std::uint8_t& value) noexcept
@@ -100,24 +100,6 @@ namespace
         }
     }
 
-    void* ReadActiveAction(void* creature) noexcept
-    {
-        void* action = nullptr;
-        __try
-        {
-            if (creature != nullptr)
-            {
-                action = *reinterpret_cast<void**>(
-                    static_cast<std::uint8_t*>(creature) +
-                    kActiveActionOffset);
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            action = nullptr;
-        }
-        return action;
-    }
 }
 
 namespace fable::game::creature::combat
@@ -369,7 +351,7 @@ namespace fable::game::creature::combat
         void* sourceThing = nullptr;
         ReadHitParameters(hitParameters, event, sourceThing);
         if (sourceThing != nullptr && actions::CreatureActionLifecycleObserver::
-                IsActiveActionAuthoritativeReplay(sourceThing))
+                IsActiveActionReplicatedReplay(sourceThing))
         {
             const unsigned int ordinal =
                 hook->suppressedReplayHitCount_.fetch_add(
@@ -392,10 +374,12 @@ namespace fable::game::creature::combat
         event.hasPreviousHealth = ReadHealth(
             creature, event.previousHealth, event.maximumHealth);
         const float previousMaximum = event.maximumHealth;
-        void* const previousAction = ReadActiveAction(creature);
+        void* const previousAction = actions::native::
+            CreatureActionInspector::ActiveAction(creature);
         CombatHealthMutationHook::ClearProtectedReplicaAttempt();
         hook->original_(creature, hitParameters);
-        void* const reactionAction = ReadActiveAction(creature);
+        void* const reactionAction = actions::native::
+            CreatureActionInspector::ActiveAction(creature);
         if (reactionAction != nullptr && reactionAction != previousAction &&
             actions::CreatureActionLifecycleObserver::DescribeActionType(
                 reactionAction,

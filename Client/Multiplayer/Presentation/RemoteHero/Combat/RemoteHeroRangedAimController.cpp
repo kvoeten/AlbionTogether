@@ -1,0 +1,122 @@
+#include "RemoteHeroRangedAimController.h"
+
+#include "Game/Creature/Locomotion/Hooks/CreatureModeManagerObserver.h"
+#include "Game/Entity/Native/ThingComponentAccess.h"
+
+#include <cstdio>
+
+namespace fable::multiplayer::presentation::remote_hero::combat
+{
+    namespace creature = ::fable::game::creature;
+    namespace entity = ::fable::game::entity;
+
+    void RemoteHeroRangedAimController::Initialize(
+        const core::Diagnostics& diagnostics) noexcept
+    {
+        Shutdown();
+        diagnostics_ = diagnostics;
+    }
+
+    void RemoteHeroRangedAimController::Bind(
+        void* nativeHero,
+        std::uint64_t actorId) noexcept
+    {
+        Unbind();
+        nativeHero_ = nativeHero;
+        actorId_ = actorId;
+        modeManager_ = ResolveModeManager();
+    }
+
+    bool RemoteHeroRangedAimController::TrackNativeBegin() noexcept
+    {
+        if (active_)
+        {
+            return true;
+        }
+        if (nativeHero_ == nullptr)
+        {
+            return false;
+        }
+        if (modeManager_ == nullptr)
+        {
+            modeManager_ = ResolveModeManager();
+        }
+
+        // HeroLoadRangedWeapon has already installed source 25 through the
+        // retail action stack. Record ownership only; adding the source here
+        // would duplicate it and make a single ordered aim-end insufficient.
+        active_ = true;
+        char detail[160] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "actor_id=%llu hero=%p manager=%p source=%d",
+            static_cast<unsigned long long>(actorId_),
+            nativeHero_,
+            modeManager_,
+            RangedAimModeSource);
+        diagnostics_.Event("MultiplayerRemoteRangedAimModeEntered", detail);
+        return modeManager_ != nullptr;
+    }
+
+    bool RemoteHeroRangedAimController::End() noexcept
+    {
+        if (!active_)
+        {
+            return true;
+        }
+        if (modeManager_ == nullptr)
+        {
+            modeManager_ = ResolveModeManager();
+        }
+        if (modeManager_ == nullptr)
+        {
+            return false;
+        }
+        const bool removed =
+            creature::locomotion::CreatureModeManagerObserver::
+                RemoveReplicatedSource(modeManager_, RangedAimModeSource);
+        if (!removed)
+        {
+            return false;
+        }
+        active_ = false;
+        char detail[160] = {};
+        std::snprintf(
+            detail,
+            sizeof(detail),
+            "actor_id=%llu hero=%p manager=%p source=%d",
+            static_cast<unsigned long long>(actorId_),
+            nativeHero_,
+            modeManager_,
+            RangedAimModeSource);
+        diagnostics_.Event("MultiplayerRemoteRangedAimModeExited", detail);
+        return true;
+    }
+
+    void RemoteHeroRangedAimController::Unbind() noexcept
+    {
+        if (active_)
+        {
+            (void)End();
+        }
+        nativeHero_ = nullptr;
+        modeManager_ = nullptr;
+        actorId_ = 0;
+        active_ = false;
+    }
+
+    void RemoteHeroRangedAimController::Shutdown() noexcept
+    {
+        Unbind();
+        diagnostics_ = {};
+    }
+
+    void* RemoteHeroRangedAimController::ResolveModeManager() const noexcept
+    {
+        return entity::native::ThingComponentAccess::Find(
+            nativeHero_,
+            entity::native::ThingComponentType::CreatureModeManager);
+    }
+}
+

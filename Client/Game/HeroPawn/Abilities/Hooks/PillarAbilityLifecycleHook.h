@@ -80,9 +80,6 @@ namespace fable::game::hero_pawn::abilities::hooks
             PillarKind kind,
             const char* actionType) noexcept;
         static const char* Name(PillarKind kind) noexcept;
-        static void* ReadActiveAction(void* creature) noexcept;
-        static bool IsFinished(void* action) noexcept;
-        static void* CloneAction(void* action) noexcept;
         static void DestroyAction(void* action) noexcept;
         static void* FindPillarComponent(
             void* creature,

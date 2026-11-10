@@ -1,6 +1,7 @@
 #include "HeroWillAbilityService.h"
 
 #include "Game/Creature/Actions/Hooks/CreatureActionLifecycleObserver.h"
+#include "Game/Creature/Actions/CreatureActionSubmissionContext.h"
 #include "Game/Creature/Combat/Native/HeroTargetingComponent.h"
 #include "Game/Creature/Native/CreatureFrameFunctions.h"
 #include "Game/Entity/EntityService.h"
@@ -13,18 +14,10 @@ namespace
 {
     class ReplayScope final
     {
-    public:
-        ReplayScope() noexcept
-        {
-            fable::game::creature::actions::
-                CreatureActionLifecycleObserver::BeginAuthoritativeReplay();
-        }
-
-        ~ReplayScope()
-        {
-            fable::game::creature::actions::
-                CreatureActionLifecycleObserver::EndAuthoritativeReplay();
-        }
+    private:
+        fable::game::creature::actions::ScopedActionSubmissionOrigin scope_{
+            fable::game::creature::actions::ActionSubmissionOrigin::
+                ReplicatedPresentation};
     };
 
     std::uint64_t ReadThingUid(void* thing) noexcept

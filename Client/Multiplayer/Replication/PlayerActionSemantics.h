@@ -2,10 +2,13 @@
 
 #include "Game/Creature/Equipment/CreatureWeaponFamily.h"
 
+#include <cstdint>
 #include <cstring>
 
 namespace fable::multiplayer::replication::player_action_semantics
 {
+    inline constexpr std::uint32_t HeroAttackAbilityId = 1101;
+
     [[nodiscard]] inline bool IsRangedFire(
         const char* actionType) noexcept
     {

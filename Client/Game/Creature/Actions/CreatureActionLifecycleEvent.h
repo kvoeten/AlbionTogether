@@ -16,6 +16,9 @@ namespace fable::game::creature::actions
             CreatureActionLifecyclePhase::Submitted;
         std::uint64_t thingUid = 0;
         std::uint64_t observedAt = 0;
+        // Nonzero when this action was submitted inside a scoped semantic
+        // request such as CThingCreature::SubmitAbility.
+        std::uint64_t actionCorrelationId = 0;
         std::uint16_t mapId = 0;
         std::uint32_t animationId = 0;
         std::int32_t expressionDurationTicks = 0;

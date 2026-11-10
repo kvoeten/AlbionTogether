@@ -4,7 +4,7 @@
 #include "Game/HeroPawn/Abilities/HeroWillAbilityService.h"
 #include "Game/HeroPawn/Abilities/Hooks/PillarAbilityLifecycleHook.h"
 #include "Game/HeroPawn/Equipment/Native/HeroWeaponComponent.h"
-#include "Game/HeroPawn/Remote/RemoteHeroNativeLifecycle.h"
+#include "Multiplayer/Presentation/RemoteHero/RemoteHeroNativeLifecycle.h"
 #include "Multiplayer/Authority/AuthorityReplication.h"
 #include "Multiplayer/Combat/PlayerCombatantDirectory.h"
 #include "Multiplayer/Entities/EntityLifecycleReplication.h"
@@ -56,7 +56,7 @@ extern "C" std::uint32_t LastPerformedAnimationIdForTest() noexcept
     return g_lastPerformedAnimationId;
 }
 
-namespace fable::game::hero_pawn::remote
+namespace fable::multiplayer::presentation::remote_hero
 {
     // The focused replication test executable does not link the native Hero
     // implementation. Keep its owned incomplete lifecycle type destructible

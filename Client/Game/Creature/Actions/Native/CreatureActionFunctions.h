@@ -136,6 +136,9 @@ namespace fable::game::creature::actions::native
         static bool ResolveUpdate(HMODULE gameModule, std::uint8_t*& address) noexcept;
         static bool ResolveSubmit(HMODULE gameModule, std::uint8_t*& address) noexcept;
         static bool ResolveFinish(HMODULE gameModule, std::uint8_t*& address) noexcept;
+        // Invoke the native CCreatureAction clone slot, failing closed if the
+        // action or vtable cannot be read safely.
+        [[nodiscard]] static void* CloneAction(void* action) noexcept;
         static bool SubmitImmediateAttack(
             HMODULE gameModule,
             void* attacker,

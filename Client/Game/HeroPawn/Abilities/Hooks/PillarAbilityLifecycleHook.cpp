@@ -1,5 +1,7 @@
 #include "PillarAbilityLifecycleHook.h"
 
+#include "Game/Creature/Actions/Native/CreatureActionFunctions.h"
+#include "Game/Creature/Actions/Native/CreatureActionInspector.h"
 #include "Game/Entity/Native/ThingComponentAccess.h"
 
 #include <cstdio>
@@ -19,9 +21,6 @@ namespace
     constexpr char UnholyToken[] = "UnholyPowerSpell";
     constexpr char DivineComponent[] = "CTCDivineWrath";
     constexpr char UnholyComponent[] = "CTCUnholyPower";
-    constexpr std::size_t CreatureActiveActionOffset = 0x120;
-    constexpr std::size_t ActionFinishedOffset = 0x61;
-    constexpr std::size_t ActionCloneVtableOffset = 0x2C;
 }
 
 namespace fable::game::hero_pawn::abilities::hooks
@@ -123,7 +122,8 @@ namespace fable::game::hero_pawn::abilities::hooks
         {
             return;
         }
-        void* const activeAction = ReadActiveAction(event.creature);
+        void* const activeAction = game::creature::actions::native::
+            CreatureActionInspector::ActiveAction(event.creature);
         char activeType[ActionNameCapacity] = {};
         game::creature::actions::CreatureActionLifecycleObserver::
             DescribeActionType(
@@ -144,7 +144,8 @@ namespace fable::game::hero_pawn::abilities::hooks
         }
         ReleaseSRWLockShared(&pendingLock_);
 
-        void* const clone = CloneAction(event.action);
+        void* const clone = game::creature::actions::native::
+            CreatureActionFunctions::CloneAction(event.action);
         if (clone == nullptr)
         {
             diagnostics_.Event(
@@ -154,7 +155,7 @@ namespace fable::game::hero_pawn::abilities::hooks
         }
 
         const bool authoritativeReplay = observer_ != nullptr &&
-            observer_->IsAuthoritativeReplayAction(activeAction);
+            observer_->IsReplicatedReplayAction(activeAction);
         bool stored = false;
         bool duplicate = false;
         AcquireSRWLockExclusive(&pendingLock_);
@@ -341,12 +342,15 @@ namespace fable::game::hero_pawn::abilities::hooks
             return;
         }
 
-        void* const activeAction = ReadActiveAction(creature);
+        void* const activeAction = game::creature::actions::native::
+            CreatureActionInspector::ActiveAction(creature);
         char activeType[ActionNameCapacity] = {};
         game::creature::actions::CreatureActionLifecycleObserver::
             DescribeActionType(
                 activeAction, activeType, std::size(activeType));
-        if (MatchesCast(kind, activeType) && !IsFinished(activeAction))
+        if (MatchesCast(kind, activeType) && activeAction != nullptr &&
+            !game::creature::actions::native::CreatureActionInspector::
+                IsFinished(activeAction))
         {
             AcquireSRWLockExclusive(&pendingLock_);
             for (PendingAction& pending : pending_)
@@ -527,65 +531,6 @@ namespace fable::game::hero_pawn::abilities::hooks
         default:
             return "Unknown";
         }
-    }
-
-    void* PillarAbilityLifecycleHook::ReadActiveAction(
-        void* creature) noexcept
-    {
-        void* action = nullptr;
-        __try
-        {
-            action = creature != nullptr
-                ? *reinterpret_cast<void**>(
-                    static_cast<std::uint8_t*>(creature) +
-                        CreatureActiveActionOffset)
-                : nullptr;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            action = nullptr;
-        }
-        return action;
-    }
-
-    bool PillarAbilityLifecycleHook::IsFinished(void* action) noexcept
-    {
-        bool finished = true;
-        __try
-        {
-            finished = action == nullptr ||
-                *reinterpret_cast<const std::uint8_t*>(
-                    static_cast<const std::uint8_t*>(action) +
-                        ActionFinishedOffset) != 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            finished = true;
-        }
-        return finished;
-    }
-
-    void* PillarAbilityLifecycleHook::CloneAction(void* action) noexcept
-    {
-        void* clone = nullptr;
-        __try
-        {
-            if (action != nullptr)
-            {
-                auto** const vtable = *reinterpret_cast<void***>(action);
-                using ClonePointer = void* (__thiscall*)(void*);
-                const auto cloneFunction = reinterpret_cast<ClonePointer>(
-                    vtable[ActionCloneVtableOffset / sizeof(void*)]);
-                clone = cloneFunction != nullptr
-                    ? cloneFunction(action)
-                    : nullptr;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            clone = nullptr;
-        }
-        return clone;
     }
 
     void PillarAbilityLifecycleHook::DestroyAction(void* action) noexcept

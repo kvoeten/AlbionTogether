@@ -4,7 +4,7 @@
 #include "Multiplayer/Protocol/PlayerActionMessage.h"
 #include "Multiplayer/Protocol/PlayerState.h"
 #include "Multiplayer/Presentation/RemotePlayerActionPresentation.h"
-#include "Multiplayer/Replication/LocalPlayerActionCapture.h"
+#include "Multiplayer/Replication/PlayerActions/LocalPlayerActionCapture.h"
 #include "Multiplayer/Transport/ReliableMessageDispatcher.h"
 
 #include <cstddef>
