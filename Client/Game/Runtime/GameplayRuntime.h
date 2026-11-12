@@ -19,6 +19,7 @@ namespace fable::game::entity::persistence
     class ThingSaveProjectionHook;
 }
 namespace fable::game::npc::population { class PopulationSimulationHook; }
+namespace fable::game::quest { class QuestLifecycleHook; }
 namespace fable::game::world::travel { class WorldTravelObserver; }
 
 namespace fable::game
@@ -49,6 +50,7 @@ namespace fable::game
             entity::persistence::ThingSaveProjectionHook& hook);
         bool AttachPopulationSimulationHook(
             npc::population::PopulationSimulationHook& hook);
+        bool AttachQuestLifecycleHook(quest::QuestLifecycleHook& hook);
         bool AttachCreatureActionObserver(
             creature::actions::CreatureActionLifecycleObserver& observer);
         bool AttachCreatureModeObserver(

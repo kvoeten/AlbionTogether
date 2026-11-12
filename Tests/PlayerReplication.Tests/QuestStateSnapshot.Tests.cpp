@@ -81,6 +81,7 @@ int RunQuestStateSnapshotTests()
     message.authorityEpoch = 7;
     message.sessionRevision = 11;
     message.snapshotRevision = 13;
+    message.campaignRevision = 15;
     message.transferId = 17;
     message.totalBytes = 5;
     message.offset = 0;
@@ -95,7 +96,8 @@ int RunQuestStateSnapshotTests()
     Check(DecodeQuestStateSnapshotMessage(encoded.data(), encodedSize, decoded),
         "chunk decodes");
     Check(decoded.authorityEpoch == 7 && decoded.sessionRevision == 11 &&
-        decoded.snapshotRevision == 13 && decoded.transferId == 17 &&
+        decoded.snapshotRevision == 13 && decoded.campaignRevision == 15 &&
+        decoded.transferId == 17 &&
         decoded.chunkSize == source.size(), "fencing fields round trip");
     Check(decoded.chunk != nullptr && decoded.chunk[2] == 9,
         "chunk bytes round trip");
@@ -186,6 +188,7 @@ int RunQuestStateSnapshotTests()
         first.authorityEpoch = 7;
         first.sessionRevision = 8;
         first.snapshotRevision = 1;
+        first.campaignRevision = 3;
         first.transferId = 1;
         first.totalBytes = 1;
         first.hash = hash;
@@ -204,6 +207,15 @@ int RunQuestStateSnapshotTests()
             "latched host commit is accepted");
         Check(service.HasStagedSnapshot(),
             "quest snapshot survives PlayerActorState ordering");
+        Check(service.AcceptedAuthorityEpoch() == 7 &&
+            service.AcceptedSessionRevision() == 8 &&
+            service.CurrentAuthorityEpoch() == 7 &&
+            service.CurrentSessionRevision() == 8 &&
+            service.CurrentCampaignRevision() == 3 &&
+            service.StagedAuthorityEpoch() == 7 &&
+            service.StagedSessionRevision() == 8 &&
+            service.StagedCampaignRevision() == 3,
+            "accepted snapshot exposes its exact authority and campaign fence");
         GuestApplyProbe probe;
         service.SetGuestApplySink(&ApplyGuestQuestSnapshot, &probe);
         Check(service.IsReadyForGuestWorldLoad() &&
@@ -217,7 +229,9 @@ int RunQuestStateSnapshotTests()
             "a later full save-bundle load reapplies the same authoritative snapshot");
         service.SetExpectedHostActor(88);
         Check(!service.HasStagedSnapshot() &&
-            service.StagedSnapshotRevision() == 0,
+            service.StagedSnapshotRevision() == 0 &&
+            service.AcceptedAuthorityEpoch() == 0 &&
+            service.AcceptedSessionRevision() == 0,
             "identity mismatch invalidates provisional staged quest state");
         Check(!service.IsReadyForGuestWorldLoad(),
             "invalidated provisional quest state cannot apply");

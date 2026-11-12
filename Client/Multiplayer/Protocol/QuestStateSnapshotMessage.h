@@ -22,6 +22,10 @@ namespace fable::multiplayer::protocol
         std::uint32_t authorityEpoch = 0;
         std::uint64_t sessionRevision = 0;
         std::uint64_t snapshotRevision = 0;
+        // Semantic campaign state revision at the instant this opaque
+        // baseline was captured. This is deliberately independent from the
+        // transfer/snapshot revision.
+        std::uint64_t campaignRevision = 0;
         std::uint64_t transferId = 0;
         std::uint32_t totalBytes = 0;
         std::uint32_t offset = 0;
@@ -30,7 +34,7 @@ namespace fable::multiplayer::protocol
         std::size_t chunkSize = 0;
     };
 
-    inline constexpr std::size_t QuestStateSnapshotHeaderBytes = 52;
+    inline constexpr std::size_t QuestStateSnapshotHeaderBytes = 60;
     // Real AutoSave.qs files are 307,200 bytes; leave headroom for larger
     // manager state while retaining a hard allocation/transfer bound.
     inline constexpr std::size_t MaximumQuestStateSnapshotBytes = 1 * 1024 * 1024;

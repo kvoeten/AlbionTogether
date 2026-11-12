@@ -20,6 +20,7 @@
 #include "Game/Entity/Persistence/Hooks/ThingSaveProjectionHook.h"
 #include "Game/HeroPawn/TransformProbe/Hooks/HeroTransformCompatibilityHooks.h"
 #include "Game/NPC/Population/Hooks/PopulationSimulationHook.h"
+#include "Game/Quest/Runtime/QuestLifecycleHook.h"
 #include "Game/World/Travel/Hooks/WorldTravelObserver.h"
 #include "Core/Bootstrap/FeatureRegistry.h"
 #include "Game/Runtime/GameplayRuntime.h"
@@ -178,6 +179,7 @@ namespace fable::core::bootstrap
         fable::game::entity::persistence::SavedEntityMapBlobObserver savedEntityMap;
         fable::game::entity::persistence::ThingSaveProjectionHook thingSave;
         fable::game::npc::population::PopulationSimulationHook population;
+        fable::game::quest::QuestLifecycleHook questLifecycle;
         fable::game::world::travel::WorldTravelObserver worldTravel;
         fable::game::creature::CreatureConstructorHook creatureConstructor;
         fable::game::creature::locomotion::CreatureModeManagerObserver creatureModes;

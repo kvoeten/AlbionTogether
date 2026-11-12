@@ -5,6 +5,7 @@
 #include "Multiplayer/Protocol/EntityLowSimulationMessageCodec.h"
 #include "Multiplayer/Protocol/EntityVitalsMessageCodec.h"
 #include "Multiplayer/Protocol/PlayerActionMessage.h"
+#include "Multiplayer/Protocol/QuestMutationMessage.h"
 #include "Multiplayer/Protocol/PlayerActorStateCodec.h"
 #include "Multiplayer/Protocol/CombatHitCodec.h"
 #include "ConnectionNonceRegistry.h"
@@ -171,6 +172,12 @@ namespace fable::multiplayer
         }
         if (streamId.kind == ReliableStreamKind::World)
         {
+            if (type == PacketType::QuestMutation)
+            {
+                protocol::QuestMutationMessage message;
+                return protocol::DecodeQuestMutationMessage(
+                    payload, payloadSize, message);
+            }
             if (type != PacketType::EntityLifecycle)
             {
                 return false;

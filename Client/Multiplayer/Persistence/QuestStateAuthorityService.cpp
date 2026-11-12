@@ -63,6 +63,8 @@ namespace fable::multiplayer::persistence
         hostAuthorityEpoch_ = authorityEpoch == 0 ? 1 : authorityEpoch;
         hostSessionRevision_ = transport.ConnectionNonce();
         if (hostSessionRevision_ == 0) hostSessionRevision_ = 1;
+        hostCampaignRevision_ = 1;
+        observedPeerSetRevision_ = transport.PeerSetRevision();
         if (role_ == PeerRole::Host && !nativeCaptureHook_.Install(
                 GetModuleHandleW(nullptr),
                 &QuestStateAuthorityService::OnNativeCapture,
@@ -114,7 +116,12 @@ namespace fable::multiplayer::persistence
         acceptedSnapshotRevision_ = 0;
         hostAuthorityEpoch_ = 0;
         hostSessionRevision_ = 0;
+        hostCampaignRevision_ = 0;
         nextSnapshotRevision_ = 0;
+        observedPeerSetRevision_ = 0;
+        pendingPeerSetRevision_ = 0;
+        peerSetCapturePending_ = false;
+        latestSnapshotPeerSetRevision_ = 0;
         lastPublishedPeerSetRevision_ = 0;
         lastPublishedSnapshotRevision_ = 0;
         guestApplySink_ = nullptr;
@@ -155,6 +162,18 @@ namespace fable::multiplayer::persistence
         return role_ == PeerRole::Host && nativeCaptureHook_.CaptureCurrent();
     }
 
+    bool QuestStateAuthorityService::UpdateHostCampaignRevision(
+        const std::uint64_t revision) noexcept
+    {
+        if (role_ != PeerRole::Host || revision == 0 ||
+            revision < hostCampaignRevision_)
+        {
+            return false;
+        }
+        hostCampaignRevision_ = revision;
+        return true;
+    }
+
     bool QuestStateAuthorityService::PublishHostSnapshot(
         const std::uint32_t authorityEpoch,
         const std::uint64_t sessionRevision,
@@ -181,10 +200,12 @@ namespace fable::multiplayer::persistence
             latestHostSnapshot_.authorityEpoch = authorityEpoch;
             latestHostSnapshot_.sessionRevision = sessionRevision;
             latestHostSnapshot_.snapshotRevision = snapshotRevision;
+            latestHostSnapshot_.campaignRevision = hostCampaignRevision_;
             latestHostSnapshot_.hash = HashBytes(copy.data(), copy.size());
             latestHostSnapshot_.bytes = std::move(copy);
             latestHostSnapshot_.present = true;
-            return QueueLatestForPeer(transport_->PeerSetRevision());
+            latestSnapshotPeerSetRevision_ = transport_->PeerSetRevision();
+            return QueueLatestForPeer(latestSnapshotPeerSetRevision_);
         }
         catch (...)
         {
@@ -199,9 +220,37 @@ namespace fable::multiplayer::persistence
         {
             return transport_ != nullptr && !transport_->HasFailed();
         }
+        if (role_ == PeerRole::Host)
+        {
+            const std::uint64_t peerSetRevision =
+                transport_->PeerSetRevision();
+            if (peerSetRevision != observedPeerSetRevision_)
+            {
+                // A replacement peer must receive a capture of the live
+                // CQuestManager, not a previously cached session baseline.
+                observedPeerSetRevision_ = peerSetRevision;
+                outbound_ = {};
+                pendingPeerSetRevision_ = peerSetRevision;
+                peerSetCapturePending_ = true;
+            }
+            if (peerSetCapturePending_ &&
+                pendingPeerSetRevision_ == peerSetRevision)
+            {
+                if (!CaptureHostCurrent() || !latestHostSnapshot_.present ||
+                    latestSnapshotPeerSetRevision_ != peerSetRevision)
+                {
+                    Report("MultiplayerQuestStateNativeCaptureBlocked",
+                        "peer-set change could not capture a fresh native host baseline; capture will retry");
+                    return true;
+                }
+                peerSetCapturePending_ = false;
+                pendingPeerSetRevision_ = 0;
+            }
+        }
         const bool needsLatestHostPublish =
             role_ == PeerRole::Host && latestHostSnapshot_.present &&
             !outbound_.active &&
+            latestSnapshotPeerSetRevision_ == transport_->PeerSetRevision() &&
             (transport_->PeerSetRevision() != lastPublishedPeerSetRevision_ ||
                 latestHostSnapshot_.snapshotRevision !=
                     lastPublishedSnapshotRevision_);
@@ -291,6 +340,7 @@ namespace fable::multiplayer::persistence
         outbound_.authorityEpoch = latestHostSnapshot_.authorityEpoch;
         outbound_.sessionRevision = latestHostSnapshot_.sessionRevision;
         outbound_.snapshotRevision = latestHostSnapshot_.snapshotRevision;
+        outbound_.campaignRevision = latestHostSnapshot_.campaignRevision;
         outbound_.transferId = nextTransferId_;
         outbound_.hash = latestHostSnapshot_.hash;
         outbound_.peerSetRevision = peerSetRevision;
@@ -312,6 +362,7 @@ namespace fable::multiplayer::persistence
         message.authorityEpoch = outbound_.authorityEpoch;
         message.sessionRevision = outbound_.sessionRevision;
         message.snapshotRevision = outbound_.snapshotRevision;
+        message.campaignRevision = outbound_.campaignRevision;
         message.transferId = outbound_.transferId;
         message.totalBytes = static_cast<std::uint32_t>(outbound_.bytes.size());
         message.offset = outbound_.offset;
@@ -582,6 +633,7 @@ namespace fable::multiplayer::persistence
             inbound_.authorityEpoch = message.authorityEpoch;
             inbound_.sessionRevision = message.sessionRevision;
             inbound_.snapshotRevision = message.snapshotRevision;
+            inbound_.campaignRevision = message.campaignRevision;
             inbound_.transferId = message.transferId;
             inbound_.connectionNonce = transportMessage.connectionNonce;
             inbound_.hash = message.hash;
@@ -603,6 +655,7 @@ namespace fable::multiplayer::persistence
         if (!inbound_.active || message.authorityEpoch != inbound_.authorityEpoch ||
             message.sessionRevision != inbound_.sessionRevision ||
             message.snapshotRevision != inbound_.snapshotRevision ||
+            message.campaignRevision != inbound_.campaignRevision ||
             message.transferId != inbound_.transferId ||
             message.hash != inbound_.hash ||
             transportMessage.connectionNonce != inbound_.connectionNonce ||
@@ -625,6 +678,7 @@ namespace fable::multiplayer::persistence
         if (!inbound_.active || message.authorityEpoch != inbound_.authorityEpoch ||
             message.sessionRevision != inbound_.sessionRevision ||
             message.snapshotRevision != inbound_.snapshotRevision ||
+            message.campaignRevision != inbound_.campaignRevision ||
             message.transferId != inbound_.transferId ||
             message.hash != inbound_.hash ||
             transportMessage.connectionNonce != inbound_.connectionNonce ||
@@ -642,6 +696,7 @@ namespace fable::multiplayer::persistence
             staged_.authorityEpoch = inbound_.authorityEpoch;
             staged_.sessionRevision = inbound_.sessionRevision;
             staged_.snapshotRevision = inbound_.snapshotRevision;
+            staged_.campaignRevision = inbound_.campaignRevision;
             staged_.hash = inbound_.hash;
             staged_.bytes = std::move(inbound_.bytes);
             staged_.present = true;

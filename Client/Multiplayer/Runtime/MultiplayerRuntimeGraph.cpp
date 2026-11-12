@@ -127,6 +127,11 @@ namespace fable::multiplayer
         w.hostWorldState.Initialize(role, e.entityLifecycle, e.entityIdentities, diagnostics_);
         w.questState.Initialize(
             role, actorId, t.transport, diagnostics_, sessionAuthorityEpoch);
+        w.questMutations.Initialize(
+            role, actorId, t.transport, diagnostics_);
+        w.questLifecycle.Initialize(
+            role, actorId, w.questMutations, w.questState, w.authority,
+            p.localHero, t.remotePlayerChannels, diagnostics_);
         if (!w.worldSections.Initialize(
                 role, actorId, t.transport, diagnostics_,
                 sessionAuthorityEpoch))
@@ -192,6 +197,7 @@ namespace fable::multiplayer
     bool MultiplayerRuntimeGraph::AttachSavedEntityMapBlobObserver(game::entity::persistence::SavedEntityMapBlobObserver& observer) { return !enabled_ || (contexts_.world.savedEntityMapBaseline.Attach(observer) && contexts_.world.savedEntityConstructionGate.Attach(observer)); }
     bool MultiplayerRuntimeGraph::AttachThingSaveProjectionHook(game::entity::persistence::ThingSaveProjectionHook& hook) { return !enabled_ || (contexts_.world.hostWorldState.Attach(hook) && contexts_.world.savedEntityConstructionGate.AttachThingLoadFilterHook(hook)); }
     bool MultiplayerRuntimeGraph::AttachPopulationSimulationHook(game::npc::population::PopulationSimulationHook& hook) { return !enabled_ || contexts_.world.populationSimulation.Attach(hook); }
+    bool MultiplayerRuntimeGraph::AttachQuestLifecycleHook(game::quest::QuestLifecycleHook& hook) { return !enabled_ || contexts_.world.questLifecycle.Attach(hook); }
     bool MultiplayerRuntimeGraph::AttachCreatureActionObserver(game::creature::actions::CreatureActionLifecycleObserver& observer) { return !enabled_ || (contexts_.actions.entityActions.Attach(observer) && contexts_.actions.playerActions.AttachActionObserver(observer) && contexts_.world.entitySimulation.AttachActionObserver(observer)); }
     bool MultiplayerRuntimeGraph::AttachCreatureModeObserver(game::creature::locomotion::CreatureModeManagerObserver& observer) { return !enabled_ || contexts_.actions.playerActions.AttachModeObserver(observer); }
     bool MultiplayerRuntimeGraph::AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer) { return !enabled_ || contexts_.world.entitySimulation.AttachBrainObserver(observer); }
@@ -262,6 +268,8 @@ namespace fable::multiplayer
         }
         if (HasStage(InitializationStage::Components))
         {
+            w.questLifecycle.Shutdown();
+            w.questMutations.Shutdown();
             a.playerDeath.Shutdown();
             w.villageMembership.Shutdown();
             e.entityLowSimulation.Shutdown();

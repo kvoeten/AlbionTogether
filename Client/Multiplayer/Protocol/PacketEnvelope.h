@@ -41,6 +41,9 @@ namespace fable::multiplayer::protocol
         // chunked over the reliable control stream and never include the
         // guest-owned PLAYER/Hero section.
         WorldSectionSnapshot = 17,
+        // Event-driven, host-committed quest lifecycle transition. Full quest
+        // state still uses QuestStateSnapshot for baseline and repair.
+        QuestMutation = 18,
         Count,
     };
 

@@ -134,7 +134,10 @@
     <Filter Include="Game\Player\Input\Native"><UniqueIdentifier>{9B2E64D1-BAB5-4946-A88C-ACD315306DE3}</UniqueIdentifier></Filter>
     <Filter Include="Game\Quest"><UniqueIdentifier>{2678A786-DC42-4356-892D-D0A66CAC9F80}</UniqueIdentifier></Filter>
     <Filter Include="Game\Quest\Persistence"><UniqueIdentifier>{0A5CCF4E-FA17-4E4B-9C7C-7FBD78DB1A8D}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Quest\Runtime"><UniqueIdentifier>{6B80A3DB-8F6B-46CE-9C49-6C6376D6FB43}</UniqueIdentifier></Filter>
     <Filter Include="Game\Quest\Bindings"><UniqueIdentifier>{9A9F19FD-AA60-4DA1-B37D-28724DD92C20}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Quest\Policy"><UniqueIdentifier>{C42FD0E3-5F94-48A2-8D39-9B91800A2B53}</UniqueIdentifier></Filter>
+    <Filter Include="Game\Quest\Policy\Catalog"><UniqueIdentifier>{70C7B28A-9973-48A4-9B0D-4D65AA376FFD}</UniqueIdentifier></Filter>
     <Filter Include="Game\World"><UniqueIdentifier>{BAD7D7A1-3C6B-4406-A2E8-262A7A2F9201}</UniqueIdentifier></Filter>
     <Filter Include="Game\World\Bindings"><UniqueIdentifier>{A5F01939-1564-4D0A-B4E3-970822F0CC3F}</UniqueIdentifier></Filter>
     <Filter Include="Game\World\Travel"><UniqueIdentifier>{4EB60CCB-2A78-4EC9-B281-48D47C24E0AF}</UniqueIdentifier></Filter>
@@ -349,6 +352,7 @@
     <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp"><Filter>Game\Player\Input\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp"><Filter>Game\Player\Input\Native</Filter></ClCompile>
     <ClCompile Include="Game\Quest\QuestService.cpp"><Filter>Game\Quest</Filter></ClCompile>
+    <ClCompile Include="Game\Quest\Policy\QuestPolicyRegistry.cpp"><Filter>Game\Quest\Policy</Filter></ClCompile>
     <ClCompile Include="Game\Persistence\Hooks\GameStateSectionLoadHook.cpp"><Filter>Game\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.cpp"><Filter>Game\Persistence\Hooks</Filter></ClCompile>
     <ClCompile Include="Game\Persistence\Native\AutoSaveFunction.cpp"><Filter>Game\Persistence\Native</Filter></ClCompile>
@@ -367,9 +371,13 @@
     <ClCompile Include="Multiplayer\Movement\EntityMovementReplication.cpp"><Filter>Multiplayer\Movement</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\HostWorldStateProjection.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\QuestStateAuthorityService.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\QuestMutationAuthority.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\QuestMutationReplication.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Persistence\QuestLifecycleReplicationAdapter.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\WorldSectionAuthorityService.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.cpp"><Filter>Game\Quest\Persistence</Filter></ClCompile>
+    <ClCompile Include="Game\Quest\Runtime\QuestLifecycleHook.cpp"><Filter>Game\Quest\Runtime</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBaselineService.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\GuestHeroSaveBoundary.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.cpp"><Filter>Multiplayer\Persistence</Filter></ClCompile>
@@ -395,6 +403,7 @@
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\QuestStateSnapshotMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
+    <ClCompile Include="Multiplayer\Protocol\QuestMutationMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.cpp"><Filter>Multiplayer\Protocol</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemoteHero\RemoteHeroActor.cpp"><Filter>Multiplayer\Presentation\RemoteHero</Filter></ClCompile>
     <ClCompile Include="Multiplayer\Presentation\RemoteHero\RemoteHeroActorReconciliation.cpp"><Filter>Multiplayer\Presentation\RemoteHero</Filter></ClCompile>
@@ -667,6 +676,8 @@
     <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h"><Filter>Game\Player\Input\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h"><Filter>Game\Player\Input\Native</Filter></ClInclude>
     <ClInclude Include="Game\Quest\QuestService.h"><Filter>Game\Quest</Filter></ClInclude>
+    <ClInclude Include="Game\Quest\Policy\QuestPolicy.h"><Filter>Game\Quest\Policy</Filter></ClInclude>
+    <ClInclude Include="Game\Quest\Policy\QuestPolicyRegistry.h"><Filter>Game\Quest\Policy</Filter></ClInclude>
     <ClInclude Include="Game\Persistence\Hooks\GameStateSectionLoadHook.h"><Filter>Game\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.h"><Filter>Game\Persistence\Hooks</Filter></ClInclude>
     <ClInclude Include="Game\Persistence\Native\AutoSaveFunction.h"><Filter>Game\Persistence\Native</Filter></ClInclude>
@@ -686,9 +697,14 @@
     <ClInclude Include="Multiplayer\Movement\EntityMovementReplication.h"><Filter>Multiplayer\Movement</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\HostWorldStateProjection.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\QuestStateAuthorityService.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\QuestMutationAuthority.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\QuestMutationReplication.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Persistence\QuestLifecycleReplicationAdapter.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\WorldSectionAuthorityService.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.h"><Filter>Game\Quest\Persistence</Filter></ClInclude>
+    <ClInclude Include="Game\Quest\Runtime\QuestLifecycleEvent.h"><Filter>Game\Quest\Runtime</Filter></ClInclude>
+    <ClInclude Include="Game\Quest\Runtime\QuestLifecycleHook.h"><Filter>Game\Quest\Runtime</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBaselineService.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\GuestHeroSaveBoundary.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.h"><Filter>Multiplayer\Persistence</Filter></ClInclude>
@@ -732,6 +748,7 @@
     <ClInclude Include="Multiplayer\Protocol\PopulationStateMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\QuestStateSnapshotMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
+    <ClInclude Include="Multiplayer\Protocol\QuestMutationMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.h"><Filter>Multiplayer\Protocol</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
     <ClInclude Include="Multiplayer\Replication\LocalHeroOwnedStateRestorer.h"><Filter>Multiplayer\Replication</Filter></ClInclude>
@@ -810,6 +827,11 @@
     <ClInclude Include="Multiplayer\Transport\ReliableSinkDescriptorRegistry.h"><Filter>Multiplayer\Transport</Filter></ClInclude>
     <ClInclude Include="Scripting\Bindings\Registry\ScriptBindingRegistry.h"><Filter>Scripting\Bindings\Registry</Filter></ClInclude>
     <ClInclude Include="UI\Runtime\GameWindowRuntime.h"><Filter>UI\Runtime</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Game\Quest\Policy\Catalog\QuestPolicyCatalogEarly.inl"><Filter>Game\Quest\Policy\Catalog</Filter></None>
+    <None Include="Game\Quest\Policy\Catalog\QuestPolicyCatalogStory.inl"><Filter>Game\Quest\Policy\Catalog</Filter></None>
+    <None Include="Game\Quest\Policy\Catalog\QuestPolicyCatalogVignettes.inl"><Filter>Game\Quest\Policy\Catalog</Filter></None>
   </ItemGroup>
   <ItemGroup>
     <None Include="Scripts\Debug\AppearanceCycle.as"><Filter>Scripts\Debug</Filter></None>

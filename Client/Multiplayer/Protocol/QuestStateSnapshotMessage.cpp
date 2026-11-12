@@ -16,6 +16,7 @@ namespace
         std::uint32_t authorityEpoch = 0;
         std::uint64_t sessionRevision = 0;
         std::uint64_t snapshotRevision = 0;
+        std::uint64_t campaignRevision = 0;
         std::uint64_t transferId = 0;
         std::uint32_t totalBytes = 0;
         std::uint32_t offset = 0;
@@ -38,7 +39,8 @@ namespace
                 message.operation != QuestStateSnapshotOperation::Chunk &&
                 message.operation != QuestStateSnapshotOperation::Commit) ||
             message.authorityEpoch == 0 || message.sessionRevision == 0 ||
-            message.snapshotRevision == 0 || message.transferId == 0 ||
+            message.snapshotRevision == 0 || message.campaignRevision == 0 ||
+            message.transferId == 0 ||
             message.totalBytes > MaximumQuestStateSnapshotBytes ||
             message.chunkSize > MaximumQuestStateSnapshotChunkBytes() ||
             message.chunkSize > (std::numeric_limits<std::uint16_t>::max)() ||
@@ -87,6 +89,7 @@ namespace fable::multiplayer::protocol
         wire.authorityEpoch = message.authorityEpoch;
         wire.sessionRevision = message.sessionRevision;
         wire.snapshotRevision = message.snapshotRevision;
+        wire.campaignRevision = message.campaignRevision;
         wire.transferId = message.transferId;
         wire.totalBytes = message.totalBytes;
         wire.offset = message.offset;
@@ -126,6 +129,7 @@ namespace fable::multiplayer::protocol
         message.authorityEpoch = wire.authorityEpoch;
         message.sessionRevision = wire.sessionRevision;
         message.snapshotRevision = wire.snapshotRevision;
+        message.campaignRevision = wire.campaignRevision;
         message.transferId = wire.transferId;
         message.totalBytes = wire.totalBytes;
         message.offset = wire.offset;

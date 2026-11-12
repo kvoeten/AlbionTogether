@@ -56,6 +56,8 @@
 #include <unordered_set>
 
 int RunQuestStateSnapshotTests();
+int RunQuestMutationTests();
+int RunQuestPolicyRegistryTests();
 
 namespace fable::multiplayer::replication::testing
 {
@@ -4987,6 +4989,10 @@ int main()
         "world entity directory", RunWorldEntityDirectoryTests());
     failures += runFocused(
         "quest state snapshot", RunQuestStateSnapshotTests());
+    failures += runFocused(
+        "quest mutation", RunQuestMutationTests());
+    failures += runFocused(
+        "quest policy registry", RunQuestPolicyRegistryTests());
     failures += runFocused(
         "hero saved entity record", RunHeroSavedEntityRecordTests());
     failures += runFocused("developer tools", RunDeveloperToolsTests());

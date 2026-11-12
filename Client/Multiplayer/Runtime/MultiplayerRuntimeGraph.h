@@ -18,6 +18,7 @@ namespace fable::game::npc::simulation { class DummyVillagerService; }
 namespace fable::game::entity::presence { class ThingPresenceObserver; }
 namespace fable::game::entity::persistence { class SavedEntityMapBlobObserver; class ThingSaveProjectionHook; }
 namespace fable::game::npc::population { class PopulationSimulationHook; }
+namespace fable::game::quest { class QuestLifecycleHook; }
 namespace fable::game::creature::actions { class CreatureActionLifecycleObserver; }
 namespace fable::game::creature::locomotion { class CreatureModeManagerObserver; }
 namespace fable::game::creature::ai { class AiBrainUpdateObserver; }
@@ -49,6 +50,7 @@ namespace fable::multiplayer
         bool AttachSavedEntityMapBlobObserver(game::entity::persistence::SavedEntityMapBlobObserver& observer);
         bool AttachThingSaveProjectionHook(game::entity::persistence::ThingSaveProjectionHook& hook);
         bool AttachPopulationSimulationHook(game::npc::population::PopulationSimulationHook& hook);
+        bool AttachQuestLifecycleHook(game::quest::QuestLifecycleHook& hook);
         bool AttachCreatureActionObserver(game::creature::actions::CreatureActionLifecycleObserver& observer);
         bool AttachCreatureModeObserver(game::creature::locomotion::CreatureModeManagerObserver& observer);
         bool AttachAiBrainUpdateObserver(game::creature::ai::AiBrainUpdateObserver& observer);

@@ -120,12 +120,18 @@
     <ClCompile Include="..\..\Client\Multiplayer\Persistence\GuestHeroSaveBoundary.cpp" />
     <ClCompile Include="..\..\Client\Game\Entity\Persistence\Native\SavedEntityCompression.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\QuestStateSnapshotMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Protocol\QuestMutationMessage.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\QuestMutationAuthority.cpp" />
+    <ClCompile Include="..\..\Client\Multiplayer\Persistence\QuestMutationReplication.cpp" />
+    <ClCompile Include="..\..\Client\Game\Quest\Policy\QuestPolicyRegistry.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Protocol\WorldSectionSnapshotMessage.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Persistence\WorldSectionSnapshotTransfer.cpp" />
     <ClCompile Include="..\..\Client\Multiplayer\Persistence\QuestStateAuthorityService.cpp" />
     <ClCompile Include="..\..\Client\Game\Quest\Persistence\QuestStateNativeCaptureHook.cpp" />
     <ClCompile Include="..\..\Client\Game\Persistence\Hooks\GameStateSectionLoadHook.cpp" />
     <ClCompile Include="QuestStateSnapshot.Tests.cpp" />
+    <ClCompile Include="QuestMutation.Tests.cpp" />
+    <ClCompile Include="QuestPolicyRegistry.Tests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Client\Multiplayer\Combat\CombatActionLedger.h" />
@@ -157,6 +163,9 @@
     <ClInclude Include="..\..\Client\Multiplayer\Transport\PeerSessionRegistry.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Transport\ReliableStreamTransport.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Protocol\QuestStateSnapshotMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Protocol\QuestMutationMessage.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Persistence\QuestMutationAuthority.h" />
+    <ClInclude Include="..\..\Client\Multiplayer\Persistence\QuestMutationReplication.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Protocol\WorldSectionSnapshotMessage.h" />
     <ClInclude Include="..\..\Client\Multiplayer\Persistence\WorldSectionSnapshotTransfer.h" />
     <ClInclude Include="..\..\Client\Game\Entity\Persistence\Serialization\HeroSavedEntityRecord.h" />

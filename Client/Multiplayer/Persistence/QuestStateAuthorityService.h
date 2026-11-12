@@ -96,6 +96,18 @@ namespace fable::multiplayer::persistence
         {
             return staged_.snapshotRevision;
         }
+        [[nodiscard]] std::uint32_t StagedAuthorityEpoch() const noexcept
+        {
+            return staged_.authorityEpoch;
+        }
+        [[nodiscard]] std::uint64_t StagedSessionRevision() const noexcept
+        {
+            return staged_.sessionRevision;
+        }
+        [[nodiscard]] std::uint64_t StagedCampaignRevision() const noexcept
+        {
+            return staged_.campaignRevision;
+        }
         [[nodiscard]] bool HasCurrentSnapshot() const noexcept
         {
             return role_ == PeerRole::Host
@@ -108,6 +120,44 @@ namespace fable::multiplayer::persistence
                 ? latestHostSnapshot_.snapshotRevision
                 : staged_.snapshotRevision;
         }
+        // The guest's accepted fence is the authority/session that the
+        // semantic quest lane must bind to. Hosts expose their current fence.
+        [[nodiscard]] std::uint32_t AcceptedAuthorityEpoch() const noexcept
+        {
+            return acceptedAuthorityEpoch_;
+        }
+        [[nodiscard]] std::uint64_t AcceptedSessionRevision() const noexcept
+        {
+            return acceptedSessionRevision_;
+        }
+        [[nodiscard]] std::uint32_t CurrentAuthorityEpoch() const noexcept
+        {
+            return role_ == PeerRole::Host
+                ? hostAuthorityEpoch_ : acceptedAuthorityEpoch_;
+        }
+        [[nodiscard]] std::uint64_t CurrentSessionRevision() const noexcept
+        {
+            return role_ == PeerRole::Host
+                ? hostSessionRevision_ : acceptedSessionRevision_;
+        }
+        [[nodiscard]] std::uint64_t CurrentCampaignRevision() const noexcept
+        {
+            return role_ == PeerRole::Host
+                ? hostCampaignRevision_ : staged_.campaignRevision;
+        }
+        [[nodiscard]] std::uint64_t CurrentHostActorId() const noexcept
+        {
+            if (role_ == PeerRole::Host)
+            {
+                return localActorId_;
+            }
+            return expectedHostActorId_ != 0
+                ? expectedHostActorId_ : latchedHostActorId_;
+        }
+        // Advances only semantic campaign metadata. The next connection,
+        // reconnect, explicit repair, or native save capture carries it with
+        // the opaque baseline; this does not publish a full snapshot itself.
+        bool UpdateHostCampaignRevision(std::uint64_t revision) noexcept;
         [[nodiscard]] std::uint64_t CurrentSnapshotFingerprint() const noexcept
         {
             return role_ == PeerRole::Host
@@ -142,6 +192,7 @@ namespace fable::multiplayer::persistence
             std::uint32_t authorityEpoch = 0;
             std::uint64_t sessionRevision = 0;
             std::uint64_t snapshotRevision = 0;
+            std::uint64_t campaignRevision = 0;
             std::uint64_t transferId = 0;
             std::uint64_t hash = 0;
             std::uint64_t peerSetRevision = 0;
@@ -155,6 +206,7 @@ namespace fable::multiplayer::persistence
             std::uint32_t authorityEpoch = 0;
             std::uint64_t sessionRevision = 0;
             std::uint64_t snapshotRevision = 0;
+            std::uint64_t campaignRevision = 0;
             std::uint64_t hash = 0;
             bool present = false;
             std::vector<std::uint8_t> bytes;
@@ -165,6 +217,7 @@ namespace fable::multiplayer::persistence
             std::uint32_t authorityEpoch = 0;
             std::uint64_t sessionRevision = 0;
             std::uint64_t snapshotRevision = 0;
+            std::uint64_t campaignRevision = 0;
             std::uint64_t transferId = 0;
             std::uint64_t connectionNonce = 0;
             std::uint64_t hash = 0;
@@ -178,6 +231,7 @@ namespace fable::multiplayer::persistence
             std::uint32_t authorityEpoch = 0;
             std::uint64_t sessionRevision = 0;
             std::uint64_t snapshotRevision = 0;
+            std::uint64_t campaignRevision = 0;
             std::uint64_t hash = 0;
             bool present = false;
             bool applied = false;
@@ -227,7 +281,12 @@ namespace fable::multiplayer::persistence
         std::uint64_t acceptedSnapshotRevision_ = 0;
         std::uint32_t hostAuthorityEpoch_ = 0;
         std::uint64_t hostSessionRevision_ = 0;
+        std::uint64_t hostCampaignRevision_ = 0;
         std::uint64_t nextSnapshotRevision_ = 0;
+        std::uint64_t observedPeerSetRevision_ = 0;
+        std::uint64_t pendingPeerSetRevision_ = 0;
+        bool peerSetCapturePending_ = false;
+        std::uint64_t latestSnapshotPeerSetRevision_ = 0;
         std::uint64_t lastPublishedPeerSetRevision_ = 0;
         std::uint64_t lastPublishedSnapshotRevision_ = 0;
         GuestApplySink guestApplySink_ = nullptr;

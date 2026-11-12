@@ -210,6 +210,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClCompile Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.cpp" />
     <ClCompile Include="Game\Player\Input\Native\PlayerCommandPollFunction.cpp" />
     <ClCompile Include="Game\Quest\QuestService.cpp" />
+    <ClCompile Include="Game\Quest\Policy\QuestPolicyRegistry.cpp" />
     <ClCompile Include="Game\Persistence\Hooks\GameStateSectionLoadHook.cpp" />
     <ClCompile Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.cpp" />
     <ClCompile Include="Game\Persistence\Native\AutoSaveFunction.cpp" />
@@ -232,9 +233,13 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClCompile Include="Multiplayer\Movement\EntityMovementReplication.cpp" />
     <ClCompile Include="Multiplayer\Persistence\HostWorldStateProjection.cpp" />
     <ClCompile Include="Multiplayer\Persistence\QuestStateAuthorityService.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\QuestMutationAuthority.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\QuestMutationReplication.cpp" />
+    <ClCompile Include="Multiplayer\Persistence\QuestLifecycleReplicationAdapter.cpp" />
     <ClCompile Include="Multiplayer\Persistence\WorldSectionAuthorityService.cpp" />
     <ClCompile Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.cpp" />
     <ClCompile Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.cpp" />
+    <ClCompile Include="Game\Quest\Runtime\QuestLifecycleHook.cpp" />
     <ClCompile Include="Multiplayer\Persistence\SavedEntityMapBaselineService.cpp" />
     <ClCompile Include="Multiplayer\Persistence\GuestHeroSaveBoundary.cpp" />
     <ClCompile Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.cpp" />
@@ -255,6 +260,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClCompile Include="Multiplayer\Protocol\PopulationStateMessage.cpp" />
     <ClCompile Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.cpp" />
     <ClCompile Include="Multiplayer\Protocol\QuestStateSnapshotMessage.cpp" />
+    <ClCompile Include="Multiplayer\Protocol\QuestMutationMessage.cpp" />
     <ClCompile Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.cpp" />
     <ClCompile Include="Multiplayer\Presentation\RemoteHero\RemoteHeroActor.cpp" />
     <ClCompile Include="Multiplayer\Presentation\RemoteHero\RemoteHeroActorReconciliation.cpp" />
@@ -528,6 +534,8 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClInclude Include="Game\Player\Input\Hooks\PlayerCommandPollObserver.h" />
     <ClInclude Include="Game\Player\Input\Native\PlayerCommandPollFunction.h" />
     <ClInclude Include="Game\Quest\QuestService.h" />
+    <ClInclude Include="Game\Quest\Policy\QuestPolicy.h" />
+    <ClInclude Include="Game\Quest\Policy\QuestPolicyRegistry.h" />
     <ClInclude Include="Game\Persistence\Hooks\GameStateSectionLoadHook.h" />
     <ClInclude Include="Game\Persistence\Hooks\WorldSectionPersistenceHook.h" />
     <ClInclude Include="Game\Persistence\Native\AutoSaveFunction.h" />
@@ -554,9 +562,14 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClInclude Include="Multiplayer\Movement\EntityMovementReplication.h" />
     <ClInclude Include="Multiplayer\Persistence\HostWorldStateProjection.h" />
     <ClInclude Include="Multiplayer\Persistence\QuestStateAuthorityService.h" />
+    <ClInclude Include="Multiplayer\Persistence\QuestMutationAuthority.h" />
+    <ClInclude Include="Multiplayer\Persistence\QuestMutationReplication.h" />
+    <ClInclude Include="Multiplayer\Persistence\QuestLifecycleReplicationAdapter.h" />
     <ClInclude Include="Multiplayer\Persistence\WorldSectionAuthorityService.h" />
     <ClInclude Include="Multiplayer\Persistence\WorldSectionSnapshotTransfer.h" />
     <ClInclude Include="Game\Quest\Persistence\QuestStateNativeCaptureHook.h" />
+    <ClInclude Include="Game\Quest\Runtime\QuestLifecycleEvent.h" />
+    <ClInclude Include="Game\Quest\Runtime\QuestLifecycleHook.h" />
     <ClInclude Include="Multiplayer\Persistence\SavedEntityMapBaselineService.h" />
     <ClInclude Include="Multiplayer\Persistence\GuestHeroSaveBoundary.h" />
     <ClInclude Include="Multiplayer\Persistence\SavedEntityCollectionBaselineTransfer.h" />
@@ -592,6 +605,7 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClInclude Include="Multiplayer\Protocol\PopulationStateMessage.h" />
     <ClInclude Include="Multiplayer\Protocol\SavedEntityMapBaselineMessage.h" />
     <ClInclude Include="Multiplayer\Protocol\QuestStateSnapshotMessage.h" />
+    <ClInclude Include="Multiplayer\Protocol\QuestMutationMessage.h" />
     <ClInclude Include="Multiplayer\Protocol\WorldSectionSnapshotMessage.h" />
     <ClInclude Include="Multiplayer\Replication\LocalHeroReplication.h" />
     <ClInclude Include="Multiplayer\Replication\LocalHeroOwnedStateRestorer.h" />
@@ -680,6 +694,11 @@ copy /Y "$(ProjectDir)Scripts\Debug\DeveloperTools.as" "$(OutDir)scripts\debug\d
     <ClInclude Include="UI\Runtime\GameWindowRuntime.h" />
     <None Include="Scripts\Debug\AppearanceCycle.as" />
     <None Include="Scripts\Debug\DeveloperTools.as" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Game\Quest\Policy\Catalog\QuestPolicyCatalogEarly.inl" />
+    <None Include="Game\Quest\Policy\Catalog\QuestPolicyCatalogStory.inl" />
+    <None Include="Game\Quest\Policy\Catalog\QuestPolicyCatalogVignettes.inl" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ThirdParty\AngelScript\AngelScript.vcxproj">

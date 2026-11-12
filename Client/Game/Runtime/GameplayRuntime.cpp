@@ -143,6 +143,13 @@ namespace fable::game
             state_->multiplayer.AttachPopulationSimulationHook(hook);
     }
 
+    bool GameplayRuntime::AttachQuestLifecycleHook(
+        quest::QuestLifecycleHook& hook)
+    {
+        return state_->multiplayerReady &&
+            state_->multiplayer.AttachQuestLifecycleHook(hook);
+    }
+
     bool GameplayRuntime::AttachCreatureActionObserver(
         creature::actions::CreatureActionLifecycleObserver& observer)
     {

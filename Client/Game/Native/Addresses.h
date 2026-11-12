@@ -62,6 +62,12 @@ namespace fable::game::native
         inline constexpr std::uintptr_t IsQuestRegistered = 0x01891E60;
         inline constexpr std::uintptr_t IsQuestCompleted = 0x01891E70;
         inline constexpr std::uintptr_t IsQuestFailed = 0x01891E80;
+        // CQuestManager lifecycle entry points used by every script-facing
+        // activate/deactivate/resolve thunk in the current Win32 build.
+        inline constexpr std::uintptr_t QuestManagerActivate = 0x01BC2580;
+        inline constexpr std::uintptr_t QuestManagerDeactivate = 0x01BC2630;
+        inline constexpr std::uintptr_t QuestManagerComplete = 0x01BBE4A0;
+        inline constexpr std::uintptr_t QuestManagerFail = 0x01BBEBD0;
         // Global quest-manager/save seam from the current PE32 build. The
         // manager instance and CStringParser lifecycle remain deliberately
         // opaque until a runtime-safe construction boundary is validated.

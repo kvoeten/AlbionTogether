@@ -212,11 +212,14 @@ namespace
             hooks.thingSave.Install(game, diagnostics) &&
             gameplay.AttachThingSaveProjectionHook(hooks.thingSave) &&
             hooks.population.Install(game, diagnostics) &&
-            gameplay.AttachPopulationSimulationHook(hooks.population);
+            gameplay.AttachPopulationSimulationHook(hooks.population) &&
+            hooks.questLifecycle.Install(game, diagnostics) &&
+            gameplay.AttachQuestLifecycleHook(hooks.questLifecycle);
         if (installed)
         {
             return true;
         }
+        hooks.questLifecycle.Shutdown();
         hooks.population.Shutdown();
         hooks.thingSave.Shutdown();
         hooks.worldTravel.Shutdown();
@@ -232,6 +235,7 @@ namespace
             return;
         }
         auto& hooks = NativeHooksContext();
+        hooks.questLifecycle.Shutdown();
         hooks.population.Shutdown();
         hooks.thingSave.Shutdown();
         hooks.worldTravel.Shutdown();

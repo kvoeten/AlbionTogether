@@ -42,6 +42,11 @@ bool PresentationLifecycleCoordinator::Process(MultiplayerRuntimeGraph &graph)
         diagnostics.Event("ClientFailed",
                           "multiplayer-quest-state-publication");
     }
+    if (!world.questLifecycle.Process())
+    {
+        diagnostics.Event("ClientFailed",
+                          "multiplayer-quest-mutation-replication");
+    }
     if (!world.worldSections.Process())
     {
         diagnostics.Event("ClientFailed",
